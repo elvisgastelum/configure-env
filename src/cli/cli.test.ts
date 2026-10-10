@@ -1278,7 +1278,12 @@ describe('apply rules between variables', () => {
     });
     expect(await readdir(root())).toEqual(['env.schema.json']);
     await withValue('');
-    expect((await cli([...CI, '--generate', 'SM_MASTER_KEY'])).code).toBe(0);
+    const empty = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
+    expect(empty).toMatchObject({ code: 0, err: [] });
+    expect(await keyIn('SM_MASTER_KEY_FILE')).toBe('');
+    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
+      32,
+    );
   });
 
   it('refuses a generate file before its partner counts, as it would rotate the key', async () => {
