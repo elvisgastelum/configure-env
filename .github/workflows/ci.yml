@@ -1,6 +1,6 @@
-# Lint, format check, typecheck and tests on every pull request and on every
-# push to main. Each action is pinned to a full commit SHA (the tag in the
-# comment) so a moved tag cannot change what runs.
+# Lint, format check, typecheck, JSON Schema drift and tests on every pull
+# request and on every push to main. Each action is pinned to a full commit
+# SHA (the tag in the comment) so a moved tag cannot change what runs.
 name: CI
 
 on:
@@ -39,4 +39,5 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
+      - run: pnpm schema:check
       - run: pnpm test
