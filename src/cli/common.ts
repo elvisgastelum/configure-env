@@ -21,7 +21,9 @@ import { clackPrompts } from './prompts.ts';
 /**
  * A problem with one key, as `--json` reports it: `value` when a value
  * breaks the variable's rules (exit 1), `usage` when the options misuse the
- * key (exit 2). Never holds a value.
+ * key (exit 2). Never holds a value. apply's failure document carries these
+ * and the `PlanError` kinds alike, so `file` (an unsafe path, exit 1) reaches
+ * it too.
  */
 export type KeyProblem =
   ValueError | { kind: 'usage'; key: string; message: string };

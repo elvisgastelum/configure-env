@@ -2,7 +2,7 @@
 // value never passes through argv, a prompt or whoever runs the command.
 
 import { randomBytes } from 'node:crypto';
-import type { VariableSpec } from '../schema/definition.ts';
+import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { validateValue } from '../schema/values.ts';
 import { keyError } from './common.ts';
 
@@ -21,19 +21,34 @@ export const MIN_GENERATED_BYTES = 16;
 /** Tries before giving up on a pattern the random values do not match. */
 const ATTEMPTS = 10;
 
-/** Throws the usage error unless the variable is a secret string. */
-export function checkGeneratable(key: string, spec: VariableSpec | undefined) {
+/**
+ * Throws the usage error unless the variable is a secret string: one the
+ * schema does not declare says so, as `--defer` does.
+ */
+export function checkGeneratable(
+  key: string,
+  spec: VariableSpec | undefined,
+  declared: boolean,
+) {
+  if (!declared) throw keyError('usage', key, 'is not declared in the schema');
   if (spec?.type !== 'string' || !spec.secret)
     throw keyError('usage', key, '--generate takes a secret string variable');
 }
 
-/** The keys of the repeated --generate option, each once and checked. */
+/**
+ * The keys of the repeated --generate option, each once and checked. `spec`
+ * is the key's spec where the command can write it; `schema` says whether it
+ * is declared at all.
+ */
 export function generateKeys(
   keys: readonly string[] = [],
   spec: (key: string) => VariableSpec | undefined,
+  schema: EnvSchema,
 ): string[] {
   const unique = [...new Set(keys)];
-  unique.forEach((key) => checkGeneratable(key, spec(key)));
+  unique.forEach((key) =>
+    checkGeneratable(key, spec(key), Object.hasOwn(schema.variables, key)),
+  );
   return unique;
 }
 

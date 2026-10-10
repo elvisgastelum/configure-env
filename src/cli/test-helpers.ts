@@ -190,6 +190,7 @@ export async function run(
     isTTY = false,
     prompts,
     stdin,
+    // A test without stdin runs in one terminal, stdin included; given stdin is a pipe.
     stdinIsTTY = stdin === undefined ? isTTY : false,
   }: {
     cwd: string;

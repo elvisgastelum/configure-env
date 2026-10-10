@@ -518,9 +518,11 @@ describe('apply --generate', () => {
     expect(port.err).toEqual([
       'configure-env: PORT: --generate takes a secret string variable',
     ]);
-    expect(
-      (await cli(['apply', '--ci', '--generate', 'NOPE', ...FILES])).code,
-    ).toBe(2);
+    const nope = await cli(['apply', '--json', '--generate', 'NOPE', ...FILES]);
+    expect(nope.code).toBe(2);
+    expect(JSON.parse(nope.out.join('')).errors).toEqual([
+      { kind: 'usage', key: 'NOPE', message: 'is not declared in the schema' },
+    ]);
     const both = await cli([
       'apply',
       '--ci',

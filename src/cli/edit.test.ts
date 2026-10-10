@@ -393,8 +393,11 @@ describe('set --generate', () => {
     await tokenSchema({ type: 'integer', secret: true });
     expect((await cli(['set', '--generate', 'TOKEN'])).code).toBe(2);
     expect(
-      (await cli(['set', '--generate', 'EXTRA', '--allow-unknown'])).code,
-    ).toBe(2);
+      await cli(['set', '--generate', 'EXTRA', '--allow-unknown']),
+    ).toMatchObject({
+      code: 2,
+      err: ['configure-env: EXTRA: is not declared in the schema'],
+    });
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 

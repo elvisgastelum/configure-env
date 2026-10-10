@@ -88,8 +88,11 @@ async function applyWith(
 ): Promise<number> {
   const { io } = context;
   const sets = parseSets(options.set);
-  const generated = generateKeys(options.generate, (key) =>
-    Object.hasOwn(schema.variables, key) ? schema.variables[key] : undefined,
+  const generated = generateKeys(
+    options.generate,
+    (key) =>
+      Object.hasOwn(schema.variables, key) ? schema.variables[key] : undefined,
+    schema,
   );
   for (const key of generated) {
     if (sets[key] !== undefined) throw givenTwice('--generate', key);

@@ -188,8 +188,10 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     throw usageError(
       '--stdin reads the value from a pipe; stdin is a terminal',
     );
-  const generated = generateKeys(options.generate, (key) =>
-    specFor(schema, spec, key),
+  const generated = generateKeys(
+    options.generate,
+    (key) => specFor(schema, spec, key),
+    schema,
   );
 
   const allowUnknown = Boolean(options['allow-unknown']);
