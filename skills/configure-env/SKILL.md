@@ -9,9 +9,9 @@ metadata:
 
 ## Activation Contract
 
-Use this skill whenever a task creates, reads, changes or checks a project's env files (`.env`, `.env.example`, `*.env`), or touches `env.schema.json`. `env.schema.json` is the source of truth: it lists the files, their write policies and the variables with their rules. The CLI validates every value, writes files atomically with their mode, and keeps every byte it does not change.
+Use this skill whenever a task creates, reads, changes or checks env files (`.env`, `.env.example`, `*.env`) or `env.schema.json`, the source of truth for the files, their policies and the variables' rules. The CLI validates every value, writes atomically with the schema mode, and keeps every byte it does not change.
 
-Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project has `@elvisgastelum/configure-env` as a dependency, else as `npx --yes @elvisgastelum/configure-env`. Run it from the project root, or pass `--root <dir>`.
+Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a dependency, else `npx --yes @elvisgastelum/configure-env`, from the project root (or `--root <dir>`).
 
 ## Hard Rules
 
@@ -32,29 +32,32 @@ Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project
 
 | Need | Do |
 | --- | --- |
-| No `env.schema.json` | `init --ci` (it infers from `.env.example`), then fix the types and mark the secrets |
+| No `env.schema.json` | `init --ci` (infers from `.env.example`), then fix types and mark secrets |
 | First setup of a checkout | `apply --ci --json --generate <SECRET>... --defer <HUMAN_SECRET>...`; hand the `deferred` keys to the human |
 | New variable | add it to the schema → `apply --ci --file .env.example` → `set` it in the real file |
 | Non-secret value | `set --ci --file .env KEY=VALUE` |
 | Generated secret | `set --ci --file .env --generate KEY` (it keeps an existing value) |
-| Key or key file (either-or) | `--generate` only the key when the `*_FILE` partner is unset; `validate --ci --json` reports `requiredUnless`/`conflictsWith` breaks |
+| Key or key file (either-or) | `--generate` only the key while its `*_FILE` partner is unset |
 | Vendor secret, manager known | `<manager read cmd> \| configure-env set --ci --file .env --stdin KEY` |
-| Vendor secret, no manager | ask the user to run `configure-env set --file .env --prompt KEY` in their terminal (Claude Code: `! <command>`) |
+| Vendor secret, no manager | the user runs `configure-env set --file .env --prompt KEY` (Claude Code: `! <command>`) |
 | Many values for a human | ask them to run `configure-env apply` (TUI) |
 | CI or a review gate | `check --ci` and `validate --ci --file .env.example` |
+| Mode drift reported by check | `apply --ci --file <path>` (chmod only; never loosens; on `mode not loosened`, ask the user) |
+| `protected` exit 2 | ask the user; to restore after a deletion, pipe the backup into `set --ci --create --file .env --stdin KEY` |
+| State lock held (exit 1) | retry once; `left by process …`: ask the user to remove the lock |
 
 ## Execution Steps
 
-1. Run `validate --ci --json` and `list --ci --json` to see what is missing or invalid.
-2. Change the schema first when a variable is new or its rules change. A broken schema exits 1 and names each problem.
-3. Write with `apply` or `set`, following the gates above.
-4. Verify with `validate --ci` and `check --ci`. Exit 0 means ok, 1 means a problem, 2 means a usage error. Read the message and fix the cause; do not retry blindly.
+1. `validate --ci --json` and `list --ci --json` show what is missing or invalid.
+2. Change the schema first for a new variable or rule; a broken schema exits 1, naming each problem.
+3. Write with `apply` or `set`, following the gates.
+4. Verify with `validate --ci` and `check --ci`: 0 ok, 1 a problem, 2 a usage error. Fix the cause the message names; do not retry blindly.
 
 ## Output Contract
 
-Report each file and key with its status (`created`, `added`, `updated`, `unchanged`, `skipped`), with secrets masked as the CLI prints them. List every value still missing, with the exact command the human should run. Never include a secret value.
+Report each file and key with the CLI's status (`created`, `added`, `updated`, `mode fixed`, `unchanged`, `skipped`), secrets masked as printed, and every missing value with the exact command for the human. Never include a secret value.
 
 ## References
 
-- `references/commands.md` — commands, flags, JSON output and exit codes.
-- `references/schema.md` — the schema format, file policies and templates.
+- `references/commands.md` — every command and flag, secrets, rules between variables, protected values, mode drift, JSON output and exit codes.
+- `references/schema.md` — the schema format, file policies, `mode` and templates.

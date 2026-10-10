@@ -11,7 +11,11 @@ import {
 } from './cli/generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
 import { STATE_IGNORE } from './cli/init.ts';
-import { DEFAULT_STATE_PATH, SALT_BYTES } from './engine/state.ts';
+import {
+  DEFAULT_STATE_PATH,
+  LOCK_WAIT_MS,
+  SALT_BYTES,
+} from './engine/state.ts';
 
 const doc = (path: string) =>
   readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -61,5 +65,7 @@ describe('the docs', () => {
       `\`bytes\` random bytes (default ${GENERATED_BYTES})`,
     );
     expect(commands).toContain(`${SECONDS} s with no new input`);
+    expect(commands).toContain(`waits ${LOCK_WAIT_MS / 1000} s`);
+    expect(doc('README.md')).toContain(`wait ${LOCK_WAIT_MS / 1000} seconds`);
   });
 });

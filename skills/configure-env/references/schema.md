@@ -64,7 +64,9 @@ A master key given directly or as a file, never both, and a previous key that mu
 
 ## Files
 
-Fields: `path` (relative, `/`-separated, no `..`), `policy`, `variables` (`"*"` or a list), `mode` (`"600"`), `header`, `template`, `values` (literal per-file placeholders), `comments`, `description`.
+Fields: `path` (relative, `/`-separated, no `..`), `policy`, `variables` (`"*"` or a list), `mode` (three octal digits, `"600"`), `header`, `template`, `values` (literal per-file placeholders), `comments`, `description`.
+
+`mode` is the file's permissions, under any policy and on a template too. A new or rewritten file gets it; an existing one whose content is current gets a chmod from `apply` when the mode only removes permissions (`mode fixed (644 → 600)`), and is refused when it would add one (`mode not loosened`, exit 1). Without `mode`, a file keeps its own, and a new one gets `644`.
 
 | Policy | Behavior |
 | --- | --- |
