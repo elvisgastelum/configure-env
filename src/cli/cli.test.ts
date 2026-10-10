@@ -92,6 +92,18 @@ describe('dispatch, help and version', () => {
     expect(r.err.join('\n')).toContain('version must be 1');
   });
 
+  it('takes --state, never a schema file or a path inside one', async () => {
+    expect((await cli(['--help'])).out.join('\n')).toContain('--state <path>');
+    expect((await cli(['check', '--state', 'elsewhere.json'])).code).toBe(1);
+    for (const path of ['shared.env', 'config/app.env/state.json']) {
+      const r = await cli(['check', '--state', path]);
+      expect(r).toMatchObject({ code: 2, out: [] });
+      expect(r.err[0]).toMatch(
+        /^configure-env: --state must not be a schema file or inside one: (shared|config\/app)\.env$/,
+      );
+    }
+  });
+
   it('reads the schema from the root given by --root', async () => {
     const r = await run(['check', '--root', root()], { cwd: '/' });
     expect(r.code).toBe(1);

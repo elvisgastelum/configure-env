@@ -6,8 +6,10 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import { fileRules } from '../engine/check.ts';
 import { parseDotenv } from '../engine/dotenv.ts';
+import { isInside } from '../engine/paths.ts';
 import type { FilePlan, PlanError, ValueError } from '../engine/plan.ts';
 import { fileKeys } from '../engine/plan.ts';
+import { DEFAULT_STATE_PATH } from '../engine/state.ts';
 import {
   type EnvSchema,
   type FileSpec,
@@ -71,6 +73,7 @@ export const givenTwice = (option: string, key: string) =>
 export const GLOBAL_OPTIONS = {
   schema: { type: 'string' },
   root: { type: 'string' },
+  state: { type: 'string' },
   file: { type: 'string', multiple: true },
   ci: { type: 'boolean' },
   json: { type: 'boolean' },
@@ -116,6 +119,7 @@ export function parseCommandArgs<T extends ParseArgsOptionsConfig>(
 type GlobalValues = {
   schema?: string;
   root?: string;
+  state?: string;
   file?: string[];
   ci?: boolean;
   json?: boolean;
@@ -129,6 +133,8 @@ export interface Context {
   root: string;
   /** The absolute schema path. */
   schemaPath: string;
+  /** The absolute path of the protected variables' state. */
+  statePath: string;
   /** The --file paths; every file when absent. */
   files?: string[];
   /** Unattended: --ci, or CI set in the environment. */
@@ -169,6 +175,7 @@ export async function contextOf(
     schemaPath: values.schema
       ? resolve(io.cwd, values.schema)
       : join(root, DEFAULT_SCHEMA_PATH),
+    statePath: resolve(root, values.state ?? DEFAULT_STATE_PATH),
     ...(values.file?.length ? { files: values.file } : {}),
     ci: Boolean(values.ci) || isCiEnv(io.env),
     json: Boolean(values.json),
@@ -199,6 +206,13 @@ export async function loadContextSchema(context: Context): Promise<EnvSchema> {
   for (const path of context.files ?? []) {
     if (!result.schema.files.some((file) => file.path === path))
       throw usageError(`${path}: is not in the schema`);
+  }
+  // The state must never land in an env file, or in a template's place.
+  for (const file of result.schema.files) {
+    if (isInside(resolve(context.root, file.path), context.statePath))
+      throw usageError(
+        `--state must not be a schema file or inside one: ${file.path}`,
+      );
   }
   return result.schema;
 }

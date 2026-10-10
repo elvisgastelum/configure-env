@@ -316,6 +316,40 @@ describe('parseSchema', () => {
     });
   });
 
+  describe('protected', () => {
+    const withX = (x: Record<string, unknown>) =>
+      errorsFor((schema) => {
+        Object.assign(schema.variables, { X: { type: 'string', ...x } });
+      });
+
+    it('accepts true or a reason on a secret', () => {
+      expect(withX({ secret: true, protected: true })).toEqual([]);
+      expect(
+        withX({ secret: true, protected: { reason: 'encrypts the vault' } }),
+      ).toEqual([]);
+    });
+
+    it('needs secret: true', () => {
+      expect(withX({ protected: true })).toEqual([
+        {
+          path: 'variables.X.protected',
+          message: 'protected needs secret: true',
+        },
+      ]);
+    });
+
+    it.each([
+      ['false', false],
+      ['an empty reason', { reason: '' }],
+      ['an unknown field', { reason: 'r', why: 'r' }],
+      ['a bare string', 'encrypts the vault'],
+    ])('rejects %s', (_label, value) => {
+      expect(paths(withX({ secret: true, protected: value }))).toEqual([
+        expect.stringMatching(/^variables\.X\.protected/),
+      ]);
+    });
+  });
+
   describe('files', () => {
     it('rejects a file variable that is not declared', () => {
       const errors = errorsFor((schema) => {

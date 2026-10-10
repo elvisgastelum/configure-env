@@ -15,6 +15,10 @@ describe('the programmatic API', () => {
       'getValue',
       'setValue',
       'removeKey',
+      'loadState',
+      'writeState',
+      'recordFingerprint',
+      'matchesFingerprint',
       'main',
     ] as const) {
       expect(typeof api[name], name).toBe('function');

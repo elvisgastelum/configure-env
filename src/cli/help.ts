@@ -15,6 +15,8 @@ const GLOBAL = `Global options:
   --schema <path>  the schema file (default: env.schema.json in the root)
   --root <dir>     the project root the schema's paths are relative to
                    (default: where the command was typed)
+  --state <path>   the protected variables' state, relative to the root
+                   (default: .configure-env/state.json)
   --file <path>    only this schema file; repeat for more (set, get and
                    unset take one; it defaults to the only file that is
                    not a template)

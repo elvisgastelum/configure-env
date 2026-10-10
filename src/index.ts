@@ -1,5 +1,6 @@
 // The programmatic API: load a schema, plan and apply its files, check them
-// for drift, and edit dotenv text. The CLI is built on the same functions.
+// for drift, edit dotenv text, and read or write the protected variables'
+// state. The CLI is built on the same functions.
 // See the README, "Programmatic API".
 
 export {
@@ -20,6 +21,7 @@ export {
   VARIABLE_TYPES,
   envSchema,
   isTemplate,
+  protectedReason,
 } from './schema/definition.ts';
 export type {
   Encoding,
@@ -66,6 +68,19 @@ export type {
   FileDrift,
   InvalidValue,
 } from './engine/check.ts';
+
+export {
+  DEFAULT_STATE_PATH,
+  emptyState,
+  fingerprint,
+  loadState,
+  matchesFingerprint,
+  recordFingerprint,
+  recorded,
+  removeFingerprint,
+  writeState,
+} from './engine/state.ts';
+export type { Fingerprint, State, StateResult } from './engine/state.ts';
 
 export {
   appendLines,

@@ -103,6 +103,20 @@ const common = {
     description:
       'When the variable and one of these are both set, their values must differ.',
   }),
+  protected: z
+    .union([
+      z.literal(true),
+      z.strictObject({
+        reason: z.string().min(1, 'reason must not be empty').meta({
+          description: 'Why the value must never change, shown in errors.',
+        }),
+      }),
+    ])
+    .optional()
+    .meta({
+      description:
+        'Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.',
+    }),
 };
 
 /** `default` and `example`, typed for the variable type. */
@@ -377,6 +391,10 @@ function checkValues(spec: VariableSpec, path: Path, ctx: Ctx) {
   }
 }
 
+/** The reason a protected variable gives; undefined for `protected: true`. */
+export const protectedReason = (spec: VariableSpec) =>
+  typeof spec.protected === 'object' ? spec.protected.reason : undefined;
+
 /** A rule field's names as a list. */
 export const ruleNames = (names: string | readonly string[] | undefined) =>
   names === undefined ? [] : typeof names === 'string' ? [names] : [...names];
@@ -458,6 +476,9 @@ export const envSchema = envSchemaObject
       const path = ['variables', name];
       if (checkOptions(spec, path, ctx)) checkValues(spec, path, ctx);
       checkRules(schema, name, spec, path, ctx);
+      // A protected value is a secret: masked, never echoed, never committed.
+      if (spec.protected !== undefined && !spec.secret)
+        issue(ctx, [...path, 'protected'], 'protected needs secret: true');
     }
     checkFiles(schema, ctx);
   })
