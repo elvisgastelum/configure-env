@@ -195,6 +195,24 @@ describe('set', () => {
     expect(allowed.code).toBe(0);
     expect(await read('app.env.example')).toBe('PORT=2\n');
   });
+
+  it('never writes --generate or --stdin to a template, even with --allow-template', async () => {
+    await writeFile(path('app.env.example'), 'PORT=1\n');
+    const template = ['--file', 'app.env.example', '--allow-template'];
+    for (const args of [
+      ['--generate', 'TOKEN'],
+      ['--stdin', 'TOKEN'],
+    ]) {
+      const r = await cli(['set', ...template, ...args], {
+        stdin: 'abcdefghij',
+      });
+      expect(r.code).toBe(2);
+      expect(r.err).toEqual([
+        'configure-env: --generate and --stdin never write to a template such as app.env.example',
+      ]);
+    }
+    expect(await read('app.env.example')).toBe('PORT=1\n');
+  });
 });
 
 /** Replaces the schema with EDIT_SCHEMA, its TOKEN changed by `token`. */
@@ -335,6 +353,20 @@ describe('set --stdin', () => {
     ];
     for (const args of given)
       expect((await cli(['set', ...args], { stdin })).code).toBe(2);
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('exits 1 and writes nothing for an empty stdin, as a failed pipe gives', async () => {
+    await seed();
+    for (const stdin of ['', '\n', '\r\n']) {
+      const r = await cli(['set', '--create', '--stdin', 'GREETING'], {
+        stdin,
+      });
+      expect(r.code).toBe(1);
+      expect(r.err).toEqual([
+        'configure-env: GREETING: stdin was empty; nothing was written to app.env',
+      ]);
+    }
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 

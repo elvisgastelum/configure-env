@@ -67,6 +67,6 @@ export interface Io {
   prompts?: Prompts;
   /** Whether stdin is a terminal; `set --stdin` refuses one. */
   stdinIsTTY?: boolean;
-  /** Reads the whole of stdin; `set --stdin` needs it. */
+  /** Reads the whole of stdin, within a wait and a size limit; `set --stdin` needs it. */
   readStdin?: () => Promise<string>;
 }

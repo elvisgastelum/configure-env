@@ -11,6 +11,7 @@ import {
 import { commentLines } from '../engine/plan.ts';
 import {
   VARIABLE_NAME,
+  isTemplate,
   type EnvSchema,
   type FileSpec,
   type VariableSpec,
@@ -145,6 +146,11 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     guard: true,
     allowTemplate: Boolean(options['allow-template']),
   });
+  // A template is committed: a secret meant for it is a mistake, allowed or not.
+  if ((options.generate?.length || stdinKey !== undefined) && isTemplate(spec))
+    throw usageError(
+      `--generate and --stdin never write to a template such as ${spec.path}`,
+    );
   if (promptKeys.length && (context.ci || context.json || !io.isTTY))
     throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
   if (stdinKey !== undefined && (!io.readStdin || io.stdinIsTTY))
@@ -194,8 +200,16 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     }
     pairs.set(key, answer);
   }
-  if (stdinKey !== undefined)
-    pairs.set(stdinKey, (await io.readStdin!()).replace(/\r?\n$/, ''));
+  if (stdinKey !== undefined) {
+    const value = (await io.readStdin!()).replace(/\r?\n$/, '');
+    // An empty pipe is almost always a failed command upstream, whose exit
+    // status the shell drops: never write it, even for an optional key.
+    if (!value)
+      throw new CliError(1, [
+        `${stdinKey}: stdin was empty; nothing was written to ${spec.path}`,
+      ]);
+    pairs.set(stdinKey, value);
+  }
 
   // A generated value never replaces one that is set: no rotation by accident.
   const kept = new Set<string>();

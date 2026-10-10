@@ -20,7 +20,7 @@ Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project
 - Never pass `get --reveal`. Never print, echo, log or summarize a secret value.
 - Never put a secret in argv (`set KEY=VALUE`, `apply --set KEY=VALUE`, `KEY=value cmd`) or in any file you write. A secret goes in only through:
   1. `--generate KEY` for secrets the project makes itself (session, JWT, encryption, internal passwords);
-  2. `--stdin KEY`, piped from a secret manager the user names, so the value never passes through you;
+  2. `--stdin KEY`, piped from a secret manager the user names, so the value never passes through you. Always pipe into it, never run it with a bare stdin; an empty pipe (a failed read) exits 1;
   3. the human, with the TUI (see Decision Gates).
 - Never edit an env file by hand, with `sed` or with a heredoc; use `set` and `unset`.
 - Never write real values into a template (`*.example`, `*.sample`, `*.template`); never pass `--allow-template` with a secret. Never stage or commit a non-template env file.

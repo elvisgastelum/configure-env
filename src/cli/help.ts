@@ -161,10 +161,12 @@ reported as updated, added or unchanged, secrets masked.
 --generate KEY writes a random value for a secret string variable (48
 characters of [A-Za-z0-9_-], within minLength and maxLength); a key that
 already has a value keeps it. --stdin KEY reads one value from stdin, one
-trailing newline stripped, so a secret never goes through argv.
+trailing newline stripped, so a secret never goes through argv. An empty
+stdin, as a failed command in the pipe leaves, writes nothing (exit 1); so
+does input past 64 KiB. No input within 60s exits 2.
 
 ${FILE_CHOICE} A template file is
-edited only with --allow-template.
+edited only with --allow-template, and never with --generate or --stdin.
 
 Options:
   --prompt KEY      ask for the value in the terminal (hidden for a

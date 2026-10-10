@@ -281,7 +281,9 @@ API_TOKEN: added (••••23)
 Two options keep a secret out of argv and out of the output, for runs without a terminal such as an agent's:
 
 - `--generate KEY` (repeatable) writes a random value for a secret string variable, as `apply --generate` makes it. A key that already has a non-empty value keeps it and is reported `unchanged`: it never rotates a secret, so `unset` the key first to replace it. It works with `--create`.
-- `--stdin KEY` reads one value from stdin and strips one trailing newline (`\n` or `\r\n`), so a secret manager can pipe it in. It exits 2 when stdin is a terminal, and with `--prompt`.
+- `--stdin KEY` reads one value from stdin and strips one trailing newline (`\n` or `\r\n`), so a secret manager can pipe it in. It exits 2 when stdin is a terminal, and with `--prompt`. An empty value exits 1 and writes nothing, even for an optional key: a pipe whose first command failed (`op read … | configure-env set --stdin KEY`, whose exit status the shell drops) gives one. So does input past 64 KiB, unechoed. A stdin that sends nothing for 60 seconds, such as a pipe a runner leaves open, exits 2 instead of waiting forever.
+
+Neither option writes to a template, even with `--allow-template` (exit 2): a template is committed, so a secret never belongs there.
 
 A key given two ways (`KEY=VALUE`, `--prompt`, `--generate`, `--stdin`) is a usage error, except that a `KEY=VALUE` wins over `--prompt`.
 

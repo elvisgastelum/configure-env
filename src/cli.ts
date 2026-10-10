@@ -5,6 +5,7 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { main } from './cli/main.ts';
+import { readStream } from './cli/stdin.ts';
 
 export { main } from './cli/main.ts';
 export type { Io, Prompts } from './cli/io.ts';
@@ -31,11 +32,7 @@ if (isEntryPoint()) {
     // the command was typed; run directly, the process cwd is that place.
     cwd: process.env.INIT_CWD || process.cwd(),
     stdinIsTTY: Boolean(process.stdin.isTTY),
-    readStdin: async () => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-      return Buffer.concat(chunks).toString('utf8');
-    },
+    readStdin: () => readStream(process.stdin),
   }).then(
     (code) => {
       process.exitCode = code;
