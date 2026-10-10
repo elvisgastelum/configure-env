@@ -348,19 +348,31 @@ async function createLock(
     if (codeOf(error) === 'EEXIST') return false;
     throw error;
   }
-  const mine = await handle.stat().catch(() => undefined);
   try {
     await handle.writeFile(text, 'utf8');
-    await handle.close();
-    return true;
   } catch (error) {
-    await handle.close().catch(() => undefined);
-    // Created but not filled: removed while the path is still this file.
+    // Created but not filled: removed while the path is still this file,
+    // compared with the handle still open, since a closed file's inode can
+    // be reused at once by another run's lock. When the handle cannot be
+    // stat'ed, nothing proves the path is ours: it is left, and the held
+    // message asks a person to remove it if it persists.
+    const mine = await handle.stat().catch(() => undefined);
     const now = await lstat(lock).catch(() => undefined);
     if (mine && now && mine.dev === now.dev && mine.ino === now.ino)
       await unlink(lock).catch(() => undefined);
+    await handle.close().catch(() => undefined);
     throw error;
   }
+  try {
+    await handle.close();
+  } catch (error) {
+    // Filled with this run's token, which no other run writes: removed by
+    // it, as a release is.
+    if ((await readOwner(lock))?.token === owner.token)
+      await unlink(lock).catch(() => undefined);
+    throw error;
+  }
+  return true;
 }
 
 const exists = (path: string) =>

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import {
   type FileHandle,
   link,
@@ -380,6 +381,51 @@ describe('updateState', () => {
         expect(await entries()).toEqual([]);
       });
 
+      it('compares and removes the lock before it closes its handle', async () => {
+        const calls: string[] = [];
+        const ordered = onLock(async (args) => {
+          const handle = await open(...args);
+          const stat = handle.stat.bind(handle);
+          const close = handle.close.bind(handle);
+          handle.writeFile = (async () => {
+            throw new Error('disk full');
+          }) as never;
+          handle.stat = (async (...rest: Parameters<typeof stat>) => {
+            calls.push('stat');
+            return stat(...rest);
+          }) as never;
+          handle.close = async () => {
+            // The lock is gone before its handle closes.
+            calls.push(existsSync(lock()) ? 'close, lock there' : 'close');
+            return close();
+          };
+          return handle;
+        });
+        await expect(lockWith({ link: noLink, open: ordered })).rejects.toThrow(
+          'disk full',
+        );
+        expect(calls).toEqual(['stat', 'close']);
+        expect(await entries()).toEqual([]);
+      });
+
+      it('leaves the lock when it cannot prove the file is its own', async () => {
+        const noStat = onLock(async (args) => {
+          const handle = await open(...args);
+          handle.writeFile = (async () => {
+            throw new Error('disk full');
+          }) as never;
+          handle.stat = (async () => {
+            throw new Error('fstat failed');
+          }) as never;
+          return handle;
+        });
+        await expect(lockWith({ link: noLink, open: noStat })).rejects.toThrow(
+          'disk full',
+        );
+        // An empty lock, which the held message asks a person to remove.
+        expect(await readFile(lock(), 'utf8')).toBe('');
+      });
+
       it('removes the lock it created when closing it fails', async () => {
         const closeFails = onLock(async (args) => {
           const handle = await open(...args);
@@ -427,19 +473,25 @@ describe('updateState', () => {
       });
     });
 
-    it('falls back to an exclusive create without hard links', async () => {
-      await withStateLock(
-        statePath(),
-        async () => {
-          expect(JSON.parse(await readFile(lock(), 'utf8')).pid).toBe(
-            process.pid,
-          );
-          expect((await stat(lock())).mode & 0o777).toBe(0o600);
-        },
-        { fs: { link: noLink } },
-      );
-      expect(await entries()).toEqual([]);
-    });
+    it.each(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS'])(
+      'falls back to an exclusive create when link fails with %s',
+      async (code) => {
+        const linkFails = (async () => {
+          throw Object.assign(new Error('no hard links'), { code });
+        }) as typeof link;
+        await withStateLock(
+          statePath(),
+          async () => {
+            expect(JSON.parse(await readFile(lock(), 'utf8')).pid).toBe(
+              process.pid,
+            );
+            expect((await stat(lock())).mode & 0o777).toBe(0o600);
+          },
+          { fs: { link: linkFails } },
+        );
+        expect(await entries()).toEqual([]);
+      },
+    );
 
     it('tries once more at the deadline when the lock is gone', async () => {
       // The first link finds a lock, which is gone by the deadline.
