@@ -11,7 +11,7 @@ import {
 } from './test-helpers.ts';
 
 /** One file to edit and its template. */
-export const EDIT_SCHEMA = {
+const EDIT_SCHEMA = {
   version: 1,
   variables: {
     PORT: { type: 'port', default: 8080, comment: 'The port.' },

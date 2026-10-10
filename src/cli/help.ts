@@ -35,12 +35,14 @@ Configure and check env files from a schema (env.schema.json), in a
 terminal UI or unattended with --ci.
 
 Commands:
-  apply   write the env files the schema describes (the default)
-  check   change nothing; report drift and invalid values
-  init    write a starting env.schema.json, inferred from .env.example
-  set     set variables in one file, keeping every other line
-  get     print one variable's value
-  unset   remove variables from one file
+  apply     write the env files the schema describes (the default)
+  check     change nothing; report drift and invalid values
+  init      write a starting env.schema.json, inferred from .env.example
+  set       set variables in one file, keeping every other line
+  get       print one variable's value
+  unset     remove variables from one file
+  list      show each file's variables: set, valid, value (secrets masked)
+  validate  check the current values against the schema
 
 Run configure-env <command> --help for the command's own options.
 
@@ -205,5 +207,52 @@ ${GLOBAL}
 Examples:
   configure-env unset WEB_PORT
   configure-env unset --file .env API_TOKEN MODE
+
+${EXIT_CODES}`;
+
+export const LIST_HELP = `Usage: configure-env list [options]
+
+Shows, per schema file, a table of its variables:
+
+  KEY          the name
+  SET          yes, no, or empty
+  VALID        ok, or the rule the value breaks; - in a template, whose
+               values are placeholders; unknown for a key the schema
+               does not list for the file
+  VALUE        the value, masked for a secret, cut at 40 characters
+  DESCRIPTION  the variable's description
+
+Without --file it lists every file, grouped by path. With --json it prints
+one array: per variable {"file", "key", "set", "valid", "error",
+"value" or "masked", "description", "unknown"}. Changes nothing; exits 0.
+
+${GLOBAL}
+
+Examples:
+  configure-env list
+  configure-env list --file .env
+  configure-env list --json
+
+${EXIT_CODES}`;
+
+export const VALIDATE_HELP = `Usage: configure-env validate [options]
+
+Changes nothing. Checks the current values of every schema file (or the
+--file paths): a missing file, lines that are not valid entries, required
+keys that are not set, and values that break their variable's rules. A
+key the schema does not list for the file is a warning, an error with
+--strict. Template files hold placeholders, so only their lines and the
+presence of each key are checked. Exits 1 on any error; messages never
+show a value.
+
+Options:
+  --strict  treat unknown keys as errors
+
+${GLOBAL}
+
+Examples:
+  configure-env validate
+  configure-env validate --file .env --strict
+  configure-env validate --json
 
 ${EXIT_CODES}`;

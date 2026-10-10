@@ -4,7 +4,7 @@ Configure, check and edit env files from a schema, interactively or in CI.
 
 ## Status
 
-Pre-release; the package is not on npm yet. `apply`, `check` and `init` work; the other commands are being built.
+Pre-release; the package is not on npm yet. Every command below works.
 
 The CLI reads a JSON schema that lists the env files (their paths and write policies) and the variables (names, types and validation rules), then works from it:
 
@@ -161,6 +161,8 @@ Until the package is published, run it from a checkout with `pnpm start -- <comm
 | `set`   | sets variables in one file, keeping every other byte                   |
 | `get`   | prints one variable's value                                            |
 | `unset` | removes variables from one file                                        |
+| `list`  | shows each file's variables: set, valid, value (secrets masked)        |
+| `validate` | checks the current values against the schema; exits 1 on errors     |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -269,9 +271,50 @@ configure-env unset WEB_PORT
 configure-env unset --file .env API_TOKEN MODE
 ```
 
+### list
+
+`list` changes nothing. Per schema file (every file, or the `--file` paths), grouped by path, it prints a table:
+
+| Column        | Shows                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| `KEY`         | the name                                                                                                 |
+| `SET`         | `yes`, `no` or `empty`                                                                                   |
+| `VALID`       | `ok` or the rule the value breaks; `-` in a template (placeholders); `unknown` for a key the schema does not list for the file |
+| `VALUE`       | the value, masked for a secret, cut at 40 characters                                                     |
+| `DESCRIPTION` | the variable's description                                                                               |
+
+```text
+.env
+KEY        SET    VALID                               VALUE     DESCRIPTION
+WEB_PORT   yes    must be a port between 1 and 65535  http      Host port the site is published on
+API_TOKEN  yes    ok                                  ••••23
+EXTRA      yes    unknown                             1
+```
+
+```sh
+configure-env list
+configure-env list --file .env --json
+```
+
+### validate
+
+`validate` changes nothing. It checks the current values of every schema file (or the `--file` paths): a missing file, lines that are not valid entries, required keys that are not set, and values that break their variable's rules. A key the schema does not list for the file is a warning, and an error with `--strict`. A template holds placeholders, so only its lines and the presence of each key are checked. A placeholder a file sets through `values` passes. It exits 1 on any error; messages never show a value.
+
+```text
+.env: PORT: must be a port between 1 and 65535
+.env: warning: EXTRA: is not in the schema for this file
+.env.example: ok
+```
+
+```sh
+configure-env validate
+configure-env validate --file .env --strict
+configure-env validate --json
+```
+
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
 
 ### Exit codes
 

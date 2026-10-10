@@ -6,6 +6,7 @@ import { CliError, usageError } from './common.ts';
 import { getCommand, setCommand, unsetCommand } from './edit.ts';
 import { MAIN_HELP, VERSION } from './help.ts';
 import { initCommand } from './init.ts';
+import { listCommand, validateCommand } from './inspect.ts';
 import type { Io } from './io.ts';
 
 type Command = (args: string[], io: Io) => Promise<number>;
@@ -17,6 +18,8 @@ export const COMMANDS: Record<string, Command> = {
   set: setCommand,
   get: getCommand,
   unset: unsetCommand,
+  list: listCommand,
+  validate: validateCommand,
 };
 
 const has = (args: readonly string[], ...flags: string[]) =>
