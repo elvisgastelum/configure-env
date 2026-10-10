@@ -4,6 +4,7 @@ import {
   readdir,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_STATE_PATH,
   type State,
+  type StateChange,
+  applyChanges,
   emptyState,
   fingerprint,
   loadState,
@@ -18,6 +21,7 @@ import {
   recordFingerprint,
   recorded,
   removeFingerprint,
+  updateState,
   writeState,
 } from './state.ts';
 import { useTempRoot } from './test-helpers.ts';
@@ -158,5 +162,97 @@ describe('the state', () => {
     expect(recorded(state, '.env', 'A')!.hmac).toBe(
       recorded(state, 'deploy/.env', 'A')!.hmac,
     );
+  });
+});
+
+const record = (
+  file: string,
+  key: string,
+  value: string,
+  replace = false,
+): StateChange => ({ action: 'record', file, key, value, replace });
+
+describe('applyChanges', () => {
+  it('records a value only where none is recorded, unless it replaces', () => {
+    const state = emptyState();
+    recordFingerprint(state, '.env', 'KEY', 'old', new Date('2026-01-01'));
+    expect(applyChanges(state, [record('.env', 'KEY', 'edited')])).toBe(false);
+    expect(matchesFingerprint(state, '.env', 'KEY', 'old')).toBe(true);
+    expect(applyChanges(state, [record('.env', 'KEY', 'new', true)])).toBe(
+      true,
+    );
+    expect(matchesFingerprint(state, '.env', 'KEY', 'new')).toBe(true);
+    expect(
+      applyChanges(state, [{ action: 'remove', file: '.env', key: 'KEY' }]),
+    ).toBe(true);
+    expect(state.fingerprints).toEqual({});
+  });
+});
+
+describe('updateState', () => {
+  it('keeps the fingerprints of two runs that both loaded an empty state', async () => {
+    await Promise.all([
+      updateState(statePath(), [record('.env', 'A', 'one')]),
+      updateState(statePath(), [record('worker.env', 'B', 'two')]),
+    ]);
+    const loaded = await loadState(statePath());
+    if (!loaded.ok) throw new Error(loaded.message);
+    expect(matchesFingerprint(loaded.state, '.env', 'A', 'one')).toBe(true);
+    expect(matchesFingerprint(loaded.state, 'worker.env', 'B', 'two')).toBe(
+      true,
+    );
+    // The lock is gone.
+    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
+      'state.json',
+    ]);
+  });
+
+  it('keeps the salt and the entries on disk, applying only its changes', async () => {
+    const disk = emptyState();
+    recordFingerprint(disk, '.env', 'OTHER', 'kept');
+    recordFingerprint(disk, '.env', 'GONE', 'removed');
+    await writeState(statePath(), disk);
+    expect(
+      await updateState(statePath(), [
+        record('.env', 'KEY', SECRET),
+        { action: 'remove', file: '.env', key: 'GONE' },
+      ]),
+    ).toBe(true);
+    const loaded = await loadState(statePath());
+    if (!loaded.ok) throw new Error(loaded.message);
+    expect(loaded.state.salt).toBe(disk.salt);
+    expect(Object.keys(loaded.state.fingerprints['.env']!).sort()).toEqual([
+      'KEY',
+      'OTHER',
+    ]);
+    expect(matchesFingerprint(loaded.state, '.env', 'KEY', SECRET)).toBe(true);
+  });
+
+  it('writes nothing when the changes change nothing', async () => {
+    expect(await updateState(statePath(), [])).toBe(false);
+    expect(
+      await updateState(statePath(), [
+        { action: 'remove', file: '.env', key: 'KEY' },
+      ]),
+    ).toBe(false);
+    await expect(stat(statePath())).rejects.toThrow();
+  });
+
+  it('takes over a stale lock, and gives up on a fresh one', async () => {
+    const lock = `${statePath()}.lock`;
+    await mkdir(join(temp.dirs.root, '.configure-env'));
+    await writeFile(lock, '');
+    await expect(
+      updateState(statePath(), [record('.env', 'KEY', SECRET)], {
+        waitMs: 100,
+      }),
+    ).rejects.toThrow(`${lock}: held by another run; try again`);
+    await expect(stat(statePath())).rejects.toThrow();
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+    expect(
+      await updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+    ).toBe(true);
+    await expect(stat(lock)).rejects.toThrow();
   });
 });

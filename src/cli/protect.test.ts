@@ -1,7 +1,7 @@
 // Protected variables: set, unset and apply never change a protected value
 // silently, even after the file that held it was deleted.
 
-import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
@@ -85,6 +85,18 @@ async function expectNoValue(
 const PROTECTED = `configure-env: SM_MASTER_KEY: is protected (${REASON}); pass --replace-protected SM_MASTER_KEY to change it`;
 const wasSet = () =>
   `SM_MASTER_KEY was set on ${today()}; restore it from your backup, or pass --replace-protected SM_MASTER_KEY`;
+
+/**
+ * Makes the next state write fail, for root too: a stale lock that is a
+ * directory, which a run can neither create nor take over. Loading the
+ * state still works, so the env files are written first.
+ */
+async function blockState() {
+  const lock = path(`${STATE}.lock`);
+  await mkdir(lock, { recursive: true });
+  const old = new Date(Date.now() - 60_000);
+  await utimes(lock, old, old);
+}
 
 /** `.env` holding KEY_A, recorded by a set. */
 async function seedKey() {
@@ -208,6 +220,21 @@ describe('set', () => {
     expect(restored).toMatchObject({ code: 0, err: [] });
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_A);
     await expectNoValue([other, restored], KEY_A, KEY_B);
+  });
+
+  it('keeps the fingerprints of parallel runs', async () => {
+    const runs = await Promise.all(
+      ['.env', 'worker.env'].map((file) =>
+        cli(['set', '--create', '--file', file, '--stdin', 'SM_MASTER_KEY'], {
+          stdin: KEY_A,
+        }),
+      ),
+    );
+    expect(runs.map((r) => r.code)).toEqual([0, 0]);
+    expect(Object.keys((await state()).fingerprints).sort()).toEqual([
+      '.env',
+      'worker.env',
+    ]);
   });
 
   it('copies the same value to a second file, with a fingerprint per file', async () => {
@@ -634,39 +661,111 @@ describe('apply', () => {
   });
 
   it('exits 1 when the state cannot be written, saying what was', async () => {
-    await mkdir(path('.configure-env'));
-    await chmod(path('.configure-env'), 0o500);
-    try {
-      const r = await cli([
-        'apply',
-        '--ci',
-        '--file',
-        'gen.env',
-        '--set',
-        'API_KEY=first-value',
-      ]);
-      expect(r.code).toBe(1);
-      expect(r.out).toEqual(['gen.env: created']);
-      expect(r.err[0]).toMatch(
-        /^configure-env: \.configure-env\/state\.json: not written: /,
-      );
-      expect(r.err[1]).toBe(
-        'gen.env was written; its protected values are not recorded',
-      );
-      const set = await cli([
-        'set',
-        '--file',
-        '.env',
-        '--create',
-        `SM_MASTER_KEY=${KEY_A}`,
-      ]);
-      expect(set.code).toBe(1);
-      expect(set.err[1]).toBe(
-        '.env was written; its protected values are not recorded',
-      );
-    } finally {
-      await chmod(path('.configure-env'), 0o700);
-    }
+    await blockState();
+    const r = await cli([
+      'apply',
+      '--ci',
+      '--file',
+      'gen.env',
+      '--set',
+      'API_KEY=first-value',
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.out).toEqual(['gen.env: created']);
+    expect(r.err[0]).toMatch(
+      /^configure-env: \.configure-env\/state\.json: not written: /,
+    );
+    expect(r.err[1]).toBe(
+      'gen.env was written; its protected values are not recorded',
+    );
+    const set = await cli([
+      'set',
+      '--file',
+      '.env',
+      '--create',
+      `SM_MASTER_KEY=${KEY_A}`,
+    ]);
+    expect(set.code).toBe(1);
+    expect(set.err[1]).toBe(
+      '.env was written; its protected values are not recorded',
+    );
+    expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_A);
+    await expectNoValue([r, set], 'first-value', KEY_A);
+  });
+
+  it('prints the set and unset documents with ok false when the state cannot be written', async () => {
+    await seedKey();
+    await blockState();
+    const set = await cli([
+      'set',
+      '--json',
+      '--file',
+      '.env',
+      'SM_MASTER_KEY_FILE=',
+    ]);
+    // The found value has its record already; nothing to write, so no failure.
+    expect(set.code).toBe(0);
+    const replaced = await cli([
+      'set',
+      '--json',
+      '--file',
+      '.env',
+      '--replace-protected',
+      'SM_MASTER_KEY',
+      `SM_MASTER_KEY=${KEY_B}`,
+    ]);
+    expect(replaced.code).toBe(1);
+    expect(replaced.err).toEqual([]);
+    expect(JSON.parse(replaced.out[0]!)).toEqual({
+      command: 'set',
+      ok: false,
+      file: '.env',
+      keys: [
+        {
+          key: 'SM_MASTER_KEY',
+          status: 'updated',
+          masked: '••••o=',
+          replaced: true,
+        },
+      ],
+      errors: [
+        {
+          kind: 'file',
+          path: '.configure-env/state.json',
+          message: expect.stringMatching(
+            /^\.configure-env\/state\.json: not written: .*; \.env was written; its protected values are not recorded$/,
+          ),
+        },
+      ],
+    });
+    expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
+    const unset = await cli([
+      'unset',
+      '--json',
+      '--file',
+      '.env',
+      '--replace-protected',
+      'SM_MASTER_KEY',
+      'SM_MASTER_KEY',
+    ]);
+    expect(unset.code).toBe(1);
+    expect(JSON.parse(unset.out[0]!)).toEqual({
+      command: 'unset',
+      ok: false,
+      file: '.env',
+      keys: [{ key: 'SM_MASTER_KEY', status: 'removed', replaced: true }],
+      errors: [
+        {
+          kind: 'file',
+          path: '.configure-env/state.json',
+          message: expect.stringMatching(
+            /^\.configure-env\/state\.json: not written: /,
+          ),
+        },
+      ],
+    });
+    expect(await valueIn('.env', 'SM_MASTER_KEY')).toBeUndefined();
+    await expectNoValue([set, replaced, unset], KEY_A, KEY_B);
   });
 
   it('takes --state for another place', async () => {

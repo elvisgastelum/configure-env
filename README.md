@@ -192,7 +192,7 @@ The state is `.configure-env/state.json` under the root, or the global `--state 
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. It is written atomically with mode 600, its directory with 700, never through a symlink, and holds only a salted HMAC of each value, never the value:
+`check`, `validate` and `list` never write the state. A write re-reads it under a lock file next to it (`state.json.lock`; one older than 30 seconds is taken over) and applies only its own changes, so parallel runs keep each other's fingerprints. It is written atomically with mode 600, its directory with 700, never through a symlink, and holds only a salted HMAC of each value, never the value:
 
 ```json
 {

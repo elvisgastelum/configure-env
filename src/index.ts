@@ -72,6 +72,7 @@ export type {
 
 export {
   DEFAULT_STATE_PATH,
+  applyChanges,
   emptyState,
   fingerprint,
   loadState,
@@ -79,9 +80,15 @@ export {
   recordFingerprint,
   recorded,
   removeFingerprint,
+  updateState,
   writeState,
 } from './engine/state.ts';
-export type { Fingerprint, State, StateResult } from './engine/state.ts';
+export type {
+  Fingerprint,
+  State,
+  StateChange,
+  StateResult,
+} from './engine/state.ts';
 
 export {
   appendLines,

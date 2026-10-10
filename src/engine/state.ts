@@ -12,6 +12,7 @@ import {
   readFile,
   rename,
   rm,
+  unlink,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -196,4 +197,116 @@ export async function writeState(path: string, state: State): Promise<void> {
     await handle?.close().catch(() => undefined);
     if (created) await rm(temp, { force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * One change a run makes: record a value (over a different recorded one
+ * only when it `replace`s it), or remove the record. Applied to the state on
+ * disk, so it holds the value until then, never writing it.
+ */
+export type StateChange =
+  | {
+      action: 'record';
+      file: string;
+      key: string;
+      value: string;
+      replace: boolean;
+      at?: Date;
+    }
+  | { action: 'remove'; file: string; key: string };
+
+/**
+ * Applies the changes to `state`: a value is recorded where none is, or over
+ * a different one it replaces; a recorded value keeps its date. True when
+ * the state changed.
+ */
+export function applyChanges(
+  state: State,
+  changes: readonly StateChange[],
+): boolean {
+  let changed = false;
+  for (const change of changes) {
+    const { file, key } = change;
+    if (change.action === 'remove') {
+      if (removeFingerprint(state, file, key)) changed = true;
+    } else if (!recorded(state, file, key) || change.replace) {
+      if (recordFingerprint(state, file, key, change.value, change.at))
+        changed = true;
+    }
+  }
+  return changed;
+}
+
+/** How long a run waits for another run's lock, and when a lock is stale. */
+export const LOCK_WAIT_MS = 2_000;
+export const LOCK_STALE_MS = 30_000;
+
+const pause = (ms: number) =>
+  new Promise((done) => setTimeout(done, ms).unref?.());
+
+/**
+ * Runs `task` holding `<path>.lock`, created exclusively next to the state.
+ * A lock older than LOCK_STALE_MS is taken over; a fresh one is waited for,
+ * then refused.
+ */
+async function withLock<T>(
+  path: string,
+  task: () => Promise<T>,
+  waitMs: number,
+): Promise<T> {
+  const lock = `${path}.lock`;
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      await (await open(lock, 'wx', 0o600)).close();
+      break;
+    } catch (error) {
+      if (codeOf(error) !== 'EEXIST') throw error;
+    }
+    const stats = await lstat(lock).catch(() => undefined);
+    if (stats && Date.now() - stats.mtimeMs > LOCK_STALE_MS) {
+      // A run that died holding it; a lock that cannot be removed fails.
+      await unlink(lock).catch((error: unknown) => {
+        if (codeOf(error) !== 'ENOENT')
+          throw new Error(
+            `${lock}: stale, and cannot be removed: ${codeOf(error)}`,
+          );
+      });
+      continue;
+    }
+    if (Date.now() >= deadline)
+      throw new Error(`${lock}: held by another run; try again`);
+    await pause(25);
+  }
+  try {
+    return await task();
+  } finally {
+    await unlink(lock).catch(() => undefined);
+  }
+}
+
+/**
+ * Applies a run's changes to the state on disk, under its lock: it re-reads
+ * the state, keeps its salt and every entry the changes do not touch, and
+ * writes it only when it changed. Parallel runs so keep each other's
+ * fingerprints. True when it wrote the state.
+ */
+export async function updateState(
+  path: string,
+  changes: readonly StateChange[],
+  { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
+): Promise<boolean> {
+  if (!changes.length) return false;
+  return withLock(
+    path,
+    async () => {
+      const result = await loadState(path);
+      if (!result.ok) throw new Error(result.message);
+      if (!applyChanges(result.state, changes)) return false;
+      await writeState(path, result.state);
+      return true;
+    },
+    waitMs,
+  );
 }

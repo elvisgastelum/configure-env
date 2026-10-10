@@ -27,8 +27,10 @@ import {
 import { ask } from './apply.ts';
 import {
   CliError,
+  type Context,
   NO_TERMINAL,
   contextOf,
+  displayPath,
   givenTwice,
   loadContextSchema,
   parseCommandArgs,
@@ -67,16 +69,17 @@ function cancelled(context: { prompts: { cancel(message?: string): void } }) {
 
 /**
  * Writes the file, then records the protected values it holds: the state
- * never learns a value that was not written.
+ * never learns a value that was not written. A failed state write returns
+ * its lines; the file is written by then, so the run reports it.
  */
 async function writeAndRecord(
-  context: Parameters<typeof saveRunState>[0],
+  context: Context,
   schema: EnvSchema,
   file: EnvFile,
   run: RunState | undefined,
   replaced: ReadonlySet<string>,
   write: boolean,
-) {
+): Promise<string[] | undefined> {
   if (write) await writeEnvFile(file, serialize(file.doc));
   recordValues(
     run,
@@ -85,7 +88,55 @@ async function writeAndRecord(
     (key) => getValue(file.doc, key),
     replaced,
   );
-  await saveRunState(context, run, write ? [file.spec.path] : []);
+  try {
+    await saveRunState(context, run, write ? [file.spec.path] : []);
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    return error.lines;
+  }
+}
+
+/**
+ * The end of a set or unset run: with --json, its document, `ok` false and
+ * the state failure as a `file` error when the state was not written (exit
+ * 1); else the lines, or the state failure (exit 1).
+ */
+function finish(
+  context: Context,
+  document: { command: string; file: string; keys: unknown[] },
+  lines: string[],
+  stateError: string[] | undefined,
+): number {
+  const { io } = context;
+  if (context.json) {
+    io.stdout(
+      JSON.stringify(
+        stateError
+          ? {
+              ...document,
+              ok: false,
+              errors: [
+                {
+                  kind: 'file',
+                  path: displayPath(io.cwd, context.statePath),
+                  message: stateError.join('; '),
+                },
+              ],
+            }
+          : {
+              command: document.command,
+              ok: true,
+              file: document.file,
+              keys: document.keys,
+            },
+      ),
+    );
+    return stateError ? 1 : 0;
+  }
+  if (stateError) throw new CliError(1, stateError);
+  lines.forEach((line) => io.stdout(line));
+  return 0;
 }
 
 /** The report line of each replaced key. */
@@ -407,7 +458,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     ]);
   if (!(await confirmReplacements(context, [...replaced])))
     return cancelled(context);
-  await writeAndRecord(
+  const stateError = await writeAndRecord(
     context,
     schema,
     file,
@@ -416,27 +467,27 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     report.some((entry) => entry.status !== 'unchanged'),
   );
 
-  if (context.json)
-    io.stdout(
-      JSON.stringify({
-        command: 'set',
-        ok: true,
-        file: spec.path,
-        keys: report.map(({ key, status, spec: variable, plain }) => ({
-          key,
-          status,
-          ...jsonValue(variable, plain),
-          ...(replaced.has(key) ? { replaced: true } : {}),
-        })),
-      }),
-    );
-  else {
-    report.forEach(({ key, status, spec: variable, plain }) =>
-      io.stdout(`${key}: ${status} (${maskValue(variable, plain)})`),
-    );
-    replacedLines(replaced).forEach((line) => io.stdout(line));
-  }
-  return 0;
+  return finish(
+    context,
+    {
+      command: 'set',
+      file: spec.path,
+      keys: report.map(({ key, status, spec: variable, plain }) => ({
+        key,
+        status,
+        ...jsonValue(variable, plain),
+        ...(replaced.has(key) ? { replaced: true } : {}),
+      })),
+    },
+    [
+      ...report.map(
+        ({ key, status, spec: variable, plain }) =>
+          `${key}: ${status} (${maskValue(variable, plain)})`,
+      ),
+      ...replacedLines(replaced),
+    ],
+    stateError,
+  );
 }
 
 // ---------------------------------------------------------------- get
@@ -544,7 +595,7 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     );
     report.push({ key, status: removed ? 'removed' : 'absent' });
   }
-  await writeAndRecord(
+  const stateError = await writeAndRecord(
     context,
     schema,
     file,
@@ -553,20 +604,19 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     report.some((entry) => entry.status === 'removed'),
   );
 
-  if (context.json)
-    io.stdout(
-      JSON.stringify({
-        command: 'unset',
-        ok: true,
-        file: spec.path,
-        keys: report.map((entry) =>
-          replaced.has(entry.key) ? { ...entry, replaced: true } : entry,
-        ),
-      }),
-    );
-  else {
-    report.forEach(({ key, status }) => io.stdout(`${key}: ${status}`));
-    replacedLines(replaced).forEach((line) => io.stdout(line));
-  }
-  return 0;
+  return finish(
+    context,
+    {
+      command: 'unset',
+      file: spec.path,
+      keys: report.map((entry) =>
+        replaced.has(entry.key) ? { ...entry, replaced: true } : entry,
+      ),
+    },
+    [
+      ...report.map(({ key, status }) => `${key}: ${status}`),
+      ...replacedLines(replaced),
+    ],
+    stateError,
+  );
 }

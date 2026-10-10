@@ -6,12 +6,12 @@
 import { fileKeys } from '../engine/plan.ts';
 import {
   type State,
+  type StateChange,
+  applyChanges,
   loadState,
   matchesFingerprint,
-  recordFingerprint,
   recorded,
-  removeFingerprint,
-  writeState,
+  updateState,
 } from '../engine/state.ts';
 import {
   type EnvSchema,
@@ -48,8 +48,11 @@ export type Verdict =
 export interface RunState {
   path: string;
   state: State;
-  /** Whether the run changed it, so it must be written. */
-  changed: boolean;
+  /**
+   * The run's changes, applied to `state` as they are made and to the state
+   * on disk when it is written, so a parallel run's entries survive.
+   */
+  changes: StateChange[];
 }
 
 /** The date a fingerprint was recorded, as YYYY-MM-DD. */
@@ -111,7 +114,7 @@ export async function loadRunState(
     schema,
     'fix or restore it; nothing was written',
   );
-  return state && { path: context.statePath, state, changed: false };
+  return state && { path: context.statePath, state, changes: [] };
 }
 
 /** The keys of the repeated --replace-protected option, each once and checked. */
@@ -216,28 +219,29 @@ export function recordValues(
   for (const key of fileKeys(schema, file)) {
     if (!isProtected(schema, file, key)) continue;
     const value = valueOf(key);
-    if (!value) {
-      if (replaced.has(key) && removeFingerprint(run.state, file.path, key))
-        run.changed = true;
-      continue;
-    }
-    if (recorded(run.state, file.path, key) && !replaced.has(key)) continue;
-    if (recordFingerprint(run.state, file.path, key, value)) run.changed = true;
+    const replace = replaced.has(key);
+    if (!value && !replace) continue;
+    const change: StateChange = value
+      ? { action: 'record', file: file.path, key, value, replace }
+      : { action: 'remove', file: file.path, key };
+    // Only a change to what the run read is kept: the rest needs no write.
+    if (applyChanges(run.state, [change])) run.changes.push(change);
   }
 }
 
 /**
- * Writes the state when the run changed it, after the env files. A failure
- * exits 1, saying what was written: those files hold values it does not know.
+ * Writes the run's changes to the state, after the env files, merged into
+ * the state on disk under its lock. A failure exits 1, saying what was
+ * written: those files hold values it does not know.
  */
 export async function saveRunState(
   context: Context,
   run: RunState | undefined,
   written: readonly string[],
 ) {
-  if (!run?.changed) return;
+  if (!run?.changes.length) return;
   try {
-    await writeState(run.path, run.state);
+    await updateState(run.path, run.changes);
   } catch (error) {
     throw new CliError(1, stateFailure(context, run, error, written));
   }
