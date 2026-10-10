@@ -789,8 +789,27 @@ describe('set and unset with rules between variables', () => {
       '--generate',
       'SM_MASTER_KEY',
     ]);
-    expect(r.code).toBe(1);
+    expect(r).toMatchObject({
+      code: 2,
+      out: [],
+      err: [
+        'configure-env: SM_MASTER_KEY: --generate would set it while SM_MASTER_KEY_FILE is set; set only one of them',
+      ],
+    });
+    // Nothing is generated, so no base64 value of 32 bytes reaches the output.
+    expect([...r.out, ...r.err].join('\n')).not.toMatch(/[A-Za-z0-9+/]{43}=/);
     expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=/run/key\n');
+    await env('');
+    const given = await cli([
+      'set',
+      '--file',
+      '.env',
+      'SM_MASTER_KEY_FILE=/run/key',
+      '--generate',
+      'SM_MASTER_KEY',
+    ]);
+    expect(given.code).toBe(2);
+    expect(await read('.env')).toBe('');
   });
 
   it('lets an unrelated set through, and swaps a pair in one set', async () => {

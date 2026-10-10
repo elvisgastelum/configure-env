@@ -2,7 +2,13 @@
 // value never passes through argv, a prompt or whoever runs the command.
 
 import { randomBytes } from 'node:crypto';
-import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
+import { fileKeys } from '../engine/plan.ts';
+import {
+  type EnvSchema,
+  type FileSpec,
+  type VariableSpec,
+  ruleNames,
+} from '../schema/definition.ts';
 import { validateValue } from '../schema/values.ts';
 import { keyError } from './common.ts';
 
@@ -50,6 +56,38 @@ export function generateKeys(
     checkGeneratable(key, spec(key), Object.hasOwn(schema.variables, key)),
   );
   return unique;
+}
+
+/** The variables `key` must not be set together with, either way round. */
+export const conflictsOf = (schema: EnvSchema, key: string) => [
+  ...new Set([
+    ...ruleNames(schema.variables[key]!.conflictsWith),
+    ...Object.keys(schema.variables).filter((name) =>
+      ruleNames(schema.variables[name]!.conflictsWith).includes(key),
+    ),
+  ]),
+];
+
+/**
+ * Refuses to generate `key` into `file` while the file would hold a variable
+ * it conflicts with (`isSet`), so --generate never writes both. Only the
+ * partners the file lists count, as for the rule itself.
+ */
+export function checkConflict(
+  schema: EnvSchema,
+  file: FileSpec,
+  key: string,
+  isSet: (other: string) => boolean,
+) {
+  const listed = fileKeys(schema, file);
+  for (const other of conflictsOf(schema, key)) {
+    if (listed.includes(other) && isSet(other))
+      throw keyError(
+        'usage',
+        key,
+        `--generate would set it while ${other} is set; set only one of them`,
+      );
+  }
 }
 
 /**

@@ -1223,6 +1223,61 @@ describe('apply rules between variables', () => {
     });
   });
 
+  it('generates a key whose partner has a value only outside the files of the run', async () => {
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        ...RULES_SCHEMA,
+        files: [
+          { path: '.env', policy: 'create-only', variables: ['SM_MASTER_KEY'] },
+          {
+            path: 'file.env',
+            policy: 'merge',
+            variables: ['SM_MASTER_KEY_FILE'],
+          },
+        ],
+      }),
+    );
+    await writeFile(join(root(), 'file.env'), 'SM_MASTER_KEY_FILE=/run/key\n');
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY'], {
+      env: { SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
+      32,
+    );
+  });
+
+  it('exits 2 for --generate of a key whose partner has only a default, in a file holding both', async () => {
+    const variables = {
+      ...RULES_SCHEMA.variables,
+      SM_MASTER_KEY_FILE: { type: 'string', default: '/run/key' },
+    };
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({ ...RULES_SCHEMA, variables }),
+    );
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        'configure-env: SM_MASTER_KEY: --generate would set it while SM_MASTER_KEY_FILE is set; set only one of them',
+      ],
+    });
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        ...RULES_SCHEMA,
+        variables,
+        files: [
+          { path: '.env', policy: 'create-only', variables: ['SM_MASTER_KEY'] },
+        ],
+      }),
+    );
+    expect((await cli([...CI, '--generate', 'SM_MASTER_KEY'])).code).toBe(0);
+  });
+
   it('exits 2 for --generate of a key whose conflicting partner is set', async () => {
     await useRules();
     const r = await cli([...CI, '--generate', 'SM_MASTER_KEY'], {

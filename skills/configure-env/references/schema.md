@@ -38,7 +38,7 @@ A value with `encoding` must be canonical: what `Buffer#toString` writes, so bas
 Each takes a declared name or a non-empty list, never the variable itself. A value is set when it is not empty.
 
 - `requiredUnless`: required unless one of the named is set; not with `required: true`. `--defer` accepts it.
-- `conflictsWith`: it and a named one must not both be set (symmetric). `--generate` of it exits 2 while the other has a value.
+- `conflictsWith`: it and a named one must not both be set (symmetric). `--generate` of it exits 2 while a file it writes would hold the other.
 - `distinctFrom`: when both are set, the values must differ.
 
 They hold per file, over the file's own keys; a name the file does not list is ignored there. Templates are not checked. `validate`, `check` and `list` report them, naming keys only; `apply` and `set` refuse to write a file that breaks one (exit 1); `unset` may leave a `requiredUnless` unsatisfied for `validate` to report.

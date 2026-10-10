@@ -73,8 +73,8 @@ prompt is shown for a variable only template files need.
 --generate KEY puts a random value in place of a secret string variable,
 one per run, never printed; a value the run's files already hold is used
 instead. It lands only where a file lacks the key, so it cannot take a key
-that a chosen generate file writes, or one whose conflictsWith partner has
-a value. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
+that a chosen generate file writes, or one that a file of the run would
+hold with its conflictsWith partner set. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
 
 --defer KEY leaves a required (or requiredUnless) variable for a person: with no value, it is
 written empty instead of failing the run, not prompted for, and reported,
@@ -167,7 +167,8 @@ reported as updated, added or unchanged, secrets masked.
 
 --generate KEY writes a random value for a secret string variable (${GENERATED_LENGTH}
 characters of [A-Za-z0-9_-], within minLength and maxLength; a maxLength
-under ${MIN_GENERATED_LENGTH} exits 2); a key that already has a value keeps it. --stdin
+under ${MIN_GENERATED_LENGTH} exits 2); a key that already has a value keeps it, and one to
+make whose conflictsWith partner the file holds exits 2. --stdin
 KEY reads one value from stdin, one trailing newline stripped, so a secret
 never goes through argv. An empty stdin, as a failed command in the pipe
 leaves, writes nothing (exit 1); so does input past ${STDIN_MAX_BYTES / 1024} KiB. ${STDIN_IDLE_MS / 1000}s

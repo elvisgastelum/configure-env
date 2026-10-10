@@ -34,7 +34,7 @@ import {
   parseCommandArgs,
   usageError,
 } from './common.ts';
-import { generateKeys, generateValue } from './generate.ts';
+import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
@@ -254,8 +254,21 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   const kept = new Set<string>();
   for (const key of generated) {
     const current = getValue(file.doc, key);
-    if (current) kept.add(key);
-    pairs.set(key, current || generateValue(key, specFor(schema, spec, key)!));
+    if (current) {
+      kept.add(key);
+      pairs.set(key, current);
+      continue;
+    }
+    // As apply does: a partner the file would hold refuses it before any
+    // value is made.
+    checkConflict(schema, spec, key, (other) =>
+      Boolean(
+        pairs.has(other) || generated.includes(other)
+          ? (pairs.get(other) ?? true)
+          : getValue(file.doc, other),
+      ),
+    );
+    pairs.set(key, generateValue(key, specFor(schema, spec, key)!));
   }
 
   // Validate everything before touching the file: one bad value writes nothing.

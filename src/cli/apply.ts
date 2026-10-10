@@ -9,11 +9,7 @@ import {
   planChanges,
 } from '../engine/plan.ts';
 import { fileRules } from '../engine/check.ts';
-import {
-  type EnvSchema,
-  type VariableSpec,
-  ruleNames,
-} from '../schema/definition.ts';
+import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
   CliError,
@@ -37,7 +33,7 @@ import {
   usageError,
 } from './common.ts';
 import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
-import { generateKeys, generateValue } from './generate.ts';
+import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
 
@@ -255,20 +251,11 @@ function withGenerated(
   return values;
 }
 
-/** The variables `key` must not be set together with, either way round. */
-const conflictsOf = (schema: EnvSchema, key: string) => [
-  ...new Set([
-    ...ruleNames(schema.variables[key]!.conflictsWith),
-    ...Object.keys(schema.variables).filter((name) =>
-      ruleNames(schema.variables[name]!.conflictsWith).includes(key),
-    ),
-  ]),
-];
-
 /**
- * Refuses to generate `key` while a variable it conflicts with has a value:
- * given, generated, from the environment, a default, or held by a file of the
- * run that takes the key. The run would write both.
+ * Refuses to generate `key` while a file of the run that writes it also
+ * holds a variable it conflicts with: kept from the file, or written by the
+ * run (`values`, given, generated, from the environment, or a default).
+ * The run would write both. A file without the partner holds no conflict.
  */
 function checkConflicts(
   schema: EnvSchema,
@@ -278,27 +265,24 @@ function checkConflicts(
   env: Io['env'],
   key: string,
 ) {
-  for (const other of conflictsOf(schema, key)) {
-    const fallback = schema.variables[other]!.default;
-    const held = plans.some((plan) => {
-      const file = schema.files.find((spec) => spec.path === plan.path)!;
-      return (
-        plan.previous !== undefined &&
-        takesValue(schema, file, key) &&
-        Boolean(getValue(parseDotenv(plan.previous), other))
+  for (const plan of plans) {
+    if (!neededKeysOf(schema, plan).includes(key)) continue;
+    const file = schema.files.find((spec) => spec.path === plan.path)!;
+    const held =
+      plan.previous === undefined ? undefined : parseDotenv(plan.previous);
+    checkConflict(schema, file, key, (other) => {
+      const kept = held && getValue(held, other);
+      if (kept !== undefined && plan.policy !== 'generate')
+        return Boolean(kept);
+      const literal = file.values?.[other];
+      if (literal !== undefined) return Boolean(literal);
+      const fallback = schema.variables[other]!.default;
+      return Boolean(
+        givenValue(other, sets, env) ||
+        generated.includes(other) ||
+        (fallback !== undefined && String(fallback) !== ''),
       );
     });
-    if (
-      givenValue(other, sets, env) ||
-      generated.includes(other) ||
-      (fallback !== undefined && String(fallback) !== '') ||
-      held
-    )
-      throw keyError(
-        'usage',
-        key,
-        `--generate would set it while ${other} is set; set only one of them`,
-      );
   }
 }
 
