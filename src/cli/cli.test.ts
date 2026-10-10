@@ -3,6 +3,7 @@ import {
   chmod,
   readFile,
   readdir,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -208,6 +209,7 @@ describe('apply --ci', () => {
         expect.objectContaining({ path: 'shared.env', status: 'created' }),
         expect.objectContaining({ path: 'local.env', status: 'created' }),
       ],
+      deferred: [],
     });
   });
 
@@ -475,6 +477,136 @@ describe('apply --generate', () => {
     });
     expect(refused.code).toBe(2);
     expect(await exists('gen.env')).toBe(false);
+  });
+});
+
+describe('apply --defer', () => {
+  /** A generated secret and a human-only one, over a template and a 600 file. */
+  const useDeferSchema = (token: Record<string, unknown> = {}) =>
+    writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        version: 1,
+        variables: {
+          PORT: { type: 'port', default: 3000 },
+          SESSION_SECRET: {
+            type: 'string',
+            secret: true,
+            required: true,
+            minLength: 32,
+          },
+          API_TOKEN: { type: 'string', secret: true, required: true, ...token },
+        },
+        files: [
+          { path: '.env.example', policy: 'merge', variables: '*' },
+          {
+            path: '.env',
+            policy: 'create-only',
+            variables: '*',
+            mode: '600',
+          },
+        ],
+      }),
+    );
+  const SETUP = ['apply', '--ci', '--generate', 'SESSION_SECRET'];
+
+  it('creates the files with the deferred key empty and reports it', async () => {
+    await useDeferSchema();
+    const r = await cli([...SETUP, '--defer', 'API_TOKEN']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(r.out).toEqual([
+      '.env.example: created',
+      '.env: created',
+      'deferred: API_TOKEN (set it with configure-env set --prompt API_TOKEN)',
+    ]);
+    const env = await read('.env');
+    expect(env).toMatch(/^PORT=3000$/m);
+    expect(env).toMatch(/^SESSION_SECRET=[A-Za-z0-9_-]{48}$/m);
+    expect(env).toMatch(/^API_TOKEN=$/m);
+    expect((await stat(join(root(), '.env'))).mode & 0o777).toBe(0o600);
+  });
+
+  it('lists the deferred keys in JSON, an empty array when none', async () => {
+    await useDeferSchema();
+    const r = await cli([...SETUP, '--json', '--defer', 'API_TOKEN']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out.join(''))).toMatchObject({
+      ok: true,
+      errors: [],
+      deferred: ['API_TOKEN'],
+    });
+    const none = await cli([...SETUP, '--json', '--set', 'API_TOKEN=x']);
+    expect(JSON.parse(none.out.join(''))).toMatchObject({ deferred: [] });
+  });
+
+  it('still fails and writes nothing without --defer', async () => {
+    await useDeferSchema();
+    const r = await cli(SETUP);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual(['configure-env: API_TOKEN: is required']);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('fails the run for a required key that is not deferred', async () => {
+    await useDeferSchema();
+    const r = await cli(['apply', '--ci', '--defer', 'API_TOKEN']);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual(['configure-env: SESSION_SECRET: is required']);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('exits 2 for a key given with --set or --generate, or undeclared', async () => {
+    await useDeferSchema();
+    const set = await cli([
+      ...SETUP,
+      '--set',
+      'API_TOKEN=x',
+      '--defer',
+      'API_TOKEN',
+    ]);
+    expect(set.code).toBe(2);
+    expect(set.err).toEqual([
+      'configure-env: API_TOKEN: --defer takes a key given no other way',
+    ]);
+    const generated = await cli([...SETUP, '--defer', 'SESSION_SECRET']);
+    expect(generated.code).toBe(2);
+    const unknown = await cli([...SETUP, '--defer', 'NOPE']);
+    expect(unknown.code).toBe(2);
+    expect(unknown.err).toEqual([
+      'configure-env: NOPE: is not declared in the schema',
+    ]);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('writes a deferred key that has an env value or a default', async () => {
+    await useDeferSchema();
+    const r = await cli([...SETUP, '--defer', 'API_TOKEN'], {
+      env: { API_TOKEN: 'from-env' },
+    });
+    expect(r.code).toBe(0);
+    expect(r.out.join('\n')).not.toContain('deferred');
+    expect(await read('.env')).toMatch(/^API_TOKEN=from-env$/m);
+    await rm(join(root(), '.env'));
+    await useDeferSchema({ default: 'dflt' });
+    const json = await cli([...SETUP, '--json', '--defer', 'API_TOKEN']);
+    expect(JSON.parse(json.out.join(''))).toMatchObject({ deferred: [] });
+    expect(await read('.env')).toMatch(/^API_TOKEN=dflt$/m);
+  });
+
+  it('is not prompted for in the terminal', async () => {
+    await useDeferSchema();
+    const { prompts, calls, logs } = scriptedPrompts();
+    const r = await cli(
+      [...SETUP.filter((a) => a !== '--ci'), '--defer', 'API_TOKEN'],
+      {
+        isTTY: true,
+        prompts,
+      },
+    );
+    expect(r.code).toBe(0);
+    expect(calls.filter((c) => c.message.includes('API_TOKEN'))).toEqual([]);
+    expect(await read('.env')).toMatch(/^API_TOKEN=$/m);
+    expect(logs.join('\n')).toContain('deferred: API_TOKEN');
   });
 });
 

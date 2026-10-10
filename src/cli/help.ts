@@ -71,9 +71,15 @@ prompt is shown for a variable only template files need.
 one per run, never printed. It lands only where a file lacks the key, so
 it cannot take a key that a chosen generate file writes.
 
+--defer KEY leaves a required variable for a person: with no value, it is
+written empty instead of failing the run, not prompted for, and reported,
+so it can be set later with set --prompt KEY or set --stdin KEY.
+
 Options:
   --set KEY=VALUE  a value; repeat for more
   --generate KEY   a random value for a secret string; repeat for more
+  --defer KEY      write a required variable empty when it has no value;
+                   repeat for more
 
 ${GLOBAL}
 
@@ -81,6 +87,7 @@ Examples:
   configure-env apply
   configure-env apply --ci --set WEB_PORT=9090
   configure-env apply --ci --generate SESSION_SECRET
+  configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN
   configure-env apply --ci --file .env --json
 
 ${EXIT_CODES}`;

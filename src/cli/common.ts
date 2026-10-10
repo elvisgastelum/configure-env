@@ -209,13 +209,14 @@ export const givenValue = (
 /**
  * The values to plan with: every --set pair, and each needed key's
  * environment variable. A needed required key with no value and no default
- * is an error.
+ * is an error, unless it is `deferred`: it is written empty.
  */
 export function resolveValues(
   schema: EnvSchema,
   keys: readonly string[],
   sets: Readonly<Record<string, string>>,
   env: Io['env'],
+  deferred: readonly string[] = [],
 ): { values: Record<string, string>; errors: PlanError[] } {
   const values: Record<string, string> = { ...sets };
   const errors: PlanError[] = [];
@@ -226,7 +227,7 @@ export function resolveValues(
       continue;
     }
     const spec = schema.variables[key]!;
-    if (spec.default !== undefined) continue;
+    if (spec.default !== undefined || deferred.includes(key)) continue;
     const result = validateValue(spec, undefined);
     if (!result.ok) errors.push({ kind: 'value', key, message: result.error });
   }

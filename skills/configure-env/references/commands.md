@@ -17,7 +17,7 @@
 
 | Command | Writes | Agent use |
 | --- | --- | --- |
-| `apply` | yes | writes every schema file by its policy. `--set KEY=VALUE` (non-secrets only), `--generate KEY`. Values come from `--set`, then `--generate`, then a non-empty env var of the same name, then the default. A missing required value writes nothing and exits 1. |
+| `apply` | yes | writes every schema file by its policy. `--set KEY=VALUE` (non-secrets only), `--generate KEY`, `--defer KEY`. Values come from `--set`, then `--generate`, then a non-empty env var of the same name, then the default. A missing required value writes nothing and exits 1, unless the key is deferred: then it is written empty and listed in `deferred`. |
 | `check` | no | drift: missing files, generated files that differ, keys a merge file lacks, mode, invalid values. Exits 1 on any. |
 | `validate` | no | the current values against the rules. `--strict` makes unknown keys errors. |
 | `list` | no | every file's keys: set, valid, value (secrets masked). |
@@ -31,12 +31,13 @@
 ## Secrets
 
 - `--generate KEY`: a random 48-character base64url value, adjusted to `minLength`/`maxLength`. Only for `type: "string"` variables with `secret: true`. It never replaces a value that is already set. `apply` refuses it for a key that a `generate`-policy file writes, because that file would rotate the key on every run.
+- `--defer KEY` (apply only): a required key with no value is written empty instead of failing the run, for a human to set with `set --prompt KEY`. A key also given with `--set`/`--generate`, or undeclared, exits 2.
 - `--stdin KEY` (set only): reads the value from piped stdin and strips one trailing newline. It refuses a terminal.
 - Output masks secrets as `••••` plus the last 2 characters once the value is longer than 8.
 
 ## JSON output
 
-- `apply`: `{ command, ok, errors, files: [{ path, policy, action, status, addedKeys, written }] }`
+- `apply`: `{ command, ok, errors, files: [{ path, policy, action, status, addedKeys, written }], deferred: [key] }`
 - `check`: `{ command, ok, drift, errors, files: [{ path, policy, status, drift, missingKeys, invalid, invalidLines, mode? }] }`
 - `validate`: `{ command, ok, files: [{ path, template, exists, ok, errors, warnings }] }`
 - `list`: `[{ file, key, set, valid, error?, value | masked, description?, unknown? }]`

@@ -32,7 +32,7 @@ Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project
 | Need | Do |
 | --- | --- |
 | No `env.schema.json` | `init --ci` (it infers from `.env.example`), then fix the types and mark the secrets |
-| First setup of a checkout | `apply --ci --json --generate <SECRET>...`; hand the remaining required secrets to the human |
+| First setup of a checkout | `apply --ci --json --generate <SECRET>... --defer <HUMAN_SECRET>...`; hand the `deferred` keys to the human |
 | New variable | add it to the schema → `apply --ci --file .env.example` → `set` it in the real file |
 | Non-secret value | `set --ci --file .env KEY=VALUE` |
 | Generated secret | `set --ci --file .env --generate KEY` (it keeps an existing value) |

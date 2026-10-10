@@ -36,6 +36,7 @@ import type { Io, Prompts } from './io.ts';
 const OPTIONS = {
   set: { type: 'string', multiple: true },
   generate: { type: 'string', multiple: true },
+  defer: { type: 'string', multiple: true },
 } as const;
 
 export async function applyCommand(args: string[], io: Io): Promise<number> {
@@ -54,17 +55,56 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
     if (sets[key] !== undefined)
       throw usageError(`${key}: --generate takes a key given no other way`);
   }
+  const deferred = deferKeys(schema, options.defer, [
+    ...Object.keys(sets),
+    ...generated,
+  ]);
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
     return applyUnattended(
       context,
       schema,
       withGenerated(schema, sets, generated),
+      deferred,
     );
   }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
-  return applyInteractive(context, schema, sets, generated);
+  return applyInteractive(context, schema, sets, generated, deferred);
 }
+
+/** The keys of the repeated --defer option, each once and checked. */
+function deferKeys(
+  schema: EnvSchema,
+  keys: readonly string[] = [],
+  given: readonly string[],
+): string[] {
+  const unique = [...new Set(keys)];
+  for (const key of unique) {
+    if (!Object.hasOwn(schema.variables, key))
+      throw usageError(`${key}: is not declared in the schema`);
+    if (given.includes(key))
+      throw usageError(`${key}: --defer takes a key given no other way`);
+  }
+  return unique;
+}
+
+/** The deferred keys that end up with no value: no --set, env or default. */
+const leftEmpty = (
+  schema: EnvSchema,
+  keys: readonly string[],
+  deferred: readonly string[],
+  values: Readonly<Record<string, string>>,
+) =>
+  keys.filter(
+    (key) =>
+      deferred.includes(key) &&
+      values[key] === undefined &&
+      schema.variables[key]!.default === undefined,
+  );
+
+/** The report line for keys left for a person to set. */
+const deferredLine = (keys: readonly string[]) =>
+  `deferred: ${keys.join(', ')} (set ${keys.length > 1 ? 'them' : 'it'} with configure-env set ${keys.map((key) => `--prompt ${key}`).join(' ')})`;
 
 /**
  * Refuses a generated key that a chosen generate file writes: it would get
@@ -110,12 +150,20 @@ async function applyUnattended(
   { io, root, files, json }: Context,
   schema: EnvSchema,
   sets: Record<string, string>,
+  deferred: readonly string[],
 ): Promise<number> {
   const first = await planChanges({ schema, root, values: {}, files });
   const keys = neededKeys(schema, first.files);
-  const { values, errors } = resolveValues(schema, keys, sets, io.env);
+  const { values, errors } = resolveValues(
+    schema,
+    keys,
+    sets,
+    io.env,
+    deferred,
+  );
   const plan = await planChanges({ schema, root, values, files });
   errors.push(...plan.errors);
+  const empty = leftEmpty(schema, keys, deferred, values);
 
   if (errors.length) {
     if (json)
@@ -125,6 +173,7 @@ async function applyUnattended(
           ok: false,
           errors,
           files: plan.files.map((file) => applyJson(file)),
+          deferred: empty,
         }),
       );
     else {
@@ -147,12 +196,15 @@ async function applyUnattended(
         ok,
         errors: [],
         files: plan.files.map((file, i) => applyJson(file, results[i])),
+        deferred: empty,
       }),
     );
-  else
+  else {
     plan.files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
+    if (empty.length) io.stdout(deferredLine(empty));
+  }
   return ok ? 0 : 1;
 }
 
@@ -240,6 +292,7 @@ async function applyInteractive(
   schema: EnvSchema,
   given: Record<string, string>,
   generated: readonly string[],
+  deferred: readonly string[],
 ): Promise<number> {
   prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
 
@@ -280,11 +333,18 @@ async function applyInteractive(
   }
 
   const answers: Record<string, string> = {};
-  for (const [group, keys] of byGroup(schema, neededKeys(schema, selected))) {
+  const needed = neededKeys(schema, selected);
+  for (const [group, keys] of byGroup(schema, needed)) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
       // A --set value is the answer already.
       if (sets[key] !== undefined) continue;
+      // A deferred key takes only its environment variable, else its default.
+      if (deferred.includes(key)) {
+        const given = givenValue(key, {}, io.env);
+        if (given !== undefined) answers[key] = given;
+        continue;
+      }
       const spec = schema.variables[key]!;
       const initial =
         givenValue(key, {}, io.env) ??
@@ -335,10 +395,14 @@ async function applyInteractive(
     return 1;
   }
   progress.stop('Written');
+  const empty = leftEmpty(schema, needed, deferred, { ...sets, ...answers });
   prompts.outro(
-    plan.files
-      .map((file, i) => `${file.path}: ${applyStatus(file, results[i])}`)
-      .join('\n'),
+    [
+      ...plan.files.map(
+        (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
+      ),
+      ...(empty.length ? [deferredLine(empty)] : []),
+    ].join('\n'),
   );
   return failure;
 }

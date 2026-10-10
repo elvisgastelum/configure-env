@@ -218,10 +218,19 @@ Other states are `updated`, `unchanged`, `skipped (refused: <reason>)` and `fail
 
 `--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A value that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
 
+`--defer KEY` (repeatable) leaves a required variable for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, and `validate` fails on them until they are set:
+
+```text
+.env.example: created
+.env: created
+deferred: API_TOKEN (set it with configure-env set --prompt API_TOKEN)
+```
+
 ```sh
 configure-env apply
 configure-env apply --ci --set WEB_PORT=9090
 configure-env apply --ci --generate SESSION_SECRET
+configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN
 WEB_HOST=10.0.0.5 configure-env apply --ci --file .env
 configure-env apply --ci --json
 ```
@@ -347,7 +356,7 @@ configure-env validate --json
 
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`, and `deferred` lists the `--defer` keys written empty. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
 
 ### Exit codes
 
@@ -409,6 +418,8 @@ An agent runs without a terminal, so it uses `--ci` and `--json` and never sees 
 | one the project makes (session, JWT, signing)   | `configure-env set --ci --file .env --generate SESSION_SECRET`             |
 | one from a vendor, held in a secret manager    | `op read op://dev/api/token \| configure-env set --ci --file .env --stdin API_TOKEN` |
 | one only a person knows                        | the person runs `configure-env set --file .env --prompt API_TOKEN`, or `apply` |
+
+On a first setup, `configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN` creates the files with the defaults and the generated secret, and leaves `API_TOKEN` empty for the person.
 
 The package ships a skill that teaches an agent this workflow: [`skills/configure-env/SKILL.md`](skills/configure-env/SKILL.md), with a command and schema reference next to it. To install it for Claude Code in a project, copy it from the installed package:
 
