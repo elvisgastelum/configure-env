@@ -14,7 +14,10 @@ import { driftLines } from './format.ts';
 import { CHECK_HELP } from './help.ts';
 import type { Io } from './io.ts';
 
-const OPTIONS = { set: { type: 'string', multiple: true } } as const;
+const OPTIONS = {
+  set: { type: 'string', multiple: true },
+  'use-env': { type: 'boolean' },
+} as const;
 
 export async function checkCommand(args: string[], io: Io): Promise<number> {
   const options = parseCommand(args, OPTIONS);
@@ -25,12 +28,14 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
   const context = await contextOf(io, options);
   const schema = await loadContextSchema(context);
   const sets = parseSets(options.set);
-  // As apply --ci writes them: --set, else the environment.
+  // Deterministic by default: --set values only. With --use-env, as apply
+  // --ci writes them: --set, else the environment.
   const values: Record<string, string> = { ...sets };
-  for (const key of Object.keys(schema.variables)) {
-    const given = givenValue(key, sets, io.env);
-    if (given !== undefined) values[key] = given;
-  }
+  if (options['use-env'])
+    for (const key of Object.keys(schema.variables)) {
+      const given = givenValue(key, sets, io.env);
+      if (given !== undefined) values[key] = given;
+    }
 
   const report = await checkDrift({
     schema,

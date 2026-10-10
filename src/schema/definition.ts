@@ -225,6 +225,10 @@ export const fileSpec = z.strictObject({
       'Text written as `#` comment lines at the top of the file; may span lines.',
   }),
   description: z.string().optional(),
+  template: z.boolean().optional().meta({
+    description:
+      'Whether the file is a template, committed with placeholders: it takes only `values` and defaults, never values a person or the environment gives. Defaults to true when the path ends in .example, .sample or .template.',
+  }),
   values: z
     .record(
       variableName,
@@ -363,6 +367,21 @@ export const envSchema = envSchemaObject
   });
 
 export type EnvSchema = z.output<typeof envSchema>;
+
+/** The path suffixes that make a file a template unless `template` says otherwise. */
+export const TEMPLATE_SUFFIXES = ['.example', '.sample', '.template'] as const;
+
+/**
+ * Whether the file is a template: `template` when set, else whether its path
+ * ends in a template suffix. A template takes only its `values` and the
+ * defaults, so a secret never lands in a committed file.
+ */
+export function isTemplate(file: Pick<FileSpec, 'path' | 'template'>): boolean {
+  return (
+    file.template ??
+    TEMPLATE_SUFFIXES.some((suffix) => file.path.endsWith(suffix))
+  );
+}
 export type VariableSpec = z.output<typeof variableSpec>;
 export type FileSpec = z.output<typeof fileSpec>;
 export type FilePolicy = (typeof FILE_POLICIES)[number];

@@ -21,6 +21,7 @@ import type { FileAction, FilePlan, Plan } from './plan.ts';
 /** The file system calls apply makes that tests replace. */
 export interface ApplyFs {
   link: typeof link;
+  open: typeof open;
 }
 
 export interface ApplyOptions {
@@ -77,16 +78,22 @@ async function checkTarget(root: string, file: FilePlan): Promise<string> {
   return target;
 }
 
-/** Writes `content` to `target` only when it does not exist yet. */
-async function createExclusive(target: string, file: FilePlan) {
-  const handle = await open(target, 'wx', file.mode);
+/**
+ * Writes `content` to `target` only when it does not exist yet. A failed
+ * write removes the partial file it created, so a retry can create it.
+ */
+async function createExclusive(target: string, file: FilePlan, fs: ApplyFs) {
+  const handle = await fs.open(target, 'wx', file.mode);
   try {
     await handle.writeFile(file.content ?? '', 'utf8');
     await handle.chmod(file.mode);
     await handle.sync();
-  } finally {
-    await handle.close();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await rm(target, { force: true }).catch(() => undefined);
+    throw error;
   }
+  await handle.close();
 }
 
 async function writeFileAtomic(root: string, file: FilePlan, fs: ApplyFs) {
@@ -99,7 +106,7 @@ async function writeFileAtomic(root: string, file: FilePlan, fs: ApplyFs) {
   let handle: FileHandle | undefined;
   let created = false;
   try {
-    handle = await open(temp, 'wx', file.mode);
+    handle = await fs.open(temp, 'wx', file.mode);
     created = true;
     await handle.writeFile(file.content ?? '', 'utf8');
     // The mode given to open is subject to the umask; chmod is not.
@@ -117,7 +124,7 @@ async function writeFileAtomic(root: string, file: FilePlan, fs: ApplyFs) {
         if (!NO_LINK.has(code)) throw error;
         // No hard links here: an exclusive create keeps the no-replace
         // guarantee, at the cost of a reader possibly seeing a partial file.
-        await createExclusive(target, file);
+        await createExclusive(target, file, fs);
       }
       await rm(temp, { force: true });
     } else {
@@ -140,7 +147,7 @@ export async function applyPlan(
   plan: Plan,
   options: ApplyOptions = {},
 ): Promise<ApplyResult[]> {
-  const fs: ApplyFs = { link, ...options.fs };
+  const fs: ApplyFs = { link, open, ...options.fs };
   if (options.link) fs.link = options.link;
   if (plan.errors.length) {
     return plan.files.map((file) => ({

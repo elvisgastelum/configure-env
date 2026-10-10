@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import type { FilePlan, PlanError } from '../engine/plan.ts';
 import { fileKeys } from '../engine/plan.ts';
-import type { EnvSchema } from '../schema/definition.ts';
+import { type EnvSchema, isTemplate } from '../schema/definition.ts';
 import { DEFAULT_SCHEMA_PATH, loadSchema } from '../schema/load.ts';
 import { validateValue } from '../schema/values.ts';
 import type { Io, Prompts } from './io.ts';
@@ -159,12 +159,13 @@ export function parseSets(pairs: readonly string[] = []) {
 
 /**
  * The variables a file's run takes values for: every one for a generate or
- * new file, the missing keys of a merge file, none for a skipped one. A key
- * the file sets literally (`values`) takes none.
+ * new file, the missing keys of a merge file, none for a skipped one or a
+ * template. A key the file sets literally (`values`) takes none.
  */
 export function neededKeysOf(schema: EnvSchema, plan: FilePlan): string[] {
   if (plan.action === 'skip') return [];
   const spec = schema.files.find((file) => file.path === plan.path)!;
+  if (isTemplate(spec)) return [];
   const keys =
     plan.policy === 'generate' || plan.action === 'create'
       ? fileKeys(schema, spec)

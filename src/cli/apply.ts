@@ -218,9 +218,11 @@ async function applyInteractive(
   for (const [group, keys] of byGroup(schema, neededKeys(schema, selected))) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
+      // A --set value is the answer already.
+      if (sets[key] !== undefined) continue;
       const spec = schema.variables[key]!;
       const initial =
-        givenValue(key, sets, io.env) ??
+        givenValue(key, {}, io.env) ??
         (spec.default === undefined ? '' : formatDefault(spec, spec.default));
       const answer = await ask(prompts, key, spec, initial);
       if (prompts.isCancel(answer)) return cancelled(prompts);
@@ -239,7 +241,10 @@ async function applyInteractive(
     prompts.outro('Nothing was written.');
     return 1;
   }
-  prompts.note(previewLines(schema, plan, answers).join('\n'), 'Plan');
+  prompts.note(
+    previewLines(schema, plan, { ...sets, ...answers }).join('\n'),
+    'Plan',
+  );
   if (!toWrite(plan)) {
     prompts.outro('Everything is current.');
     return failure;

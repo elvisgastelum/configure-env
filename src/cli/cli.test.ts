@@ -311,6 +311,17 @@ describe('apply in the terminal', () => {
     expect(calls.filter((c) => c.kind === 'password')).toEqual([]);
   });
 
+  it('takes a --set value over a prompt, even for a secret', async () => {
+    const { prompts, calls } = scriptedPrompts();
+    const r = await cli(['apply', '--set', 'TOKEN=abcdefghij'], {
+      isTTY: true,
+      prompts,
+    });
+    expect(r.code).toBe(0);
+    expect(calls.filter((c) => c.message.includes('TOKEN'))).toEqual([]);
+    expect(await read('local.env')).toContain('TOKEN=abcdefghij\n');
+  });
+
   it('offers only the --file paths', async () => {
     const { prompts, calls } = scriptedPrompts();
     const r = await cli(['apply', '--file', 'shared.env'], {
@@ -396,6 +407,22 @@ describe('check', () => {
       invalid: [],
       invalidLines: [],
     });
+  });
+
+  it('ignores the environment unless --use-env', async () => {
+    await applied();
+    const env = { PORT: '9999', TOKEN: 'another-token' };
+    expect((await cli(['check'], { env })).code).toBe(0);
+    const r = await cli(['check', '--use-env'], { env });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('config/app.env: differs from the schema');
+  });
+
+  it('compares with --set values without --use-env', async () => {
+    await applied();
+    const r = await cli(['check', '--set', 'PORT=9999']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('config/app.env: differs from the schema');
   });
 
   it('runs in the terminal, framed by the prompts', async () => {

@@ -2,7 +2,12 @@
 // anything: the content each file should hold, and why.
 
 import { readFile, realpath } from 'node:fs/promises';
-import type { EnvSchema, FilePolicy, FileSpec } from '../schema/definition.ts';
+import {
+  type EnvSchema,
+  type FilePolicy,
+  type FileSpec,
+  isTemplate,
+} from '../schema/definition.ts';
 import { formatValue, validateValue } from '../schema/values.ts';
 import { appendLines, keysOf, parseDotenv, serialize } from './dotenv.ts';
 import { resolveTarget } from './paths.ts';
@@ -52,7 +57,10 @@ export interface PlanOptions {
   schema: EnvSchema;
   /** The project root the file paths are relative to. */
   root: string;
-  /** Raw values by variable name, as a person or the environment gives them. */
+  /**
+   * Raw values by variable name, as a person or the environment gives them.
+   * Template files never take them.
+   */
   values: Readonly<Record<string, string>>;
   /** Only these schema paths; every file when absent. */
   files?: readonly string[];
@@ -62,7 +70,8 @@ export interface PlanOptions {
 export const fileKeys = (schema: EnvSchema, file: FileSpec): string[] =>
   file.variables === '*' ? Object.keys(schema.variables) : file.variables;
 
-const commentLines = (text: string) =>
+/** A comment as `#` lines, one per line of text. */
+export const commentLines = (text: string) =>
   text.split('\n').map((line) => (line ? `# ${line}` : '#'));
 
 /**
@@ -170,10 +179,12 @@ async function planFile(
   // when its mode differs from the schema's.
   const modeDiffers = target.exists && target.mode !== mode;
   const keys = fileKeys(schema, file);
+  // A template is committed: no given value (a secret, say) may reach it.
+  const template = isTemplate(file);
   const write: Writer = (key) => {
     const literal = file.values?.[key];
     if (literal !== undefined) return literal;
-    const value = given.get(key);
+    const value = template ? undefined : given.get(key);
     if (value !== undefined) return value;
     const spec = schema.variables[key]!;
     return spec.default === undefined ? '' : formatValue(spec, spec.default);

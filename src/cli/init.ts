@@ -118,9 +118,7 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
 
   const shownPath = displayPath(io.cwd, schemaPath);
   if (!options.force && (await exists(schemaPath)))
-    throw new CliError(1, [
-      `${shownPath} exists; pass --force to overwrite it`,
-    ]);
+    throw usageError(`${shownPath} exists; pass --force to overwrite it`);
   const from = await sourcePath(root, options.from);
   let variables = from
     ? inferVariables(await readFile(resolve(root, from), 'utf8'))
@@ -156,10 +154,10 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST')
+      throw usageError(`${shownPath} exists; pass --force to overwrite it`);
     throw new CliError(1, [
-      code === 'EEXIST'
-        ? `${shownPath} exists; pass --force to overwrite it`
-        : `cannot write ${shownPath}: ${code ?? (error as Error).message}`,
+      `cannot write ${shownPath}: ${code ?? (error as Error).message}`,
     ]);
   }
 

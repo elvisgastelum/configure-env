@@ -108,6 +108,7 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `variables`   | `"*"` or list | `"*"` for every variable in declaration order, or declared names in output order; required     |
 | `mode`        | string        | the permissions as three octal digits, like `"600"`                                            |
 | `header`      | string        | written as `#` lines at the top of the file                                                    |
+| `template`    | boolean       | the file is a template (below); default `true` when the path ends in `.example`, `.sample` or `.template` |
 | `values`      | object        | literal values for this file only, like placeholders in an example; written as is, not type-checked, no line breaks |
 | `comments`    | object        | comments for this file only, replacing the variables' own `comment`; for this file's variables only |
 | `description` | string        | what the file is for                                                                           |
@@ -118,9 +119,15 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `merge`       | appends the keys it lacks, with their comments, and keeps every existing line |
 | `create-only` | writes it only when it does not exist, then never touches it                  |
 
+### Template files
+
+A template file is committed with placeholders, like `.env.example`. A file is a template when its `template` is `true`, or when `template` is not set and its path ends in `.example`, `.sample` or `.template`; `"template": false` turns the suffix rule off.
+
+A template takes only its `values` entries and the defaults. It never takes a `--set` value, an environment variable or a prompted value, so a secret cannot end up in a committed file, and `apply` asks for no variable that only template files need. `check` and `validate` do not check the values of a template, which are placeholders.
+
 ### How files are written
 
-A generated or created file holds the `header` as `#` lines, a blank line, then each variable in the file's order: its comment as `#` lines, then `KEY=value`. A blank line separates blocks; a new block starts where the `group` changes or a variable has a comment. The value is the file's `values` entry, else the given value, else the `default`, else empty.
+A generated or created file holds the `header` as `#` lines, a blank line, then each variable in the file's order: its comment as `#` lines, then `KEY=value`. A blank line separates blocks; a new block starts where the `group` changes or a variable has a comment. The value is the file's `values` entry, else the given value (never for a template), else the `default`, else empty.
 
 A `merge` file keeps every existing line byte for byte, including its line endings, `export` prefixes, quotes and comments; the missing keys go at the end after a blank line, with their comments. Existing values are never changed.
 
@@ -171,7 +178,7 @@ A missing schema exits 2 with a hint to run `configure-env init`; an invalid one
 
 ### apply
 
-In a terminal, `apply` shows the schema files with their policy and current state and asks which to write. It then prompts, grouped by `group`, for the values the chosen files need: every variable of a generate file or a file it creates, and the keys a merge file lacks. A variable a file sets through `values` is not asked for. Each prompt fits the type: a select for an `enum`, a yes/no for a `boolean`, a hidden input for a `secret`, and text for the rest, starting from the default and checked against the variable's rules. It shows the plan (secrets masked), asks before writing, and writes. Ctrl-C at any prompt exits 130 and writes nothing. A create-only file that exists is skipped; a refused path is reported with its reason.
+In a terminal, `apply` shows the schema files with their policy and current state and asks which to write. It then prompts, grouped by `group`, for the values the chosen files need: every variable of a generate file or a file it creates, and the keys a merge file lacks. A variable a file sets through `values` is not asked for, and neither is one given with `--set` or one only template files need. Each prompt fits the type: a select for an `enum`, a yes/no for a `boolean`, a hidden input for a `secret`, and text for the rest, starting from the default and checked against the variable's rules. It shows the plan (secrets masked), asks before writing, and writes. Ctrl-C at any prompt exits 130 and writes nothing. A create-only file that exists is skipped; a refused path is reported with its reason.
 
 With `--ci`, or `CI=true`, it never prompts. Each value comes from `--set KEY=VALUE`, else the environment variable of the same name (when not empty), else the schema default. A required variable that ends up with no value, or any invalid value, is an error: nothing is written and it exits 1. It prints one line per file:
 
@@ -192,16 +199,17 @@ configure-env apply --ci --json
 
 ### check
 
-`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600`), values that break their variable's rules (secrets masked), and lines that are not valid entries. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the values from `--set` and the environment, as `apply --ci` writes them. It runs the same way with or without a terminal.
+`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600`), values that break their variable's rules (secrets masked), and lines that are not valid entries. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them. It runs the same way with or without a terminal.
 
 ```sh
 configure-env check
+WEB_PORT=9090 configure-env check --use-env
 configure-env check --ci --json
 ```
 
 ### init
 
-`init` writes `env.schema.json` in the root (or the `--schema` path), with `$schema` pointing at the published JSON Schema and `version` 1. It refuses to overwrite an existing schema (exit 1) unless `--force`.
+`init` writes `env.schema.json` in the root (or the `--schema` path), with `$schema` pointing at the published JSON Schema and `version` 1. It refuses to overwrite an existing schema (a usage error, exit 2) unless `--force`.
 
 It infers the variables from `--from <file>`, or from `.env.example` when that exists, and lists that file with policy `merge`:
 
@@ -226,8 +234,8 @@ With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`;
 | Code  | Meaning                                                                  |
 | ----- | ------------------------------------------------------------------------ |
 | `0`   | ok                                                                       |
-| `1`   | drift, an invalid value or schema, a failed write, or `init` over an existing schema without `--force` |
-| `2`   | usage error: a bad option, no schema, or no terminal without `--ci`      |
+| `1`   | drift, an invalid value or schema, or a failed write                     |
+| `2`   | usage error: a bad option, no schema, no terminal without `--ci`, or `init` over an existing schema without `--force` |
 | `130` | cancelled                                                                |
 
 ### Example schema

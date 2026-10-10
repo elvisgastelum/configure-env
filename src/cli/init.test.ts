@@ -125,7 +125,7 @@ describe('init', () => {
     await cli(['init', '--ci']);
     await writeFile(join(root(), 'example.env'), 'A=1\n');
     const refused = await cli(['init', '--ci', '--from', 'example.env']);
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(2);
     expect(refused.err.join('\n')).toContain('--force');
     expect((await readSchema()).variables).toEqual({});
     const forced = await cli([

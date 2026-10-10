@@ -2,6 +2,7 @@ import {
   chmod,
   link,
   mkdir,
+  open,
   readdir,
   stat,
   symlink,
@@ -160,6 +161,32 @@ describe('applyPlan', () => {
     expect(result).toMatchObject({ ok: false, written: false });
     expect((await plan(['local.env'])).files[0]!.previous).toBe('RACE=1\n');
     expect(await readdir(root())).toEqual(['local.env']);
+  });
+
+  it('removes a partly written file when the exclusive create fails', async () => {
+    const failingLink: typeof link = () =>
+      Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+    // The exclusive create writes half the content, then the disk fills up.
+    const fullDisk: typeof open = async (path, flags, mode) => {
+      const handle = await open(path, flags, mode);
+      // The real path of the root may differ from it (macOS /private/var).
+      if (!String(path).endsWith('/local.env')) return handle;
+      handle.writeFile = async () => {
+        await handle.write('HOST=');
+        throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      };
+      return handle;
+    };
+    const [result] = await applyPlan(await plan(['local.env']), {
+      link: failingLink,
+      fs: { open: fullDisk },
+    });
+    expect(result).toMatchObject({ ok: false, written: false });
+    expect(await readdir(root())).toEqual([]);
+    const [retry] = await applyPlan(await plan(['local.env']), {
+      link: failingLink,
+    });
+    expect(retry).toMatchObject({ ok: true, written: true });
   });
 
   it('does not fall back for other link errors', async () => {

@@ -22,9 +22,9 @@ const GLOBAL = `Global options:
 
 const EXIT_CODES = `Exit codes:
   0    ok
-  1    drift, an invalid value or schema, a failed write, or an
-       existing schema without --force
-  2    usage error: a bad option, no schema, or no terminal without --ci
+  1    drift, an invalid value or schema, or a failed write
+  2    usage error: a bad option, no schema, no terminal without --ci, or
+       init over an existing schema without --force
   130  cancelled`;
 
 export const MAIN_HELP = `Usage: configure-env [command] [options]
@@ -55,6 +55,11 @@ need, shows the plan and asks before writing. With --ci (or CI=true, or
 environment variable of the same name, else the schema default; a required
 variable with none is an error and nothing is written.
 
+Template files (template: true, or a path ending in .example, .sample or
+.template) take only their values entries and the defaults: never --set,
+environment or prompted values, so no secret reaches a committed file. No
+prompt is shown for a variable only template files need.
+
 Options:
   --set KEY=VALUE  a value; repeat for more
 
@@ -74,16 +79,19 @@ differs from the schema, the keys a merge file lacks, a mode other than
 the schema's, values that break their variable's rules (secrets masked)
 and lines that are not valid entries. Exits 1 when it finds any.
 
-Generated files are compared with the values from --set and the
-environment, as apply --ci would write them.
+Generated files are compared with the --set values and the defaults, so
+the result does not depend on the environment; with --use-env, also with
+the environment variables, as apply --ci would write them.
 
 Options:
   --set KEY=VALUE  a value to compare with; repeat for more
+  --use-env        compare with the environment variables too
 
 ${GLOBAL}
 
 Examples:
   configure-env check
+  configure-env check --use-env
   configure-env check --ci --json
 
 ${EXIT_CODES}`;

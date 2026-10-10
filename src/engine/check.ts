@@ -1,7 +1,12 @@
 // Checks the env files against the schema without changing them: content
 // drift by policy, and current values that break their variable's rules.
 
-import type { EnvSchema, FilePolicy, FileSpec } from '../schema/definition.ts';
+import {
+  type EnvSchema,
+  type FilePolicy,
+  type FileSpec,
+  isTemplate,
+} from '../schema/definition.ts';
 import { maskValue, unquoteValue, validateValue } from '../schema/values.ts';
 import { getValue, invalidLineNumbers, parseDotenv } from './dotenv.ts';
 import {
@@ -68,6 +73,8 @@ function invalidValues(
   content: string,
   missingKeys: readonly string[],
 ): InvalidValue[] {
+  // A template holds placeholders, not values to check.
+  if (isTemplate(file)) return [];
   const doc = parseDotenv(content);
   const invalid: InvalidValue[] = [];
   for (const key of fileKeys(schema, file)) {
