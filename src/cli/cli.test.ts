@@ -1223,6 +1223,82 @@ describe('apply rules between variables', () => {
     });
   });
 
+  /** RULES_SCHEMA with its files replaced. */
+  const useRuleFiles = (files: unknown[]) =>
+    writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({ ...RULES_SCHEMA, files }),
+    );
+
+  it('keeps an empty partner a merge file holds empty, so it generates the key', async () => {
+    // A merge file never changes an existing line: the environment value
+    // for the partner is not written, so the file never holds both.
+    await useRuleFiles([{ path: '.env', policy: 'merge', variables: '*' }]);
+    await writeFile(join(root(), '.env'), 'SM_MASTER_KEY_FILE=\n');
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY'], {
+      env: { SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(await keyIn('SM_MASTER_KEY_FILE')).toBe('');
+    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
+      32,
+    );
+  });
+
+  it('generates nothing into an existing create-only file, whatever its partner', async () => {
+    await useRuleFiles([
+      { path: '.env', policy: 'create-only', variables: '*' },
+    ]);
+    await writeFile(join(root(), '.env'), 'SM_MASTER_KEY_FILE=\n');
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY'], {
+      env: { SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(r).toMatchObject({ code: 0, out: ['.env: skipped (exists)'] });
+    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=\n');
+  });
+
+  it('refuses a partner a file sets through values, and allows an empty one', async () => {
+    const withValue = (value: string) =>
+      useRuleFiles([
+        {
+          path: '.env',
+          policy: 'merge',
+          template: false,
+          variables: '*',
+          values: { SM_MASTER_KEY_FILE: value },
+        },
+      ]);
+    await withValue('/run/key');
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        'configure-env: SM_MASTER_KEY: --generate would set it while SM_MASTER_KEY_FILE is set; set only one of them',
+      ],
+    });
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+    await withValue('');
+    expect((await cli([...CI, '--generate', 'SM_MASTER_KEY'])).code).toBe(0);
+  });
+
+  it('refuses a generate file before its partner counts, as it would rotate the key', async () => {
+    // A generate file that writes the key is refused first, so the conflict
+    // check never reads a value such a file holds.
+    await useRuleFiles([
+      { path: 'gen.env', policy: 'generate', variables: '*' },
+    ]);
+    await writeFile(join(root(), 'gen.env'), 'SM_MASTER_KEY_FILE=/run/key\n');
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        'configure-env: SM_MASTER_KEY: --generate would rotate it on every run of gen.env, a generate file',
+        'pass --file to leave that file out of the run',
+      ],
+    });
+    expect(await read('gen.env')).toBe('SM_MASTER_KEY_FILE=/run/key\n');
+  });
+
   it('generates a key whose partner has a value only outside the files of the run', async () => {
     await writeFile(
       join(root(), 'env.schema.json'),

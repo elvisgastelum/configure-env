@@ -271,6 +271,9 @@ function checkConflicts(
     const held =
       plan.previous === undefined ? undefined : parseDotenv(plan.previous);
     checkConflict(schema, file, key, (other) => {
+      // A value the file holds stays as it is, empty or not: a merge file
+      // never changes an existing line, an existing create-only file takes
+      // no key, and a generate file that writes the key is refused earlier.
       const kept = held && getValue(held, other);
       if (kept !== undefined && plan.policy !== 'generate')
         return Boolean(kept);
