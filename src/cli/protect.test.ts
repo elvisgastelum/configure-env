@@ -66,7 +66,10 @@ const exists = (name: string) =>
 const STATE = '.configure-env/state.json';
 const state = async () =>
   JSON.parse(await read(STATE)) as {
-    fingerprints: Record<string, Record<string, { hmac: string }>>;
+    fingerprints: Record<
+      string,
+      Record<string, { hmac: string; recordedAt: string }>
+    >;
   };
 const valueIn = async (file: string, key: string) =>
   getValue(parseDotenv(await read(file)), key);
@@ -1002,10 +1005,14 @@ describe('apply', () => {
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
     expect(await read(STATE)).toBe(recorded);
     // check still reports the mismatch.
+    // The date comes from the record, so a run across midnight cannot fail.
+    const on = (await state()).fingerprints['.env']![
+      'SM_MASTER_KEY'
+    ]!.recordedAt.slice(0, 10);
     const check = await cli(['check', '--ci', '--file', '.env']);
     expect(check.code).toBe(1);
     expect(check.out).toContain(
-      `.env: SM_MASTER_KEY no longer matches the value recorded on ${today()}`,
+      `.env: SM_MASTER_KEY no longer matches the value recorded on ${on}`,
     );
     await expectNoValue([r, check], KEY_A, KEY_B);
   });
