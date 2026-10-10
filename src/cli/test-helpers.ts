@@ -160,8 +160,8 @@ export async function run(
     env?: Io['env'];
     isTTY?: boolean;
     prompts?: Prompts;
-    /** What stdin holds; no stdin reader when absent. */
-    stdin?: string;
+    /** What stdin holds, or the error its reader rejects with; no stdin reader when absent. */
+    stdin?: string | Error;
     stdinIsTTY?: boolean;
   },
 ): Promise<Run> {
@@ -174,7 +174,14 @@ export async function run(
     cwd,
     prompts,
     stdinIsTTY,
-    ...(stdin === undefined ? {} : { readStdin: async () => stdin }),
+    ...(stdin === undefined
+      ? {}
+      : {
+          readStdin: async () => {
+            if (stdin instanceof Error) throw stdin;
+            return stdin;
+          },
+        }),
   });
   return result;
 }

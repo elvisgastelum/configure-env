@@ -30,7 +30,7 @@
 
 ## Secrets
 
-- `--generate KEY`: a random 48-character base64url value, adjusted to `minLength`/`maxLength`. Only for `type: "string"` variables with `secret: true`. It never replaces a value that is already set; a set value that breaks the rules exits 1 (unset it to generate a new one). `apply` refuses it for a key that a `generate`-policy file writes, because that file would rotate the key on every run.
+- `--generate KEY`: a random 48-character base64url value, adjusted to `minLength`/`maxLength`. Only for `type: "string"` variables with `secret: true`. It never replaces a value that is already set; a set value that breaks the rules exits 1 (unset it to generate a new one). `apply` refuses it for a key that a `generate`-policy file writes, because that file would rotate the key on every run. In `apply`, a value a non-template file of the run already holds is reused, so every file gets the same secret; files holding different values exit 2, naming the files only.
 - `--defer KEY` (apply only): a required key with no value is written empty instead of failing the run, for a human to set with `set --prompt KEY`. A key also given with `--set`/`--generate`, or undeclared, exits 2.
 - `--stdin KEY` (set only): reads the value from piped stdin and strips one trailing newline; the output always masks it. It refuses a terminal. An empty value (a failed command in the pipe, `/dev/null`) exits 1 and writes nothing; so does input past 64 KiB. 60 s with no new input exits 2, and so does a pipe that sends the value but never closes: the wait restarts with each chunk.
 - `--generate` and `--stdin` never write to a template, even with `--allow-template` (exit 2).

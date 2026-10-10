@@ -31,7 +31,12 @@ describe('readStream', () => {
     const stream = new PassThrough();
     const read = readStream(stream, limits);
     stream.write('abc');
-    expect(await read.catch((e: unknown) => e)).toMatchObject({ code: 2 });
+    const error = await read.catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: 2 });
+    expect((error as CliError).lines).toEqual([
+      '--stdin got no end of input in 0s; close the pipe after the value',
+    ]);
+    expect(stream.destroyed).toBe(true);
   });
 
   it('exits 1 for input past maxBytes, never echoing it', async () => {

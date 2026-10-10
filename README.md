@@ -216,7 +216,7 @@ config/app.env: created
 
 Other states are `updated`, `unchanged`, `skipped (refused: <reason>)` and `failed (<reason>)`. Without a terminal and without `--ci` it exits 2.
 
-`--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A value that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
+`--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. When a non-template file of the run already holds a non-empty value for the key, that value is reused instead of a new one, so a rerun after one file was deleted writes the same secret the others keep; two files of the run holding different values exit 2, naming the files and never a value. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A value that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
 
 `--defer KEY` (repeatable) leaves a required variable for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, and `validate` fails on them until they are set:
 
@@ -437,6 +437,8 @@ The skill tells the agent not to read real env files directly. Agent permissions
 ```json
 { "permissions": { "deny": ["Read(./.env)", "Read(./.env.local)"] } }
 ```
+
+A `Read` deny rule covers Claude's file tools and the shell file commands Claude Code recognizes, such as `cat`, `head` and `tail`. It does not cover a command that reads the file without naming it, such as `grep -r` from the project directory, or a script that opens the file itself. For a block that holds for every process, enable Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing); see [permissions](https://code.claude.com/docs/en/permissions).
 
 ## Programmatic API
 

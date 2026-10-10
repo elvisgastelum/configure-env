@@ -389,17 +389,72 @@ describe('apply --generate', () => {
     expect(await secretIn('merge.env')).toBe(value);
   });
 
-  it('keeps an existing value, and prints no value in JSON', async () => {
+  it('reuses a value a file of the run holds, and prints no value in JSON', async () => {
     await useSecretSchema();
     const kept = 'k'.repeat(32);
     await writeFile(join(root(), 'merge.env'), `SECRET=${kept}\n`);
     const r = await cli(['apply', '--json', '--generate', 'SECRET', ...FILES]);
     expect(r.code).toBe(0);
     expect(await secretIn('merge.env')).toBe(kept);
-    const value = (await secretIn('local.env'))!;
-    expect(value).not.toBe(kept);
+    expect(await secretIn('local.env')).toBe(kept);
     expect(JSON.parse(r.out.join('')).ok).toBe(true);
-    expect([...r.out, ...r.err].join('\n')).not.toContain(value);
+    expect([...r.out, ...r.err].join('\n')).not.toContain(kept);
+  });
+
+  it('writes the same value again after a file is deleted', async () => {
+    await useSecretSchema();
+    await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    const value = (await secretIn('merge.env'))!;
+    for (const lost of ['local.env', 'merge.env']) {
+      await rm(join(root(), lost));
+      const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+      expect(r.code).toBe(0);
+      expect(await secretIn('merge.env')).toBe(value);
+      expect(await secretIn('local.env')).toBe(value);
+      expect(r.out.join('\n')).not.toContain(value);
+    }
+  });
+
+  it('reuses a held value in the terminal too', async () => {
+    await useSecretSchema();
+    const kept = 'k'.repeat(32);
+    await writeFile(join(root(), 'local.env'), `SECRET=${kept}\n`);
+    // An existing create-only file is not picked by default: pick it here.
+    const { prompts, logs } = scriptedPrompts({
+      'Which files': ['merge.env', 'local.env'],
+    });
+    const r = await cli(['apply', '--generate', 'SECRET', ...FILES], {
+      isTTY: true,
+      prompts,
+    });
+    expect(r.code).toBe(0);
+    expect(await secretIn('merge.env')).toBe(kept);
+    expect(logs.join('\n')).not.toContain(kept);
+  });
+
+  it('exits 2 when files of the run hold different values, naming no value', async () => {
+    await useSecretSchema();
+    const one = 'a'.repeat(32);
+    const two = 'b'.repeat(32);
+    await writeFile(join(root(), 'merge.env'), `SECRET=${one}\n`);
+    await writeFile(join(root(), 'local.env'), `SECRET=${two}\n`);
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(2);
+    expect(r.err).toEqual([
+      'configure-env: SECRET: --generate found different values in merge.env, local.env',
+      'set the same value in each, or pass --file to leave one out of the run',
+    ]);
+    expect([...r.out, ...r.err].join('\n')).not.toMatch(/aaaa|bbbb/);
+    expect(await secretIn('merge.env')).toBe(one);
+    const limited = await cli([
+      'apply',
+      '--ci',
+      '--generate',
+      'SECRET',
+      '--file',
+      'merge.env',
+    ]);
+    expect(limited.code).toBe(0);
   });
 
   it('takes a secret that a generate file sets through values', async () => {

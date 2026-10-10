@@ -2,6 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { GENERATED_LENGTH } from './generate.ts';
+import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './stdin.ts';
 
 /** The package version, from package.json. */
 export const VERSION: string = (
@@ -164,7 +165,7 @@ characters of [A-Za-z0-9_-], within minLength and maxLength); a key that
 already has a value keeps it. --stdin KEY reads one value from stdin, one
 trailing newline stripped, so a secret never goes through argv. An empty
 stdin, as a failed command in the pipe leaves, writes nothing (exit 1); so
-does input past 64 KiB. 60s with no new input exits 2, as does a pipe
+does input past ${STDIN_MAX_BYTES / 1024} KiB. ${STDIN_IDLE_MS / 1000}s with no new input exits 2, as does a pipe
 that sends the value but never closes.
 
 ${FILE_CHOICE} A template file is

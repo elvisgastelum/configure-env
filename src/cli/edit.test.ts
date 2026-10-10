@@ -3,6 +3,7 @@
 import { chmod, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { CliError } from './common.ts';
 import {
   CLI_SCHEMA,
   run,
@@ -410,6 +411,23 @@ describe('set --stdin', () => {
       expect(r.err).toEqual([
         'configure-env: GREETING: stdin was empty; nothing was written to app.env',
       ]);
+    }
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('exits with the code of a failed read and writes nothing', async () => {
+    await seed();
+    const failures = [
+      new CliError(1, ['--stdin takes at most 65536 bytes']),
+      new CliError(2, ['--stdin got no input in 60s; pipe the value in']),
+    ];
+    for (const stdin of failures) {
+      const r = await cli(['set', '--stdin', 'TOKEN'], { stdin });
+      expect(r).toMatchObject({
+        code: stdin.code,
+        out: [],
+        err: [`configure-env: ${stdin.lines[0]}`],
+      });
     }
     expect(await read('app.env')).toBe(ORIGINAL);
   });

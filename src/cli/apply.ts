@@ -1,6 +1,7 @@
 // `configure-env apply`: writes the env files, in the TUI or unattended.
 
 import { applyPlan } from '../engine/apply.ts';
+import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import {
   type FilePlan,
   type Plan,
@@ -61,12 +62,7 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
   ]);
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
-    return applyUnattended(
-      context,
-      schema,
-      withGenerated(schema, sets, generated),
-      deferred,
-    );
+    return applyUnattended(context, schema, sets, generated, deferred);
   }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
   return applyInteractive(context, schema, sets, generated, deferred);
@@ -145,17 +141,39 @@ function checkGenerated(
   }
 }
 
-/** The --set values plus one generated value per --generate key. */
-const withGenerated = (
+/**
+ * The --set values plus one value per --generate key: the one the run's
+ * files already hold, else a random one. A file that lost the key, or a new
+ * one, so takes the secret the others keep. Values that differ exit 2,
+ * naming the files and never a value.
+ */
+function withGenerated(
   schema: EnvSchema,
+  plans: readonly FilePlan[],
   sets: Readonly<Record<string, string>>,
   keys: readonly string[],
-) => ({
-  ...sets,
-  ...Object.fromEntries(
-    keys.map((key) => [key, generateValue(key, schema.variables[key]!)]),
-  ),
-});
+): Record<string, string> {
+  const values = { ...sets };
+  for (const key of keys) {
+    const held = new Map<string, string>();
+    for (const plan of plans) {
+      const file = schema.files.find((spec) => spec.path === plan.path)!;
+      if (isTemplate(file) || file.values?.[key] !== undefined) continue;
+      if (plan.previous === undefined || !fileKeys(schema, file).includes(key))
+        continue;
+      const value = getValue(parseDotenv(plan.previous), key);
+      if (value) held.set(plan.path, value);
+    }
+    const distinct = [...new Set(held.values())];
+    if (distinct.length > 1)
+      throw usageError(
+        `${key}: --generate found different values in ${[...held.keys()].join(', ')}`,
+        'set the same value in each, or pass --file to leave one out of the run',
+      );
+    values[key] = distinct[0] ?? generateValue(key, schema.variables[key]!);
+  }
+  return values;
+}
 
 const toWrite = (plan: Plan) =>
   plan.files.some(
@@ -165,15 +183,17 @@ const toWrite = (plan: Plan) =>
 async function applyUnattended(
   { io, root, files, json }: Context,
   schema: EnvSchema,
-  sets: Record<string, string>,
+  sets: Readonly<Record<string, string>>,
+  generated: readonly string[],
   deferred: readonly string[],
 ): Promise<number> {
   const first = await planChanges({ schema, root, values: {}, files });
+  const givenValues = withGenerated(schema, first.files, sets, generated);
   const keys = neededKeys(schema, first.files);
   const { values, errors } = resolveValues(
     schema,
     keys,
-    sets,
+    givenValues,
     io.env,
     deferred,
   );
@@ -306,7 +326,7 @@ function previewLines(
 async function applyInteractive(
   { io, prompts, root, files, schemaPath }: Context,
   schema: EnvSchema,
-  setValues: Record<string, string>,
+  sets: Readonly<Record<string, string>>,
   generated: readonly string[],
   deferred: readonly string[],
 ): Promise<number> {
@@ -327,7 +347,12 @@ async function applyInteractive(
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
   checkGenerated(schema, picked, generated);
-  const sets = withGenerated(schema, setValues, generated);
+  const givenValues = withGenerated(
+    schema,
+    first.files.filter((file) => picked.includes(file.path)),
+    sets,
+    generated,
+  );
 
   let refused = false;
   const selected: FilePlan[] = [];
@@ -353,8 +378,8 @@ async function applyInteractive(
   for (const [group, keys] of byGroup(schema, needed)) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
-      // A --set value is the answer already.
-      if (sets[key] !== undefined) continue;
+      // A --set or generated value is the answer already.
+      if (givenValues[key] !== undefined) continue;
       // A deferred key takes only its environment variable, else its default.
       if (deferred.includes(key)) {
         const given = givenValue(key, {}, io.env);
@@ -374,7 +399,7 @@ async function applyInteractive(
   const plan = await planChanges({
     schema,
     root,
-    values: { ...sets, ...answers },
+    values: { ...givenValues, ...answers },
     files: selected.map((file) => file.path),
   });
   if (plan.errors.length) {
@@ -383,7 +408,7 @@ async function applyInteractive(
     return 1;
   }
   prompts.note(
-    previewLines(schema, plan, { ...sets, ...answers }).join('\n'),
+    previewLines(schema, plan, { ...givenValues, ...answers }).join('\n'),
     'Plan',
   );
   if (!toWrite(plan)) {
@@ -411,7 +436,10 @@ async function applyInteractive(
     return 1;
   }
   progress.stop('Written');
-  const empty = leftEmpty(schema, needed, deferred, { ...sets, ...answers });
+  const empty = leftEmpty(schema, needed, deferred, {
+    ...givenValues,
+    ...answers,
+  });
   prompts.outro(
     [
       ...plan.files.map(
