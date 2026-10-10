@@ -847,6 +847,39 @@ describe('apply --defer', () => {
     });
   });
 
+  it('names only written files in the terminal when a write fails', async () => {
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        version: 1,
+        variables: {
+          API_TOKEN: { type: 'string', secret: true, required: true },
+          DB_TOKEN: { type: 'string', secret: true, required: true },
+        },
+        files: [
+          { path: '.env', policy: 'create-only', variables: ['API_TOKEN'] },
+          { path: LONG, policy: 'create-only', variables: ['DB_TOKEN'] },
+        ],
+      }),
+    );
+    const { prompts, logs } = scriptedPrompts();
+    const r = await cli(
+      ['apply', '--defer', 'API_TOKEN', '--defer', 'DB_TOKEN'],
+      {
+        isTTY: true,
+        prompts,
+      },
+    );
+    expect(r.code).toBe(1);
+    const outro = logs.filter((line) => line.startsWith('outro:')).join('\n');
+    expect(outro).toBe(
+      [
+        'outro: Some files were not written.',
+        'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
+      ].join('\n'),
+    );
+  });
+
   describe('with two real files', () => {
     const useTwoFiles = () =>
       writeFile(

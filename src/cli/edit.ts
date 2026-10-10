@@ -108,6 +108,14 @@ function newEntryLines(
   return [...(comment ? commentLines(comment) : []), `${key}=${written}`];
 }
 
+/** Exits 1 for a missing file, unless `create` lets set create it. */
+function checkExists(file: EnvFile, create: boolean) {
+  if (!file.exists && !create)
+    throw new CliError(1, [
+      `${file.spec.path}: does not exist; pass --create to create it`,
+    ]);
+}
+
 /** Appends a key: after a blank line when it has a comment and follows lines. */
 function appendKey(file: EnvFile, lines: string[]) {
   const separate = lines.length > 1 && file.doc.lines.length > 0;
@@ -181,10 +189,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
 
   // A missing file fails before any prompt or wait.
   const peek = await readEnvFile(context, spec);
-  if (!peek.exists && !options.create)
-    throw new CliError(1, [
-      `${spec.path}: does not exist; pass --create to create it`,
-    ]);
+  checkExists(peek, Boolean(options.create));
 
   // Every wait (prompts, stdin) comes before the file is read for the
   // edit: a change made meanwhile, as by a parallel set, is kept, and the
@@ -220,10 +225,8 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
 
   const waited = promptKeys.length > 0 || stdinKey !== undefined;
   const file = waited ? await readEnvFile(context, spec) : peek;
-  if (!file.exists && !options.create)
-    throw new CliError(1, [
-      `${spec.path}: does not exist; pass --create to create it`,
-    ]);
+  // Checked again: the file can be deleted during a prompt or a stdin wait.
+  checkExists(file, Boolean(options.create));
 
   // A generated value never replaces one that is set: no rotation by accident.
   const kept = new Set<string>();

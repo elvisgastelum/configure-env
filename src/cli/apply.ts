@@ -462,16 +462,6 @@ async function applyInteractive(
   const progress = prompts.spinner();
   progress.start('Writing');
   const results = await applyPlan(plan);
-  const failed = results.filter((result) => !result.ok);
-  if (failed.length) {
-    progress.error(`${failed.length} of ${results.length} files failed`);
-    failed.forEach((result) =>
-      prompts.log.error(`${result.path}: ${result.error}`),
-    );
-    prompts.outro('Some files were not written.');
-    return 1;
-  }
-  progress.stop('Written');
   // Every other needed key has an answer: only deferred ones can be empty.
   const { empty } = resolveValues(
     schema,
@@ -480,12 +470,28 @@ async function applyInteractive(
     {},
     deferred,
   );
+  const left = writtenEmpty(schema, plan.files, results, empty);
+  const deferredLines = left.keys.length
+    ? [deferredLine(schema, left.written, left.keys)]
+    : [];
+  const failed = results.filter((result) => !result.ok);
+  if (failed.length) {
+    progress.error(`${failed.length} of ${results.length} files failed`);
+    failed.forEach((result) =>
+      prompts.log.error(`${result.path}: ${result.error}`),
+    );
+    prompts.outro(
+      ['Some files were not written.', ...deferredLines].join('\n'),
+    );
+    return 1;
+  }
+  progress.stop('Written');
   prompts.outro(
     [
       ...plan.files.map(
         (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
       ),
-      ...(empty.length ? [deferredLine(schema, plan.files, empty)] : []),
+      ...deferredLines,
     ].join('\n'),
   );
   return failure;
