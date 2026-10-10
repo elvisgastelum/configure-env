@@ -442,6 +442,69 @@ describe('updateState', () => {
         expect(await entries()).toEqual([]);
       });
 
+      describe('when closing it fails', () => {
+        /** An open whose lock handle closes, runs `after`, then throws. */
+        const closeThen = (after: () => Promise<void>) =>
+          onLock(async (args) => {
+            const handle = await open(...args);
+            const close = handle.close.bind(handle);
+            handle.close = async () => {
+              await close();
+              await after();
+              throw new Error('close failed');
+            };
+            return handle;
+          });
+        const theirs = JSON.stringify({
+          pid: 1,
+          host: 'elsewhere',
+          token: 'theirs',
+        });
+
+        it.each([
+          [
+            "another run's token",
+            async () => {
+              await unlink(lock());
+              await writeFile(lock(), theirs);
+            },
+            theirs,
+          ],
+          [
+            'an owner it cannot parse',
+            async () => {
+              await unlink(lock());
+              await writeFile(lock(), 'garbage');
+            },
+            'garbage',
+          ],
+        ])(
+          'leaves a lock holding %s, reporting the close error',
+          async (_label, after, content) => {
+            await expect(
+              lockWith({ link: noLink, open: closeThen(after) }),
+            ).rejects.toThrow('close failed');
+            expect(await readFile(lock(), 'utf8')).toBe(content);
+          },
+        );
+
+        it('reports the close error when the lock is gone or cannot be read', async () => {
+          await expect(
+            lockWith({ link: noLink, open: closeThen(() => unlink(lock())) }),
+          ).rejects.toThrow('close failed');
+          expect(await entries()).toEqual([]);
+          // A read that fails (EISDIR) counts as not ours.
+          const unreadable = closeThen(async () => {
+            await unlink(lock());
+            await mkdir(lock());
+          });
+          await expect(
+            lockWith({ link: noLink, open: unreadable }),
+          ).rejects.toThrow('close failed');
+          expect((await stat(lock())).isDirectory()).toBe(true);
+        });
+      });
+
       it('never removes a file that replaced the lock it created', async () => {
         const replaced = onLock(async (args) => {
           const handle = await open(...args);

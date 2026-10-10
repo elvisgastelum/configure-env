@@ -253,7 +253,10 @@ interface LockOwner {
   token: string;
 }
 
-/** The lock's owner; undefined when it cannot be read or makes no sense. */
+/**
+ * The lock's owner; undefined when it cannot be read or makes no sense. It
+ * never rejects, so a failed read never hides the error a caller reports.
+ */
 const readOwner = async (lock: string): Promise<LockOwner | undefined> => {
   try {
     const owner = JSON.parse(await readFile(lock, 'utf8')) as LockOwner;
