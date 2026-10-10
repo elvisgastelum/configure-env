@@ -102,6 +102,12 @@ export async function loadState(path: string): Promise<StateResult> {
 }
 
 /** The hex HMAC-SHA-256 of `value` under the state's salt. */
+/**
+ * The UTC day a fingerprint was recorded, as YYYY-MM-DD: the date part of
+ * its ISO timestamp, never the local date.
+ */
+export const recordedDay = (recordedAt: string) => recordedAt.slice(0, 10);
+
 export const fingerprint = (salt: string, value: string) =>
   createHmac('sha256', Buffer.from(salt, 'base64'))
     .update(value, 'utf8')

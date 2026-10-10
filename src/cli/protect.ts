@@ -11,6 +11,7 @@ import {
   matchesFingerprint,
   mergeState,
   recorded,
+  recordedDay,
   withStateLock,
 } from '../engine/state.ts';
 import {
@@ -73,9 +74,6 @@ export interface RunFile {
   spec: FileSpec;
   valueOf: (key: string) => string | undefined;
 }
-
-/** The date a fingerprint was recorded, as YYYY-MM-DD. */
-export const recordedDay = (recordedAt: string) => recordedAt.slice(0, 10);
 
 /**
  * A protected problem as one line: `KEY: is protected (...)`, or the

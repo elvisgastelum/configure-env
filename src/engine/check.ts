@@ -29,7 +29,12 @@ import {
   formatMode,
   planChanges,
 } from './plan.ts';
-import { type State, matchesFingerprint, recorded } from './state.ts';
+import {
+  type State,
+  matchesFingerprint,
+  recorded,
+  recordedDay,
+} from './state.ts';
 
 export type DriftStatus =
   'current' | 'missing' | 'differs' | 'missing-keys' | 'refused';
@@ -165,7 +170,7 @@ export function protectedMismatches(
     mismatches.push({
       kind: 'protected',
       key,
-      message: `no longer matches the value recorded on ${entry.recordedAt.slice(0, 10)}`,
+      message: `no longer matches the value recorded on ${recordedDay(entry.recordedAt)}`,
       ...(reason ? { reason } : {}),
     });
   }

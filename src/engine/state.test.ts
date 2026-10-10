@@ -27,6 +27,7 @@ import {
   matchesFingerprint,
   recordFingerprint,
   recorded,
+  recordedDay,
   removeFingerprint,
   updateState,
   withStateLock,
@@ -596,4 +597,27 @@ describe('updateState', () => {
     expect(loaded.ok && loaded.state).toEqual(disk);
     await expect(stat(`${statePath()}.lock`)).rejects.toThrow();
   });
+});
+
+describe('recordedDay', () => {
+  // Zones on both sides of UTC: a local-time date would differ in one.
+  it.each(['Pacific/Kiritimati', 'America/Adak'])(
+    'gives the UTC day in %s',
+    (zone) => {
+      const saved = process.env.TZ;
+      process.env.TZ = zone;
+      try {
+        const late = '2020-01-02T23:59:30.000Z';
+        const early = '2020-01-03T00:00:30.000Z';
+        // The zone took effect: one of the two local days differs.
+        const local = [late, early].map((at) => new Date(at).getDate());
+        expect(local).not.toEqual([2, 3]);
+        expect(recordedDay(late)).toBe('2020-01-02');
+        expect(recordedDay(early)).toBe('2020-01-03');
+      } finally {
+        if (saved === undefined) delete process.env.TZ;
+        else process.env.TZ = saved;
+      }
+    },
+  );
 });
