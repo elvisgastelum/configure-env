@@ -4,10 +4,12 @@ import {
   mkdir,
   open,
   readdir,
+  rm,
   stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyPlan } from './apply.ts';
@@ -69,7 +71,7 @@ describe('applyPlan', () => {
   });
 
   it('writes nothing for unchanged and skipped files', async () => {
-    await writeFile(join(root(), 'local.env'), 'KEEP=1\n');
+    await writeFile(join(root(), 'local.env'), 'KEEP=1\n', { mode: 0o600 });
     const [result] = await applyPlan(await plan(['local.env']));
     expect(result).toEqual({
       path: 'local.env',
@@ -212,5 +214,109 @@ describe('applyPlan', () => {
       error: 'resolves outside the root',
     });
     expect(await readdir(outside)).toEqual([]);
+  });
+});
+
+describe('applyPlan fixing mode drift', () => {
+  const statOf = (path: string) => stat(join(root(), path));
+
+  it('chmods an existing create-only file, never rewriting it', async () => {
+    await writeFile(join(root(), 'local.env'), 'HOST=web\n', { mode: 0o644 });
+    await chmod(join(root(), 'local.env'), 0o644);
+    const before = await statOf('local.env');
+    const p = await plan(['local.env']);
+    expect(p.files[0]).toMatchObject({
+      action: 'mode',
+      currentMode: 0o644,
+      mode: 0o600,
+      content: 'HOST=web\n',
+    });
+    expect(await applyPlan(p)).toEqual([
+      { path: 'local.env', action: 'mode', ok: true, written: false },
+    ]);
+    const after = await statOf('local.env');
+    expect(after.mode & 0o777).toBe(0o600);
+    expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
+    expect((await plan(['local.env'])).files[0]).toMatchObject({
+      action: 'skip',
+      reason: 'exists',
+    });
+  });
+
+  it('chmods a current generate or merge file in place', async () => {
+    const schema = testSchema();
+    schema.files[0]!.mode = '600';
+    schema.files[1]!.mode = '640';
+    await applyPlan(await plan(['gen/app.env', 'merge.env'], schema));
+    await chmod(join(root(), 'gen/app.env'), 0o644);
+    await chmod(join(root(), 'merge.env'), 0o644);
+    const before = await Promise.all([
+      statOf('gen/app.env'),
+      statOf('merge.env'),
+    ]);
+    const p = await plan(['gen/app.env', 'merge.env'], schema);
+    expect(p.files.map((file) => file.action)).toEqual(['mode', 'mode']);
+    await applyPlan(p);
+    const after = await Promise.all([
+      statOf('gen/app.env'),
+      statOf('merge.env'),
+    ]);
+    expect(after.map((s) => s.mode & 0o777)).toEqual([0o600, 0o640]);
+    expect(after.map((s) => [s.ino, s.mtimeMs])).toEqual(
+      before.map((s) => [s.ino, s.mtimeMs]),
+    );
+  });
+
+  it('never loosens a mode', async () => {
+    await writeFile(join(root(), 'local.env'), 'HOST=web\n');
+    await chmod(join(root(), 'local.env'), 0o400);
+    const p = await plan(['local.env']);
+    expect(p.errors).toEqual([]);
+    expect(p.files[0]).toMatchObject({
+      action: 'skip',
+      reason: 'loosens',
+      error: 'mode not loosened (400, schema says 600)',
+    });
+    await applyPlan(p);
+    expect(await modeOf('local.env')).toBe(0o400);
+  });
+
+  it('refuses a file that became a symlink or changed mode after planning', async () => {
+    await writeFile(join(root(), 'local.env'), 'HOST=web\n');
+    await chmod(join(root(), 'local.env'), 0o644);
+    const p = await plan(['local.env']);
+    const outside = join(await temp.another(), 'other.env');
+    await writeFile(outside, 'X=1\n');
+    await chmod(outside, 0o644);
+    await rm(join(root(), 'local.env'));
+    await symlink(outside, join(root(), 'local.env'));
+    expect((await applyPlan(p))[0]).toMatchObject({
+      ok: false,
+      error: 'changed since it was planned',
+    });
+    expect((await stat(outside)).mode & 0o777).toBe(0o644);
+
+    await rm(join(root(), 'local.env'));
+    await writeFile(join(root(), 'local.env'), 'HOST=web\n');
+    await chmod(join(root(), 'local.env'), 0o644);
+    const again = await plan(['local.env']);
+    await chmod(join(root(), 'local.env'), 0o664);
+    expect((await applyPlan(again))[0]).toMatchObject({
+      ok: false,
+      error: 'changed since it was planned',
+    });
+    expect(await modeOf('local.env')).toBe(0o664);
+  });
+
+  it('opens the file without following a symlink', async () => {
+    await writeFile(join(root(), 'local.env'), 'HOST=web\n');
+    await chmod(join(root(), 'local.env'), 0o644);
+    const flags: unknown[] = [];
+    const spy: typeof open = (path, flag, mode) => {
+      flags.push(flag);
+      return open(path, flag, mode);
+    };
+    await applyPlan(await plan(['local.env']), { fs: { open: spy } });
+    expect(flags).toEqual([constants.O_RDONLY | constants.O_NOFOLLOW]);
   });
 });

@@ -14,7 +14,8 @@ import { formatValue, validateValue } from '../schema/values.ts';
 import { appendLines, keysOf, parseDotenv, serialize } from './dotenv.ts';
 import { resolveTarget } from './paths.ts';
 
-export type FileAction = 'create' | 'update' | 'unchanged' | 'skip';
+/** `mode`: the content is current, only the permissions change. */
+export type FileAction = 'create' | 'update' | 'mode' | 'unchanged' | 'skip';
 
 export interface FilePlan {
   /** As the schema writes it, relative to the root. */
@@ -23,9 +24,12 @@ export interface FilePlan {
   action: FileAction;
   /** The keys the new content adds to the file. */
   addedKeys: string[];
-  /** Why a file is skipped: `exists` (create-only) or `refused` (unsafe path). */
-  reason?: 'exists' | 'refused';
-  /** Why the path was refused. */
+  /**
+   * Why a file is skipped: `exists` (create-only), `refused` (unsafe path) or
+   * `loosens` (its schema mode would add permissions).
+   */
+  reason?: 'exists' | 'refused' | 'loosens';
+  /** Why the path was refused, or the mode not loosened. */
   error?: string;
   /** The permissions to write with: the schema's, else the file's, else 644. */
   mode: number;
@@ -73,6 +77,13 @@ export interface PlanOptions {
   /** Only these schema paths; every file when absent. */
   files?: readonly string[];
 }
+
+/** Permissions as three octal digits, like `600`. */
+export const formatMode = (mode: number) => mode.toString(8).padStart(3, '0');
+
+/** Whether going from `current` to `mode` adds a permission bit. */
+export const loosens = (current: number, mode: number) =>
+  (mode & ~current) !== 0;
 
 /** The file's variable names in output order. */
 export const fileKeys = (schema: EnvSchema, file: FileSpec): string[] =>
@@ -214,9 +225,17 @@ async function planFile(
     ...(target.exists ? { currentMode: target.mode } : {}),
     ...(schemaMode === undefined ? {} : { modeFixed: true }),
   };
-  // A generate or merge file whose content is current is still rewritten
-  // when its mode differs from the schema's.
-  const modeDiffers = target.exists && target.mode !== mode;
+  // A file whose content is current only takes the schema mode: a chmod
+  // that never adds a permission.
+  const current = (fallback: FilePlan): { plan: FilePlan } => {
+    if (target.mode === undefined || target.mode === mode)
+      return { plan: fallback };
+    const plan = { ...common, content: previous };
+    if (!loosens(target.mode, mode))
+      return { plan: { ...plan, action: 'mode' } };
+    const error = `mode not loosened (${formatMode(target.mode)}, schema says ${formatMode(mode)})`;
+    return { plan: { ...plan, action: 'skip', reason: 'loosens', error } };
+  };
   const keys = fileKeys(schema, file);
   // A template is committed: no given value (a secret, say) may reach it.
   const template = isTemplate(file);
@@ -240,15 +259,15 @@ async function planFile(
   switch (file.policy) {
     case 'generate': {
       const content = render(schema, file, write, doc.eol);
-      const action =
-        content === previous && !modeDiffers ? 'unchanged' : 'update';
-      return { plan: { ...common, action, addedKeys: missing, content } };
+      if (content === previous)
+        return current({ ...common, action: 'unchanged', content });
+      return {
+        plan: { ...common, action: 'update', addedKeys: missing, content },
+      };
     }
     case 'merge': {
-      if (!missing.length) {
-        const action = modeDiffers ? 'update' : 'unchanged';
-        return { plan: { ...common, action, content: previous } };
-      }
+      if (!missing.length)
+        return current({ ...common, action: 'unchanged', content: previous });
       const lines = entryLines(schema, file, missing, write);
       appendLines(doc, doc.lines.length ? ['', ...lines] : lines);
       const content = serialize(doc);
@@ -257,7 +276,7 @@ async function planFile(
       };
     }
     case 'create-only':
-      return { plan: { ...common, action: 'skip', reason: 'exists' } };
+      return current({ ...common, action: 'skip', reason: 'exists' });
   }
 }
 

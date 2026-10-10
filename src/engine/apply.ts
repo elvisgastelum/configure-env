@@ -1,8 +1,10 @@
 // Writes a plan to disk, one atomic write per file: the content goes to a
 // temporary file in the same directory, is flushed, then takes the target's
-// place, so a reader never sees half a file.
+// place, so a reader never sees half a file. A file whose content is current
+// only gets its mode changed, in place.
 
 import { randomBytes } from 'node:crypto';
+import { constants } from 'node:fs';
 import {
   type FileHandle,
   link,
@@ -16,7 +18,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { isInside, nearestReal } from './paths.ts';
-import type { FileAction, FilePlan, Plan } from './plan.ts';
+import { type FileAction, type FilePlan, type Plan, loosens } from './plan.ts';
 
 /** The file system calls apply makes that tests replace. */
 export interface ApplyFs {
@@ -39,6 +41,7 @@ export interface ApplyResult {
   action: FileAction;
   /** False when the file should have been written and was not. */
   ok: boolean;
+  /** Whether the content was written; a chmod writes none. */
   written: boolean;
   /** Why the write failed. */
   error?: string;
@@ -138,8 +141,46 @@ async function writeFileAtomic(root: string, file: FilePlan, fs: ApplyFs) {
   }
 }
 
+// Windows has no O_NOFOLLOW; the lstat before the open still refuses a
+// symlink there.
+const NO_FOLLOW = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+
 /**
- * Writes every file the plan creates or updates. A failed file is reported
+ * Changes only the permissions of a file the plan found current. It opens
+ * the file without following a symlink and changes the open file, so the
+ * mode lands on the file that was checked; chmod ignores the umask.
+ */
+async function chmodFile(root: string, file: FilePlan, fs: ApplyFs) {
+  const realDir = await realpath(dirname(file.target));
+  if (!isInside(root, realDir)) throw new Error('resolves outside the root');
+  const target = join(realDir, basename(file.target));
+  const stats = await lstat(target).catch(() => undefined);
+  if (!stats?.isFile()) throw new Error('changed since it was planned');
+  const handle = await fs.open(target, NO_FOLLOW).catch((error) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP' || code === 'EMLINK')
+      throw new Error('changed since it was planned');
+    throw error;
+  });
+  try {
+    const now = await handle.stat();
+    const current = now.mode & 0o777;
+    if (
+      !now.isFile() ||
+      now.ino !== stats.ino ||
+      current !== file.currentMode ||
+      loosens(current, file.mode)
+    )
+      throw new Error('changed since it was planned');
+    await handle.chmod(file.mode);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Writes every file the plan creates or updates, and chmods each one whose
+ * action is `mode`. A failed file is reported
  * in its result and the rest are still written; a plan with errors writes
  * nothing.
  */
@@ -161,13 +202,15 @@ export async function applyPlan(
   const results: ApplyResult[] = [];
   for (const file of plan.files) {
     const result = { path: file.path, action: file.action };
-    if (file.action !== 'create' && file.action !== 'update') {
+    const write = file.action === 'create' || file.action === 'update';
+    if (!write && file.action !== 'mode') {
       results.push({ ...result, ok: true, written: false });
       continue;
     }
     try {
-      await writeFileAtomic(plan.root, file, fs);
-      results.push({ ...result, ok: true, written: true });
+      if (write) await writeFileAtomic(plan.root, file, fs);
+      else await chmodFile(plan.root, file, fs);
+      results.push({ ...result, ok: true, written: write });
     } catch (error) {
       results.push({
         ...result,

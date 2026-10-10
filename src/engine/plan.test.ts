@@ -136,7 +136,7 @@ describe('planChanges on existing files', () => {
   });
 
   it('skips an existing create-only file', async () => {
-    await writeFile(join(root(), 'local.env'), 'KEEP=1\n');
+    await writeFile(join(root(), 'local.env'), 'KEEP=1\n', { mode: 0o600 });
     expect((await byPath())['local.env']).toMatchObject({
       action: 'skip',
       reason: 'exists',

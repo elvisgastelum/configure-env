@@ -68,6 +68,12 @@ Writes the env files the schema lists, each by its policy: generate
 rewrites it, merge appends the keys it lacks, create-only writes it only
 when it does not exist.
 
+An existing file whose content needs no change but whose mode differs
+from the schema's mode gets a chmod only, never a rewrite: mode fixed
+(644 → 600). It needs no value. apply never adds a permission: a schema
+mode that would is refused for that file, mode not loosened (400, schema
+says 600), and the run exits 1.
+
 In a terminal it asks which files to write, prompts for the values they
 need, shows the plan and asks before writing. With --ci (or CI=true, or
 --json) it never prompts: each value comes from --set, else the
@@ -117,7 +123,7 @@ export const CHECK_HELP = `Usage: configure-env check [options]
 
 Changes nothing. Reports, per file: a missing file, a generated file that
 differs from the schema, the keys a merge file lacks, a mode other than
-the schema's, values that break their variable's rules (secrets masked),
+the schema's (apply fixes it when it only removes permissions), values that break their variable's rules (secrets masked),
 lines that are not valid entries, and protected values that no longer
 match the ones the state recorded. Exits 1 when it finds any.
 

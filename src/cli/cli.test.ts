@@ -1080,7 +1080,9 @@ describe('check', () => {
     await chmod(join(root(), 'local.env'), 0o644);
     const r = await cli(['check']);
     expect(r.code).toBe(1);
-    expect(r.out).toContain('local.env: mode 644, expected 600');
+    expect(r.out).toContain(
+      'local.env: mode 644, expected 600 (run configure-env apply to fix it)',
+    );
   });
 
   it('checks only the --file paths', async () => {

@@ -140,7 +140,8 @@ function runChecks(schema: EnvSchema, plan: Plan) {
   const checks: ProtectedCheck[] = [];
   const files: RunFile[] = [];
   for (const file of plan.files) {
-    if (file.reason === 'refused') continue;
+    // A chmod changes no value: it takes no lock and records nothing.
+    if (file.reason === 'refused' || file.action === 'mode') continue;
     const spec = schema.files.find((entry) => entry.path === file.path)!;
     const content = file.content ?? file.previous;
     if (content !== undefined) {
@@ -397,10 +398,19 @@ function checkConflicts(
   }
 }
 
-const toWrite = (plan: Plan) =>
-  plan.files.some(
-    (file) => file.action === 'create' || file.action === 'update',
-  );
+/** Whether the run writes or chmods the file. */
+const changes = (file: FilePlan) =>
+  file.action === 'create' ||
+  file.action === 'update' ||
+  file.action === 'mode';
+
+const toWrite = (plan: Plan) => plan.files.some(changes);
+
+/** A file whose mode apply does not loosen, as an error for --json. */
+const loosenedErrors = (plan: Plan): PlanError[] =>
+  plan.files
+    .filter((file) => file.reason === 'loosens')
+    .map((file) => ({ kind: 'file', path: file.path, message: file.error! }));
 
 async function applyUnattended(
   context: Context,
@@ -475,7 +485,10 @@ async function applyUnattended(
     return error.code;
   }
   const { value: results, replaced, stateError } = written;
-  const ok = results.every((result) => result.ok) && !stateError;
+  // A file left with a looser mode than the schema's still drifts.
+  const loosened = loosenedErrors(plan);
+  const ok =
+    results.every((result) => result.ok) && !stateError && !loosened.length;
   const left = writtenEmpty(schema, plan.files, results, empty);
   const done = replaced.filter((entry) =>
     plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
@@ -485,15 +498,18 @@ async function applyUnattended(
       JSON.stringify({
         command: 'apply',
         ok,
-        errors: stateError
-          ? [
-              {
-                kind: 'file',
-                path: displayPath(io.cwd, guard.run!.path),
-                message: stateError.join('; '),
-              },
-            ]
-          : [],
+        errors: [
+          ...loosened,
+          ...(stateError
+            ? [
+                {
+                  kind: 'file',
+                  path: displayPath(io.cwd, guard.run!.path),
+                  message: stateError.join('; '),
+                },
+              ]
+            : []),
+        ],
         files: plan.files.map((file, i) => applyJson(file, results[i])),
         deferred: left.keys,
         ...(done.length ? { replaced: done } : {}),
@@ -611,9 +627,7 @@ async function applyInteractive(
       label: file.path,
       hint: `${file.policy}; ${fileState(file)}`,
     })),
-    initialValues: first.files
-      .filter((file) => file.action === 'create' || file.action === 'update')
-      .map((file) => file.path),
+    initialValues: first.files.filter(changes).map((file) => file.path),
     required: true,
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
@@ -641,6 +655,9 @@ async function applyInteractive(
     if (!picked.includes(file.path)) continue;
     if (file.reason === 'refused') {
       prompts.log.warn(`${file.path}: refused: ${file.error}`);
+      refused = true;
+    } else if (file.reason === 'loosens') {
+      prompts.log.warn(`${file.path}: ${file.error}`);
       refused = true;
     } else if (file.reason === 'exists') {
       prompts.log.info(

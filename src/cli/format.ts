@@ -1,10 +1,14 @@
 // How plans, results and drift read, as plain lines and as JSON.
 
 import type { ApplyResult } from '../engine/apply.ts';
-import { type FileDrift, formatMode } from '../engine/check.ts';
-import type { FilePlan } from '../engine/plan.ts';
+import type { FileDrift } from '../engine/check.ts';
+import { type FilePlan, formatMode, loosens } from '../engine/plan.ts';
 import { ruleKeys } from '../schema/values.ts';
 import { protectedLine } from './protect.ts';
+
+/** `644 → 600`: the file's mode before and after the run. */
+const modeChange = (file: FilePlan) =>
+  `${formatMode(file.currentMode!)} → ${formatMode(file.mode)}`;
 
 /** What a run did to a file: `created`, `added keys: A B`, ... */
 export function applyStatus(file: FilePlan, result?: ApplyResult): string {
@@ -16,9 +20,12 @@ export function applyStatus(file: FilePlan, result?: ApplyResult): string {
       return file.policy === 'merge' && file.addedKeys.length
         ? `added keys: ${file.addedKeys.join(' ')}`
         : 'updated';
+    case 'mode':
+      return `mode fixed (${modeChange(file)})`;
     case 'unchanged':
       return 'unchanged';
     case 'skip':
+      if (file.reason === 'loosens') return file.error!;
       return file.reason === 'exists'
         ? 'skipped (exists)'
         : `skipped (refused: ${file.error})`;
@@ -28,6 +35,7 @@ export function applyStatus(file: FilePlan, result?: ApplyResult): string {
 /** A file's state before a run, for the file picker. */
 export function fileState(file: FilePlan): string {
   if (file.reason === 'refused') return `refused: ${file.error}`;
+  if (file.reason === 'loosens') return file.error!;
   if (file.reason === 'exists') return 'exists, never overwritten';
   if (file.previous === undefined) return 'missing';
   if (
@@ -51,17 +59,24 @@ export function planStatus(file: FilePlan): string {
       return file.policy === 'merge' && file.addedKeys.length
         ? `add keys: ${file.addedKeys.join(' ')}`
         : 'update';
+    case 'mode':
+      return `fix mode (${modeChange(file)})`;
     case 'unchanged':
       return 'unchanged';
     case 'skip':
+      if (file.reason === 'loosens') return `skip (${file.error})`;
       return file.reason === 'exists'
         ? 'skip (exists)'
         : `skip (refused: ${file.error})`;
   }
 }
 
-/** One JSON entry per file of an apply run. */
+/** One JSON entry per file of an apply run; `mode` when the run changed it. */
 export function applyJson(file: FilePlan, result?: ApplyResult) {
+  const changed =
+    (file.action === 'mode' || file.action === 'update') &&
+    file.currentMode !== undefined &&
+    file.currentMode !== file.mode;
   return {
     path: file.path,
     policy: file.policy,
@@ -73,7 +88,23 @@ export function applyJson(file: FilePlan, result?: ApplyResult) {
     ...(file.error || result?.error
       ? { error: file.error ?? result?.error }
       : {}),
+    ...(changed
+      ? {
+          mode: {
+            from: formatMode(file.currentMode!),
+            to: formatMode(file.mode),
+          },
+        }
+      : {}),
   };
+}
+
+/** A mode drift, with how to fix it: apply only removes permissions. */
+function modeLine({ actual, expected }: NonNullable<FileDrift['mode']>) {
+  const hint = loosens(Number.parseInt(actual, 8), Number.parseInt(expected, 8))
+    ? 'apply never adds a permission; chmod it by hand'
+    : 'run configure-env apply to fix it';
+  return `mode ${actual}, expected ${expected} (${hint})`;
 }
 
 const DRIFT_STATUS: Record<FileDrift['status'], (file: FileDrift) => string> = {
@@ -91,11 +122,7 @@ const DRIFT_STATUS: Record<FileDrift['status'], (file: FileDrift) => string> = {
 export function driftLines(file: FileDrift): string[] {
   return [
     `${file.path}: ${DRIFT_STATUS[file.status](file)}`,
-    ...(file.mode
-      ? [
-          `${file.path}: mode ${file.mode.actual}, expected ${file.mode.expected}`,
-        ]
-      : []),
+    ...(file.mode ? [`${file.path}: ${modeLine(file.mode)}`] : []),
     ...file.invalid.map(
       ({ key, shown, message }) =>
         `${file.path}: invalid ${key}=${shown} (${message})`,

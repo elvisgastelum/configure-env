@@ -1,7 +1,7 @@
 // Protected variables: set, unset and apply never change a protected value
 // silently, even after the file that held it was deleted.
 
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -967,7 +967,7 @@ describe('apply', () => {
   });
 
   it('records the values an existing create-only file holds', async () => {
-    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_A}\n`);
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_A}\n`, { mode: 0o600 });
     const r = await cli(['apply', '--ci', '--file', '.env']);
     expect(r).toMatchObject({ code: 0, out: ['.env: skipped (exists)'] });
     expect(Object.keys((await state()).fingerprints)).toEqual(['.env']);
@@ -987,6 +987,26 @@ describe('apply', () => {
     expect(r.code).toBe(0);
     expect(await exists(STATE)).toBe(false);
     expect(await exists('private/state.json')).toBe(true);
+  });
+
+  it('fixes a mode without the lock or a state write', async () => {
+    await seedKey();
+    await chmod(path('.env'), 0o644);
+    const recorded = await read(STATE);
+    // Another run holds the lock: a chmod never waits for it.
+    await writeFile(
+      path(`${STATE}.lock`),
+      JSON.stringify({ pid: process.pid, host: hostname() }),
+    );
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: mode fixed (644 → 600)'],
+      err: [],
+    });
+    expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
+    expect(await read(STATE)).toBe(recorded);
+    await expectNoValue([r], KEY_A);
   });
 });
 

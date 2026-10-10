@@ -26,6 +26,7 @@ import {
   type FilePlan,
   type PlanError,
   fileKeys,
+  formatMode,
   planChanges,
 } from './plan.ts';
 import { type State, matchesFingerprint, recorded } from './state.ts';
@@ -54,8 +55,7 @@ export interface ProtectedMismatch {
   reason?: string;
 }
 
-/** Permissions as three octal digits, like `600`. */
-export const formatMode = (mode: number) => mode.toString(8).padStart(3, '0');
+export { formatMode } from './plan.ts';
 
 export interface FileDrift {
   path: string;

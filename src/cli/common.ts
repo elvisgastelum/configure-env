@@ -234,11 +234,11 @@ export function parseSets(pairs: readonly string[] = []) {
 
 /**
  * The variables a file's run takes values for: every one for a generate or
- * new file, the missing keys of a merge file, none for a skipped one or a
- * template. A key the file sets literally (`values`) takes none.
+ * new file, the missing keys of a merge file, none for a skipped one, a
+ * chmod or a template. A key the file sets literally (`values`) takes none.
  */
 export function neededKeysOf(schema: EnvSchema, plan: FilePlan): string[] {
-  if (plan.action === 'skip') return [];
+  if (plan.action === 'skip' || plan.action === 'mode') return [];
   const spec = schema.files.find((file) => file.path === plan.path)!;
   const keys =
     plan.policy === 'generate' || plan.action === 'create'

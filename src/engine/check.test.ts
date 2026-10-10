@@ -134,7 +134,7 @@ describe('checkDrift', () => {
     expect(report.files[0]!.mode).toBeUndefined();
   });
 
-  it('plans a mode-only update for a generate file, so apply fixes it', async () => {
+  it('plans a chmod for a current generate file, so apply fixes it', async () => {
     const schema = testSchema();
     schema.files[0]!.mode = '600';
     await mkdir(join(root(), 'gen'));
@@ -147,7 +147,7 @@ describe('checkDrift', () => {
       files: ['gen/app.env'],
     });
     expect(p.files[0]).toMatchObject({
-      action: 'update',
+      action: 'mode',
       addedKeys: [],
       currentMode: 0o644,
       mode: 0o600,
