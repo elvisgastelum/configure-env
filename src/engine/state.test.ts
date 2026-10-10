@@ -1,12 +1,13 @@
+import { spawnSync } from 'node:child_process';
 import {
   mkdir,
   readFile,
   readdir,
   stat,
   symlink,
-  utimes,
   writeFile,
 } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -22,6 +23,7 @@ import {
   recorded,
   removeFingerprint,
   updateState,
+  withStateLock,
   writeState,
 } from './state.ts';
 import { useTempRoot } from './test-helpers.ts';
@@ -238,75 +240,96 @@ describe('updateState', () => {
     await expect(stat(statePath())).rejects.toThrow();
   });
 
-  it('takes over a stale lock, and gives up on a fresh one', async () => {
+  it('lets simultaneous runs take the lock in turn', async () => {
+    const keys = ['A', 'B', 'C', 'D', 'E', 'F'];
+    await Promise.all(
+      keys.map((key) => updateState(statePath(), [record('.env', key, key)])),
+    );
+    const loaded = await loadState(statePath());
+    if (!loaded.ok) throw new Error(loaded.message);
+    for (const key of keys)
+      expect(matchesFingerprint(loaded.state, '.env', key, key)).toBe(true);
+    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
+      'state.json',
+    ]);
+  });
+
+  it('writes its pid, host and a token in the lock, with mode 600', async () => {
     const lock = `${statePath()}.lock`;
-    await mkdir(join(temp.dirs.root, '.configure-env'));
-    await writeFile(lock, '');
-    await expect(
-      updateState(statePath(), [record('.env', 'KEY', SECRET)], {
-        waitMs: 100,
-      }),
-    ).rejects.toThrow(`${lock}: held by another run; try again`);
-    await expect(stat(statePath())).rejects.toThrow();
-    const old = new Date(Date.now() - 60_000);
-    await utimes(lock, old, old);
-    expect(
-      await updateState(statePath(), [record('.env', 'KEY', SECRET)]),
-    ).toBe(true);
+    await withStateLock(statePath(), async () => {
+      expect((await stat(lock)).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(await readFile(lock, 'utf8'))).toEqual({
+        pid: process.pid,
+        host: hostname(),
+        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        token: expect.stringMatching(/^[0-9a-f]{32}$/),
+      });
+    });
     await expect(stat(lock)).rejects.toThrow();
   });
 
-  it('lets one of several simultaneous takers take over a stale lock', async () => {
+  it('never removes a lock it did not create', async () => {
     const lock = `${statePath()}.lock`;
-    await mkdir(join(temp.dirs.root, '.configure-env'));
-    const old = new Date(Date.now() - 60_000);
-    for (let round = 0; round < 5; round++) {
-      await writeFile(lock, '');
-      await utimes(lock, old, old);
-      const keys = ['A', 'B', 'C', 'D'].map((key) => `${key}${round}`);
-      await Promise.all(
-        keys.map((key) => updateState(statePath(), [record('.env', key, key)])),
+    const other = JSON.stringify({ pid: 1, host: 'elsewhere', token: 'x' });
+    await withStateLock(statePath(), async () => {
+      // Someone removed this run's lock, and another run took it.
+      await writeFile(lock, other);
+    });
+    expect(await readFile(lock, 'utf8')).toBe(other);
+  });
+
+  describe('a lock held by another run', () => {
+    const hold = async (content: string) => {
+      await mkdir(join(temp.dirs.root, '.configure-env'), { recursive: true });
+      await writeFile(`${statePath()}.lock`, content);
+    };
+    const attempt = () =>
+      updateState(statePath(), [record('.env', 'KEY', SECRET)], {
+        waitMs: 100,
+      });
+
+    it('names a live process, and is left in place', async () => {
+      const content = JSON.stringify({ pid: process.pid, host: hostname() });
+      await hold(content);
+      await expect(attempt()).rejects.toThrow(
+        `${statePath()}.lock: held by process ${process.pid}; try again`,
       );
-      const loaded = await loadState(statePath());
-      if (!loaded.ok) throw new Error(loaded.message);
-      for (const key of keys)
-        expect(matchesFingerprint(loaded.state, '.env', key, key)).toBe(true);
-    }
-    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
-      'state.json',
-    ]);
+      expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(content);
+      await expect(stat(statePath())).rejects.toThrow();
+    });
+
+    it('names a process of this host that is no longer running', async () => {
+      const { pid } = spawnSync(process.execPath, ['-e', '']);
+      await hold(JSON.stringify({ pid, host: hostname() }));
+      await expect(attempt()).rejects.toThrow(
+        `${statePath()}.lock: left by process ${pid}, which is no longer running; remove it and try again`,
+      );
+    });
+
+    it('names another host, or none when it cannot be read', async () => {
+      await hold(JSON.stringify({ pid: 1, host: 'elsewhere' }));
+      await expect(attempt()).rejects.toThrow(
+        `${statePath()}.lock: held by another run (elsewhere); if none is running, remove it`,
+      );
+      await hold('');
+      await expect(attempt()).rejects.toThrow(
+        `${statePath()}.lock: held by another run (unknown host); if none is running, remove it`,
+      );
+    });
   });
 
-  it('recovers a takeover guard a stopped run left', async () => {
-    const lock = `${statePath()}.lock`;
-    await mkdir(join(temp.dirs.root, '.configure-env'));
-    const old = new Date(Date.now() - 60_000);
-    for (const path of [lock, `${lock}.takeover`]) {
-      await writeFile(path, '');
-      await utimes(path, old, old);
-    }
-    expect(
-      await updateState(statePath(), [record('.env', 'KEY', SECRET)]),
-    ).toBe(true);
-    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
-      'state.json',
-    ]);
-  });
-
-  it('refuses a stale takeover guard it cannot remove', async () => {
-    // The guard is renamed to a unique, longer name before it is removed:
-    // past the file name limit, that rename fails.
-    const state = join(temp.dirs.root, `${'s'.repeat(235)}.json`);
-    const lock = `${state}.lock`;
-    const old = new Date(Date.now() - 60_000);
-    for (const path of [lock, `${lock}.takeover`]) {
-      await writeFile(path, '');
-      await utimes(path, old, old);
-    }
+  it('writes through the given writer, keeping the state on disk when it fails', async () => {
+    const disk = emptyState();
+    await writeState(statePath(), disk);
     await expect(
-      updateState(state, [record('.env', 'KEY', SECRET)]),
-    ).rejects.toThrow(
-      `${lock}.takeover: left by a run that stopped; remove it and ${lock}`,
-    );
+      updateState(statePath(), [record('.env', 'KEY', SECRET)], {
+        write: async () => {
+          throw new Error('disk full');
+        },
+      }),
+    ).rejects.toThrow('disk full');
+    const loaded = await loadState(statePath());
+    expect(loaded.ok && loaded.state).toEqual(disk);
+    await expect(stat(`${statePath()}.lock`)).rejects.toThrow();
   });
 });

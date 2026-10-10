@@ -1,6 +1,8 @@
 // What a command run touches outside the file system: the output streams,
 // the environment, and the prompts. Tests replace all of it.
 
+import type { StateWriter } from '../engine/state.ts';
+
 /** One option of a select or multiselect prompt. */
 export interface Choice<V> {
   value: V;
@@ -69,4 +71,6 @@ export interface Io {
   stdinIsTTY?: boolean;
   /** Reads the whole of stdin, within a wait and a size limit; `set --stdin` needs it. */
   readStdin?: () => Promise<string>;
+  /** Writes the protected variables' state; tests pass one that fails. */
+  writeState?: StateWriter;
 }

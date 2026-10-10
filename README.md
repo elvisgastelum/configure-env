@@ -192,7 +192,7 @@ The state is `.configure-env/state.json` under the root, or the global `--state 
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. A run with anything to settle with the state takes a lock file next to it (`state.json.lock`) before it writes any env file: it re-reads the state, runs the protected checks against it, writes the env files and applies only its own changes, so parallel runs keep each other's fingerprints. A lock held by another run makes it wait 2 seconds, then exit 1 with nothing written; a lock older than 30 seconds, left by a run that stopped, is taken over. It is written atomically with mode 600, its directory with 700, never through a symlink, and holds only a salted HMAC of each value, never the value:
+`check`, `validate` and `list` never write the state. A run that writes or holds a protected value takes a lock file next to the state (`state.json.lock`, holding its pid, host and a random token) before it writes any env file: it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, so parallel runs keep each other's fingerprints. It removes only its own lock. A lock held by another run makes it wait 2 seconds, then exit 1 with nothing written, naming the owner. A lock is never taken over: a run that crashed leaves one, and the message says so (`left by process 4242, which is no longer running; remove it and try again`); remove it by hand. It is written atomically with mode 600, its directory with 700, never through a symlink, and holds only a salted HMAC of each value, never the value:
 
 ```json
 {

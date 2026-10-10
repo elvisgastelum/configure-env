@@ -201,7 +201,10 @@ function writeRun(
         plan.files.filter(keep).map((file) => file.path);
       return {
         value: results,
-        done: paths((file, i) => Boolean(results[i]?.ok) && !file.reason),
+        // The files left as planned: the rule runChecks records by.
+        done: paths(
+          (file, i) => Boolean(results[i]?.ok) && file.reason !== 'refused',
+        ),
         written: paths((_, i) => Boolean(results[i]?.written)),
       };
     },

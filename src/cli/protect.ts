@@ -7,7 +7,6 @@ import { fileKeys } from '../engine/plan.ts';
 import {
   type State,
   type StateChange,
-  applyChanges,
   loadState,
   matchesFingerprint,
   mergeState,
@@ -47,8 +46,8 @@ export type Verdict =
 
 /**
  * The state of a run, as read at its start: it decides early refusals and
- * whether the run needs the state at all. The checks that count run again
- * against the state re-read under its lock.
+ * which replacements to confirm. The checks that count run again against
+ * the state re-read under its lock.
  */
 export interface RunState {
   path: string;
@@ -303,13 +302,13 @@ export interface Written<T> {
 }
 
 /**
- * Writes a run that may touch protected values. A run that has nothing to
- * settle with the state (no replacement, nothing to record) just writes.
- * Any other takes the state's lock before writing anything: under it, it
- * re-reads the state, runs the checks again (a refusal exits 2), writes the
- * env files, merges its changes into the state and releases the lock. A
- * lock or state it cannot get exits 1 with nothing written; a state write
- * that fails after the env files is returned as `stateError`.
+ * Writes a run that may touch protected values. A run that writes or holds
+ * none just writes. Any other takes the state's lock before writing
+ * anything: under it, it re-reads the state, runs every protected check
+ * against it (a refusal exits 2), writes the env files, merges its changes
+ * into the state and releases the lock. A lock or state it cannot get exits
+ * 1 with nothing written; a state write that fails after the env files is
+ * returned as `stateError`.
  */
 export async function writeProtected<T>(
   context: Context,
@@ -324,15 +323,15 @@ export async function writeProtected<T>(
   write: () => Promise<Written<T>>,
 ): Promise<{ value: T; replaced: Replaced[]; stateError?: string[] }> {
   const { checks, files, replace, hints = [] } = plan;
-  if (!run) return { value: (await write()).value, replaced: [] };
-  const early = verdictsOf(schema, run.state, checks, replace);
-  if (early.refused.length) throw protectedError(early.refused, ...hints);
-  const snapshot = structuredClone(run.state);
-  if (
-    !early.replaced.length &&
-    !applyChanges(snapshot, intentsOf(schema, files, early.replaced))
-  )
-    return { value: (await write()).value, replaced: [] };
+  // A run that writes or holds no protected value never takes the lock.
+  const involved =
+    checks.some((check) => check.current || check.next) ||
+    files.some(({ spec, valueOf }) =>
+      fileKeys(schema, spec).some(
+        (key) => isProtected(schema, spec, key) && valueOf(key),
+      ),
+    );
+  if (!run || !involved) return { value: (await write()).value, replaced: [] };
 
   let writing = false;
   try {
@@ -354,7 +353,7 @@ export async function writeProtected<T>(
         replaced,
       );
       try {
-        await mergeState(run.path, changes);
+        await mergeState(run.path, changes, context.io.writeState);
         return { value, replaced };
       } catch (error) {
         return {

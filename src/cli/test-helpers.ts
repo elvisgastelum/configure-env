@@ -192,6 +192,7 @@ export async function run(
     stdin,
     // A test without stdin runs in one terminal, stdin included; given stdin is a pipe.
     stdinIsTTY = stdin === undefined ? isTTY : false,
+    writeState,
   }: {
     cwd: string;
     env?: Io['env'];
@@ -203,6 +204,8 @@ export async function run(
      */
     stdin?: string | Error | (() => Promise<string>);
     stdinIsTTY?: boolean;
+    /** Writes the protected variables' state; a failing one in tests. */
+    writeState?: Io['writeState'];
   },
 ): Promise<Run> {
   const result: Run = { code: -1, out: [], err: [] };
@@ -214,6 +217,7 @@ export async function run(
     cwd,
     prompts,
     stdinIsTTY,
+    ...(writeState ? { writeState } : {}),
     ...(stdin === undefined
       ? {}
       : {

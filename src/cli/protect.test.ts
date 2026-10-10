@@ -2,10 +2,11 @@
 // silently, even after the file that held it was deleted.
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
-import { emptyState, recordFingerprint } from '../engine/state.ts';
+import { updateState } from '../engine/state.ts';
 import {
   KEY_A,
   KEY_B,
@@ -87,18 +88,12 @@ const PROTECTED = `configure-env: SM_MASTER_KEY: is protected (${REASON}); pass 
 const wasSet = () =>
   `SM_MASTER_KEY was set on ${today()}; restore it from your backup, or pass --replace-protected SM_MASTER_KEY`;
 
-/**
- * A --state path whose temporary file is past the file name limit: the
- * state reads and locks, and fails only when it is written, for root too.
- */
-const LONG_STATE = `${'s'.repeat(235)}.json`;
-
-/** The long state, written by hand, recording `value` for `key` in `file`. */
-async function seedLongState(file: string, key: string, value: string) {
-  const state = emptyState();
-  recordFingerprint(state, file, key, value);
-  await writeFile(path(LONG_STATE), JSON.stringify(state));
-}
+/** Runs whose state write fails, as a full disk would make it. */
+const FAIL = {
+  writeState: async () => {
+    throw new Error('disk full');
+  },
+};
 
 /** `.env` holding KEY_A, recorded by a set. */
 async function seedKey() {
@@ -700,33 +695,22 @@ describe('apply', () => {
   });
 
   it('exits 1 when the state cannot be written, saying what was', async () => {
-    const r = await cli([
-      'apply',
-      '--ci',
-      '--state',
-      LONG_STATE,
-      '--file',
-      'gen.env',
-      '--set',
-      'API_KEY=first-value',
-    ]);
+    const r = await cli(
+      ['apply', '--ci', '--file', 'gen.env', '--set', 'API_KEY=first-value'],
+      FAIL,
+    );
     expect(r.code).toBe(1);
     expect(r.out).toEqual(['gen.env: created']);
     expect(r.err[0]).toMatch(
-      new RegExp(`^configure-env: ${LONG_STATE}: not written: `),
+      /^configure-env: \.configure-env\/state\.json: not written: disk full$/,
     );
     expect(r.err[1]).toBe(
       'gen.env was written; its protected values are not recorded',
     );
-    const set = await cli([
-      'set',
-      '--state',
-      LONG_STATE,
-      '--file',
-      '.env',
-      '--create',
-      `SM_MASTER_KEY=${KEY_A}`,
-    ]);
+    const set = await cli(
+      ['set', '--file', '.env', '--create', `SM_MASTER_KEY=${KEY_A}`],
+      FAIL,
+    );
     expect(set.code).toBe(1);
     expect(set.err[1]).toBe(
       '.env was written; its protected values are not recorded',
@@ -737,29 +721,24 @@ describe('apply', () => {
 
   it('prints the set and unset documents with ok false when the state cannot be written', async () => {
     await seedKey();
-    await seedLongState('.env', 'SM_MASTER_KEY', KEY_A);
-    // A run with nothing protected to settle never writes the state.
-    const set = await cli([
-      'set',
-      '--json',
-      '--state',
-      LONG_STATE,
-      '--file',
-      '.env',
-      'SM_MASTER_KEY_FILE=',
-    ]);
+    // A run whose state does not change writes no state.
+    const set = await cli(
+      ['set', '--json', '--file', '.env', 'SM_MASTER_KEY_FILE='],
+      FAIL,
+    );
     expect(set.code).toBe(0);
-    const replaced = await cli([
-      'set',
-      '--json',
-      '--state',
-      LONG_STATE,
-      '--file',
-      '.env',
-      '--replace-protected',
-      'SM_MASTER_KEY',
-      `SM_MASTER_KEY=${KEY_B}`,
-    ]);
+    const replaced = await cli(
+      [
+        'set',
+        '--json',
+        '--file',
+        '.env',
+        '--replace-protected',
+        'SM_MASTER_KEY',
+        `SM_MASTER_KEY=${KEY_B}`,
+      ],
+      FAIL,
+    );
     expect(replaced.code).toBe(1);
     expect(replaced.err).toEqual([]);
     expect(JSON.parse(replaced.out[0]!)).toEqual({
@@ -777,27 +756,25 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: LONG_STATE,
-          message: expect.stringMatching(
-            new RegExp(
-              `^${LONG_STATE}: not written: .*; \\.env was written; its protected values are not recorded$`,
-            ),
-          ),
+          path: '.configure-env/state.json',
+          message:
+            '.configure-env/state.json: not written: disk full; .env was written; its protected values are not recorded',
         },
       ],
     });
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
-    const unset = await cli([
-      'unset',
-      '--json',
-      '--state',
-      LONG_STATE,
-      '--file',
-      '.env',
-      '--replace-protected',
-      'SM_MASTER_KEY',
-      'SM_MASTER_KEY',
-    ]);
+    const unset = await cli(
+      [
+        'unset',
+        '--json',
+        '--file',
+        '.env',
+        '--replace-protected',
+        'SM_MASTER_KEY',
+        'SM_MASTER_KEY',
+      ],
+      FAIL,
+    );
     expect(unset.code).toBe(1);
     expect(JSON.parse(unset.out[0]!)).toEqual({
       command: 'unset',
@@ -807,10 +784,9 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: LONG_STATE,
-          message: expect.stringMatching(
-            new RegExp(`^${LONG_STATE}: not written: `),
-          ),
+          path: '.configure-env/state.json',
+          message:
+            '.configure-env/state.json: not written: disk full; .env was written; its protected values are not recorded',
         },
       ],
     });
@@ -821,9 +797,12 @@ describe('apply', () => {
   it('fails before writing anything while another run holds the lock', async () => {
     await seedKey();
     const lock = path(`${STATE}.lock`);
-    await writeFile(lock, '');
+    await writeFile(
+      lock,
+      JSON.stringify({ pid: process.pid, host: hostname() }),
+    );
     const held = [
-      `.configure-env/state.json: not written: ${lock}: held by another run; try again`,
+      `.configure-env/state.json: not written: ${lock}: held by process ${process.pid}; try again`,
       'nothing was written',
     ];
     const set = await cli(
@@ -887,8 +866,18 @@ describe('apply', () => {
       document.files.map((file: { written: boolean }) => file.written),
     ).toEqual([false]);
     expect(await exists('gen.env')).toBe(false);
-    // A run with nothing protected to settle never takes the lock.
-    const other = await cli(['set', '--file', '.env', 'SM_MASTER_KEY_FILE=']);
+    // So does a run that only holds a protected value.
+    const holding = await cli(['set', '--file', '.env', 'SM_MASTER_KEY_FILE=']);
+    expect(holding.code).toBe(1);
+    expect(holding.err[0]).toBe(`configure-env: ${held[0]}`);
+    // A run that touches no protected value never takes the lock.
+    const other = await cli([
+      'set',
+      '--create',
+      '--file',
+      'gen.env',
+      'PORT=9090',
+    ]);
     expect(other.code).toBe(0);
   }, 15_000);
 
@@ -947,6 +936,41 @@ describe('apply', () => {
     expect(restored.code).toBe(0);
     expect((await cli(['validate', ...files])).code).toBe(0);
     await expectNoValue([first, again, restored], old);
+  });
+
+  it('checks under the lock a state changed after the run read it', async () => {
+    await seedKey();
+    await rm(path('.env'));
+    // While this run waits, another one records a new value for the key.
+    const r = await cli(
+      ['set', '--create', '--file', '.env', '--stdin', 'SM_MASTER_KEY'],
+      {
+        stdin: async () => {
+          await updateState(path(STATE), [
+            {
+              action: 'record',
+              file: '.env',
+              key: 'SM_MASTER_KEY',
+              value: KEY_B,
+              replace: true,
+            },
+          ]);
+          return KEY_A;
+        },
+      },
+    );
+    expect(r).toMatchObject({
+      code: 2,
+      err: [`configure-env: ${wasSet()}`, 'nothing was written to .env'],
+    });
+    expect(await exists('.env')).toBe(false);
+  });
+
+  it('records the values an existing create-only file holds', async () => {
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_A}\n`);
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({ code: 0, out: ['.env: skipped (exists)'] });
+    expect(Object.keys((await state()).fingerprints)).toEqual(['.env']);
   });
 
   it('takes --state for another place', async () => {

@@ -6,7 +6,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   type FileHandle,
-  link,
   lstat,
   mkdir,
   open,
@@ -15,6 +14,7 @@ import {
   rm,
   unlink,
 } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
 import { VARIABLE_NAME } from '../schema/definition.ts';
@@ -238,19 +238,55 @@ export function applyChanges(
   return changed;
 }
 
-/** How long a run waits for another run's lock, and when a lock is stale. */
+/** How long a run waits for another run's lock before it gives up. */
 export const LOCK_WAIT_MS = 2_000;
-export const LOCK_STALE_MS = 30_000;
-
-/** When a takeover guard, held for a moment only, is stale. */
-export const GUARD_STALE_MS = 5_000;
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
+/** Who holds a lock, as its file says. */
+interface LockOwner {
+  pid: number;
+  host: string;
+  createdAt: string;
+  /** Random, so a run removes only the lock it created. */
+  token: string;
+}
+
+const readOwner = async (lock: string): Promise<Partial<LockOwner>> => {
+  try {
+    const owner: unknown = JSON.parse(await readFile(lock, 'utf8'));
+    return typeof owner === 'object' && owner !== null ? owner : {};
+  } catch {
+    return {};
+  }
+};
+
+/** Whether a process of this host runs; EPERM means it runs as another user. */
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return codeOf(error) !== 'ESRCH';
+  }
+}
+
+/** Why `lock` cannot be taken, naming its owner. A lock is never taken over. */
+async function heldMessage(lock: string): Promise<string> {
+  const { pid, host } = await readOwner(lock);
+  if (host === hostname() && Number.isInteger(pid))
+    return isRunning(pid!)
+      ? `${lock}: held by process ${pid}; try again`
+      : `${lock}: left by process ${pid}, which is no longer running; remove it and try again`;
+  return `${lock}: held by another run (${typeof host === 'string' ? host : 'unknown host'}); if none is running, remove it`;
+}
+
 /**
- * Runs `task` holding `<path>.lock`, created exclusively next to the state.
- * A lock older than LOCK_STALE_MS is taken over; a fresh one is waited for,
- * then refused.
+ * Runs `task` holding `<path>.lock`, created exclusively next to the state
+ * and holding this run's pid, host and a random token. A lock held by
+ * another run is waited for, then refused, naming its owner: it is never
+ * taken over, so a run that crashed leaves one for a person to remove. The
+ * lock is removed only while it still holds this run's token.
  */
 export async function withStateLock<T>(
   path: string,
@@ -259,104 +295,57 @@ export async function withStateLock<T>(
 ): Promise<T> {
   const lock = `${path}.lock`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const owner: LockOwner = {
+    pid: process.pid,
+    host: hostname(),
+    createdAt: new Date().toISOString(),
+    token: randomBytes(16).toString('hex'),
+  };
   const deadline = Date.now() + waitMs;
   for (;;) {
+    let handle: FileHandle;
     try {
-      await (await open(lock, 'wx', 0o600)).close();
-      break;
+      handle = await open(lock, 'wx', 0o600);
     } catch (error) {
       if (codeOf(error) !== 'EEXIST') throw error;
+      if (Date.now() >= deadline)
+        throw new Error(await heldMessage(lock), { cause: error });
+      await pause(25);
+      continue;
     }
-    const stats = await lstat(lock).catch(() => undefined);
-    if (stats && isStale(stats.mtimeMs) && (await takeOver(lock))) continue;
-    if (Date.now() >= deadline)
-      throw new Error(`${lock}: held by another run; try again`);
-    await pause(25);
+    try {
+      await handle.writeFile(JSON.stringify(owner), 'utf8');
+    } finally {
+      await handle.close();
+    }
+    break;
   }
   try {
     return await task();
   } finally {
-    await unlink(lock).catch(() => undefined);
+    if ((await readOwner(lock)).token === owner.token)
+      await unlink(lock).catch(() => undefined);
   }
 }
 
-const isStale = (mtimeMs: number, after = LOCK_STALE_MS) =>
-  Date.now() - mtimeMs > after;
-
-/**
- * Removes a stale lock, a run that died holding it. Takers go one at a time
- * through `<lock>.takeover`, created exclusively, and remove the lock only
- * when it is still stale: a lock another taker removed and created anew is
- * fresh, so two runs never both hold it. A guard older than
- * GUARD_STALE_MS was left by a run that stopped, and is recovered. False
- * when the guard was not this run's to take.
- */
-async function takeOver(lock: string): Promise<boolean> {
-  const guard = `${lock}.takeover`;
-  try {
-    await (await open(guard, 'wx', 0o600)).close();
-  } catch (error) {
-    if (codeOf(error) !== 'EEXIST') throw error;
-    const stats = await lstat(guard).catch(() => undefined);
-    if (stats && isStale(stats.mtimeMs, GUARD_STALE_MS))
-      await recoverGuard(guard, stats, lock);
-    return false;
-  }
-  try {
-    const stats = await lstat(lock).catch(() => undefined);
-    if (stats && isStale(stats.mtimeMs))
-      await unlink(lock).catch((error: unknown) => {
-        if (codeOf(error) !== 'ENOENT')
-          throw new Error(
-            `${lock}: stale, and cannot be removed: ${codeOf(error)}`,
-          );
-      });
-    return true;
-  } finally {
-    await unlink(guard).catch(() => undefined);
-  }
-}
-
-/**
- * Removes a stale takeover guard: it is renamed to a unique name first, which
- * only one run can do, then removed only when it is the file seen stale. A
- * fresh guard renamed by mistake is put back. A guard that cannot be
- * renamed is left for a person.
- */
-async function recoverGuard(
-  guard: string,
-  seen: { ino: number; mtimeMs: number },
-  lock: string,
-) {
-  const claimed = `${guard}.${process.pid}.${randomBytes(6).toString('hex')}`;
-  try {
-    await rename(guard, claimed);
-  } catch (error) {
-    if (codeOf(error) === 'ENOENT') return;
-    throw new Error(
-      `${guard}: left by a run that stopped; remove it and ${lock}`,
-      { cause: error },
-    );
-  }
-  const stats = await lstat(claimed).catch(() => undefined);
-  if (stats && (stats.ino !== seen.ino || stats.mtimeMs !== seen.mtimeMs))
-    await link(claimed, guard).catch(() => undefined);
-  await unlink(claimed).catch(() => undefined);
-}
+/** Writes the state; tests pass one that fails. */
+export type StateWriter = (path: string, state: State) => Promise<void>;
 
 /**
  * Applies changes to the state on disk; the caller holds its lock. It
  * re-reads the state, keeps its salt and every entry the changes do not
- * touch, and writes it only when it changed. True when it wrote it.
+ * touch, and writes it with `write` only when it changed. True when it
+ * wrote it.
  */
 export async function mergeState(
   path: string,
   changes: readonly StateChange[],
+  write: StateWriter = writeState,
 ): Promise<boolean> {
   const result = await loadState(path);
   if (!result.ok) throw new Error(result.message);
   if (!applyChanges(result.state, changes)) return false;
-  await writeState(path, result.state);
+  await write(path, result.state);
   return true;
 }
 
@@ -369,8 +358,13 @@ export async function mergeState(
 export async function updateState(
   path: string,
   changes: readonly StateChange[],
-  { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
+  {
+    waitMs = LOCK_WAIT_MS,
+    write = writeState,
+  }: { waitMs?: number; write?: StateWriter } = {},
 ): Promise<boolean> {
   if (!changes.length) return false;
-  return withStateLock(path, () => mergeState(path, changes), { waitMs });
+  return withStateLock(path, () => mergeState(path, changes, write), {
+    waitMs,
+  });
 }
