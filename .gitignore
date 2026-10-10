@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test output
+coverage/
+
+# Environment: real env files hold secrets; only examples are tracked.
+.env*
+!.env.example
+!**/.env*.example
+
+# Tooling
+.codegraph/
+.atl/
+# Local task logs; shipped behavior and decisions are documented in README.md
+/odd/
+.eslintcache
+*.log
+.DS_Store

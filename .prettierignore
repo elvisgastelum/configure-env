@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+.atl/
+dist/
+coverage/
+# Local task logs, not part of the repo.
+/odd/
+# Markdown tables stay hand-aligned; Prettier would pad them to the widest cell.
+*.md

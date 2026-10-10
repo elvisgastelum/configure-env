@@ -92,6 +92,11 @@ describe('main --ci', () => {
     expect((await run(['--', '--ci', '--root', root])).code).toBe(0);
   });
 
+  it('defaults --root to the cwd', async () => {
+    expect((await run(['--ci'])).code).toBe(0);
+    await expect(stat(join(root, EXAMPLE_PATH))).resolves.toBeTruthy();
+  });
+
   it('resolves a relative --root against the cwd', async () => {
     expect((await run(['--ci', '--root', '.'])).code).toBe(0);
     await expect(stat(join(root, EXAMPLE_PATH))).resolves.toBeTruthy();

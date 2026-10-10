@@ -1,0 +1,5 @@
+# A single package, no `packages:` list. pnpm reads its build-script policy
+# from this file, so it stays for that alone.
+allowBuilds:
+  # tsx works with the prebuilt platform binary; the postinstall only re-checks it.
+  esbuild: false

@@ -48,7 +48,8 @@ and .env.example (gains only the keys it lacks).
   --ci          never prompt (also when CI=true); required without a TTY
   --check       change nothing; list the drift and exit 1 when out of date
   --local       --ci only: also create .env (mode 600) when it is missing
-  --root <dir>  the directory holding the files (default: the repo root)
+  --root <dir>  the directory holding the files (default: the current
+                directory)
   --web-host, --web-port, --contact-email, --contact-whatsapp
                 the .env values; each falls back to the environment variable
                 of the same name (WEB_HOST, WEB_PORT, VITE_CONTACT_EMAIL,
@@ -57,16 +58,13 @@ and .env.example (gains only the keys it lacks).
 
 Exit codes: 0 ok, 1 drift or an invalid value, 2 usage error, 130 cancelled.`;
 
-/** The repository root, three levels up from this file. */
-const DEFAULT_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
-
 export interface Io {
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   env: Record<string, string | undefined>;
   /** Whether stdin and stdout are both terminals. */
   isTTY: boolean;
-  /** What a relative --root resolves against. */
+  /** The default --root, and what a relative --root resolves against. */
   cwd: string;
   /** The TUI; replaceable in tests. */
   interactive?: (context: InteractiveContext) => Promise<number>;
@@ -117,7 +115,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     return 0;
   }
 
-  const root = resolve(io.cwd, options.root ?? DEFAULT_ROOT);
+  const root = resolve(io.cwd, options.root ?? '.');
   if (!(await isDirectory(root))) {
     io.stderr(`configure-env: no such directory: ${root}`);
     return 2;
@@ -181,9 +179,9 @@ if (isEntryPoint()) {
     stderr: (line) => process.stderr.write(`${line}\n`),
     env: process.env,
     isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    // pnpm runs the script in the package directory; INIT_CWD is where the
-    // command was typed.
-    cwd: process.env.INIT_CWD ?? process.cwd(),
+    // A pnpm script runs in the package directory and sets INIT_CWD to where
+    // the command was typed; run directly, the process cwd is that place.
+    cwd: process.env.INIT_CWD || process.cwd(),
   }).then(
     (code) => {
       process.exitCode = code;
