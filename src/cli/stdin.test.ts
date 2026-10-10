@@ -3,7 +3,7 @@
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { CliError } from './common.ts';
-import { readStream } from './stdin.ts';
+import { readStream, waitText } from './stdin.ts';
 
 const limits = { idleMs: 20, maxBytes: 8 };
 
@@ -22,7 +22,7 @@ describe('readStream', () => {
     expect(error).toBeInstanceOf(CliError);
     expect(error).toMatchObject({ code: 2 });
     expect((error as CliError).lines[0]).toMatch(
-      /^--stdin got no input in .*; pipe the value in, such as: <cmd> \| configure-env set --stdin KEY$/,
+      /^--stdin got no input in 20ms; pipe the value in, such as: <cmd> \| configure-env set --stdin KEY$/,
     );
     expect(stream.destroyed).toBe(true);
   });
@@ -34,7 +34,7 @@ describe('readStream', () => {
     const error = await read.catch((e: unknown) => e);
     expect(error).toMatchObject({ code: 2 });
     expect((error as CliError).lines).toEqual([
-      '--stdin got no end of input in 0s; close the pipe after the value',
+      '--stdin got no end of input in 20ms; close the pipe after the value',
     ]);
     expect(stream.destroyed).toBe(true);
   });
@@ -55,5 +55,17 @@ describe('readStream', () => {
     const read = readStream(stream, limits);
     stream.destroy(new Error('EIO'));
     await expect(read).rejects.toThrow('EIO');
+  });
+});
+
+describe('waitText', () => {
+  it('names a wait in ms below 1s, else in seconds with one decimal', () => {
+    expect([1, 999, 1000, 1500, 60_000].map(waitText)).toEqual([
+      '1ms',
+      '999ms',
+      '1s',
+      '1.5s',
+      '60s',
+    ]);
   });
 });

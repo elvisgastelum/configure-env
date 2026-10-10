@@ -445,6 +445,19 @@ describe('set --stdin', () => {
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 
+  it('reads the file after stdin, so a change made while it waits survives', async () => {
+    await seed('PORT=1\n');
+    // Another command edits the file while this one waits on the pipe.
+    const stdin = async () => {
+      await writeFile(path('app.env'), 'PORT=1\nMODE=prod\n');
+      return 'abcdefghij\n';
+    };
+    const r = await cli(['set', '--stdin', 'TOKEN'], { stdin });
+    expect(r).toMatchObject({ code: 0, out: ['TOKEN: added (••••ij)'] });
+    expect(await read('app.env')).toMatch(/^PORT=1\nMODE=prod\n/);
+    expect(await tokenIn('app.env')).toBe('abcdefghij');
+  });
+
   it('writes nothing for an invalid value, never echoing it', async () => {
     await seed();
     const r = await cli(['set', '--stdin', 'TOKEN'], { stdin: 'short\n' });

@@ -179,15 +179,19 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ),
     );
 
-  const file = await readEnvFile(context, spec);
-  if (!file.exists && !options.create)
+  // A missing file fails before any prompt or wait.
+  const peek = await readEnvFile(context, spec);
+  if (!peek.exists && !options.create)
     throw new CliError(1, [
       `${spec.path}: does not exist; pass --create to create it`,
     ]);
 
+  // Every wait (prompts, stdin) comes before the file is read for the
+  // edit: a change made meanwhile, as by a parallel set, is kept, and the
+  // write's check that the file is unchanged since it was read rarely fails.
   for (const key of promptKeys) {
     const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
-    const current = getValue(file.doc, key);
+    const current = getValue(peek.doc, key);
     const initial =
       current ??
       (variable.default === undefined ? '' : String(variable.default));
@@ -213,6 +217,13 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ]);
     pairs.set(stdinKey, value);
   }
+
+  const waited = promptKeys.length > 0 || stdinKey !== undefined;
+  const file = waited ? await readEnvFile(context, spec) : peek;
+  if (!file.exists && !options.create)
+    throw new CliError(1, [
+      `${spec.path}: does not exist; pass --create to create it`,
+    ]);
 
   // A generated value never replaces one that is set: no rotation by accident.
   const kept = new Set<string>();

@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
   chmod,
-  mkdir,
   readFile,
   readdir,
   rm,
@@ -812,6 +811,10 @@ describe('apply --defer', () => {
     expect(await readdir(root())).toEqual(['env.schema.json']);
   });
 
+  // A name that fits the 255-byte limit, so it plans as a new file, while
+  // the temporary file beside it does not: the write fails, even as root.
+  const LONG = `${'a'.repeat(240)}.env`;
+
   it('lists only the keys of files it wrote when a write fails', async () => {
     await writeFile(
       join(root(), 'env.schema.json'),
@@ -823,31 +826,25 @@ describe('apply --defer', () => {
         },
         files: [
           { path: '.env', policy: 'create-only', variables: ['API_TOKEN'] },
-          { path: 'ro/.env', policy: 'create-only', variables: ['DB_TOKEN'] },
+          { path: LONG, policy: 'create-only', variables: ['DB_TOKEN'] },
         ],
       }),
     );
-    // A directory the run cannot create a file in: ro/.env fails to write.
-    await mkdir(join(root(), 'ro'), { mode: 0o555 });
-    try {
-      const args = ['apply', '--defer', 'API_TOKEN', '--defer', 'DB_TOKEN'];
-      const r = await cli([...args, '--ci']);
-      expect(r.code).toBe(1);
-      expect(r.out[0]).toBe('.env: created');
-      expect(r.out[1]).toMatch(/^ro\/\.env: failed \(/);
-      expect(r.out.slice(2)).toEqual([
-        'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
-      ]);
-      await rm(join(root(), '.env'));
-      const json = await cli([...args, '--json']);
-      expect(json.code).toBe(1);
-      expect(JSON.parse(json.out.join(''))).toMatchObject({
-        ok: false,
-        deferred: ['API_TOKEN'],
-      });
-    } finally {
-      await chmod(join(root(), 'ro'), 0o755);
-    }
+    const args = ['apply', '--defer', 'API_TOKEN', '--defer', 'DB_TOKEN'];
+    const r = await cli([...args, '--ci']);
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toBe('.env: created');
+    expect(r.out[1]).toMatch(`${LONG}: failed (ENAMETOOLONG`);
+    expect(r.out.slice(2)).toEqual([
+      'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
+    ]);
+    await rm(join(root(), '.env'));
+    const json = await cli([...args, '--json']);
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.out.join(''))).toMatchObject({
+      ok: false,
+      deferred: ['API_TOKEN'],
+    });
   });
 
   describe('with two real files', () => {

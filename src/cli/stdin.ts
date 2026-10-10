@@ -11,6 +11,10 @@ export const STDIN_IDLE_MS = 60_000;
 /** The most `--stdin` reads: far more than any secret. */
 export const STDIN_MAX_BYTES = 64 * 1024;
 
+/** A wait as the messages name it: milliseconds below 1 s, else seconds. */
+export const waitText = (ms: number) =>
+  ms < 1000 ? `${ms}ms` : `${Number((ms / 1000).toFixed(1))}s`;
+
 /**
  * The whole stream as UTF-8. Exits 2 when `idleMs` pass with no new input,
  * and 1 past `maxBytes`, never echoing what it read; either way the stream
@@ -34,7 +38,7 @@ export function readStream(
     const wait = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const seconds = `${Math.round(idleMs / 1000)}s`;
+        const seconds = waitText(idleMs);
         settle(
           new CliError(2, [
             size
