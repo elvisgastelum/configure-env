@@ -285,7 +285,9 @@ function isRunning(pid: number): boolean {
  */
 async function heldMessage(lock: string): Promise<string> {
   const owner = await readOwner(lock);
-  if (!owner) return `${lock}: held by another run; try again`;
+  // Empty or partial: a run filling it now, or one that crashed doing so.
+  if (!owner)
+    return `${lock}: held by another run; try again, and if this persists, remove it`;
   const { pid, host } = owner;
   if (host !== hostname())
     return `${lock}: held by another run (${host}); if none is running, remove it`;
@@ -337,13 +339,25 @@ async function createLock(
   } finally {
     await unlink(temp).catch(() => undefined);
   }
+  // No hard links: create it exclusively, then fill it.
+  let handle: FileHandle;
   try {
-    await writeNew(fs, lock, text);
+    handle = await fs.open(lock, 'wx', 0o600);
+  } catch (error) {
+    // Never remove a lock this run did not create.
+    if (codeOf(error) === 'EEXIST') return false;
+    throw error;
+  }
+  const mine = await handle.stat().catch(() => undefined);
+  try {
+    await handle.writeFile(text, 'utf8');
+    await handle.close();
     return true;
   } catch (error) {
-    if (codeOf(error) === 'EEXIST') return false;
-    // Created but not filled: never leave it for others to wait on.
-    if ((await readOwner(lock))?.token !== owner.token)
+    await handle.close().catch(() => undefined);
+    // Created but not filled: removed while the path is still this file.
+    const now = await lstat(lock).catch(() => undefined);
+    if (mine && now && mine.dev === now.dev && mine.ino === now.ino)
       await unlink(lock).catch(() => undefined);
     throw error;
   }

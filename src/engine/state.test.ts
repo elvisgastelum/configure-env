@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  type FileHandle,
   link,
   mkdir,
   open,
@@ -7,6 +8,7 @@ import {
   readdir,
   stat,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { hostname } from 'node:os';
@@ -321,13 +323,18 @@ describe('updateState', () => {
       ['pid 0', JSON.stringify({ pid: 0, host: hostname() })],
       ['a negative pid', JSON.stringify({ pid: -1, host: hostname() })],
       ['no host', JSON.stringify({ pid: 1 })],
-    ])('only asks to try again when its owner is %s', async (_label, text) => {
-      await hold(text);
-      await expect(attempt()).rejects.toThrow(
-        new RegExp(`^${statePath()}\\.lock: held by another run; try again$`),
-      );
-      expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(text);
-    });
+    ])(
+      'asks to try again, then to remove it, when its owner is %s',
+      async (_label, text) => {
+        await hold(text);
+        await expect(attempt()).rejects.toThrow(
+          new RegExp(
+            `^${statePath()}\\.lock: held by another run; try again, and if this persists, remove it$`,
+          ),
+        );
+        expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(text);
+      },
+    );
   });
 
   describe('creating the lock', () => {
@@ -341,19 +348,83 @@ describe('updateState', () => {
       return handle;
     }) as typeof open;
     const noLink = (async () => {
-      throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+      throw Object.assign(new Error('no hard links'), { code: 'ENOTSUP' });
     }) as typeof link;
+    /** An open that acts on the lock itself (not its temporary file). */
+    const onLock = (
+      act: (args: Parameters<typeof open>) => Promise<FileHandle>,
+    ) =>
+      (async (...args: Parameters<typeof open>) =>
+        String(args[0]).endsWith('.lock')
+          ? act(args)
+          : open(...args)) as typeof open;
     const entries = () => readdir(join(temp.dirs.root, '.configure-env'));
+    const lockWith = (fs: Partial<{ open: typeof open; link: typeof link }>) =>
+      withStateLock(statePath(), async () => 'ran', { fs });
 
     it('leaves no lock when its owner cannot be written', async () => {
-      for (const fs of [
-        { open: failingOpen },
-        { open: failingOpen, link: noLink },
-      ])
-        await expect(
-          withStateLock(statePath(), async () => 'ran', { fs }),
-        ).rejects.toThrow('disk full');
+      await expect(lockWith({ open: failingOpen })).rejects.toThrow(
+        'disk full',
+      );
       expect(await entries()).toEqual([]);
+    });
+
+    describe('without hard links', () => {
+      it('removes the lock it created when its owner cannot be written', async () => {
+        await expect(
+          lockWith({
+            link: noLink,
+            open: onLock((args) => failingOpen(...args)),
+          }),
+        ).rejects.toThrow('disk full');
+        expect(await entries()).toEqual([]);
+      });
+
+      it('removes the lock it created when closing it fails', async () => {
+        const closeFails = onLock(async (args) => {
+          const handle = await open(...args);
+          const close = handle.close.bind(handle);
+          handle.close = async () => {
+            await close();
+            throw new Error('close failed');
+          };
+          return handle;
+        });
+        await expect(
+          lockWith({ link: noLink, open: closeFails }),
+        ).rejects.toThrow('close failed');
+        expect(await entries()).toEqual([]);
+      });
+
+      it('never removes a file that replaced the lock it created', async () => {
+        const replaced = onLock(async (args) => {
+          const handle = await open(...args);
+          handle.writeFile = (async () => {
+            await unlink(lock());
+            await writeFile(lock(), 'theirs');
+            throw new Error('disk full');
+          }) as never;
+          return handle;
+        });
+        await expect(
+          lockWith({ link: noLink, open: replaced }),
+        ).rejects.toThrow('disk full');
+        expect(await readFile(lock(), 'utf8')).toBe('theirs');
+      });
+
+      it('never removes a lock after its own open failed', async () => {
+        await mkdir(join(temp.dirs.root, '.configure-env'));
+        await writeFile(lock(), 'theirs');
+        const tooMany = onLock(async () => {
+          throw Object.assign(new Error('too many open files'), {
+            code: 'EMFILE',
+          });
+        });
+        await expect(lockWith({ link: noLink, open: tooMany })).rejects.toThrow(
+          'too many open files',
+        );
+        expect(await readFile(lock(), 'utf8')).toBe('theirs');
+      });
     });
 
     it('falls back to an exclusive create without hard links', async () => {
