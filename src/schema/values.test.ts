@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import { type VariableSpec, variableSpec } from './definition.ts';
 import {
   formatValue,
@@ -89,6 +90,63 @@ describe('validateValue', () => {
       expect(
         validateValue(spec({ type: 'string', maxLength: 2 }), '😀😀'),
       ).toEqual(ok('😀😀'));
+    });
+  });
+
+  describe('string encoding and bytes', () => {
+    const key = Buffer.alloc(32, 0xfb);
+    const base64 = spec({ type: 'string', encoding: 'base64', bytes: 32 });
+    const base64url = spec({ type: 'string', encoding: 'base64url' });
+    const hex = spec({ type: 'string', encoding: 'hex', bytes: 4 });
+
+    it('accepts canonical base64 of the byte count', () => {
+      const value = key.toString('base64');
+      expect(value).toMatch(/[+/=]/);
+      expect(validateValue(base64, value)).toEqual(ok(value));
+    });
+
+    it.each([
+      ['the wrong byte count', Buffer.alloc(31).toString('base64')],
+      ['missing padding', key.toString('base64').replace(/=+$/, '')],
+      ['the base64url alphabet', key.toString('base64url') + '='],
+      ['a line break', `${key.toString('base64')}\n`],
+      ['non-zero padding bits', 'AB=='],
+      ['other characters', 'not base64!'],
+    ])('rejects base64 with %s', (_label, raw) => {
+      expect(validateValue(base64, raw)).toEqual(
+        fails(/^must be base64 that decodes to 32 bytes$/),
+      );
+    });
+
+    it('accepts base64url without padding, of any length without bytes', () => {
+      const value = key.toString('base64url');
+      expect(validateValue(base64url, value)).toEqual(ok(value));
+      expect(validateValue(base64url, 'AQ')).toEqual(ok('AQ'));
+      expect(validateValue(base64url, `${value}=`)).toEqual(
+        fails(/^must be base64url$/),
+      );
+      expect(validateValue(base64url, key.toString('base64'))).toEqual(
+        fails(/^must be base64url$/),
+      );
+    });
+
+    it('accepts hex of either case with an even length', () => {
+      expect(validateValue(hex, 'deadBEEF')).toEqual(ok('deadBEEF'));
+      for (const raw of ['deadbee', 'deadbeefaa', 'deadbeeg'])
+        expect(validateValue(hex, raw)).toEqual(
+          fails(/^must be hex that decodes to 4 bytes$/),
+        );
+    });
+
+    it('applies minLength, maxLength and pattern too', () => {
+      const both = spec({ type: 'string', encoding: 'hex', pattern: '^a' });
+      expect(validateValue(both, 'b0')).toEqual(fails(/must match/));
+      expect(validateValue(both, 'a0')).toEqual(ok('a0'));
+    });
+
+    it('never echoes the value in an error', () => {
+      const result = validateValue(base64, 'c2VjcmV0LXZhbHVl');
+      expect(JSON.stringify(result)).not.toContain('c2VjcmV0LXZhbHVl');
     });
   });
 
@@ -338,6 +396,15 @@ describe('formatValue', () => {
     '',
   ])('round-trips %j', (value) => {
     expect(unquoteValue(formatValue(text, value))).toBe(value);
+  });
+
+  it('writes base64 plain, and a reader gets it back unchanged', () => {
+    const base64 = spec({ type: 'string', encoding: 'base64', bytes: 32 });
+    const value = Buffer.alloc(32, 0xfb).toString('base64');
+    const written = formatValue(base64, value);
+    expect(written).toBe(value);
+    const doc = parseDotenv(`KEY=${written}\n`);
+    expect(getValue(doc, 'KEY')).toBe(value);
   });
 });
 

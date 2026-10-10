@@ -11,6 +11,7 @@ export {
 export type { SchemaError, SchemaResult } from './schema/load.ts';
 
 export {
+  ENCODINGS,
   FILE_POLICIES,
   SCHEMA_ID,
   SCHEMA_VERSION,
@@ -20,6 +21,7 @@ export {
   isTemplate,
 } from './schema/definition.ts';
 export type {
+  Encoding,
   EnvSchema,
   FilePolicy,
   FileSpec,

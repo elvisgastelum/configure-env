@@ -12,6 +12,12 @@ export const GENERATED_LENGTH = 48;
 /** The shortest value --generate makes: a lower maxLength is refused. */
 export const MIN_GENERATED_LENGTH = 16;
 
+/** The bytes --generate makes for a string with `encoding` and no `bytes`. */
+export const GENERATED_BYTES = 32;
+
+/** The fewest bytes --generate makes: a lower `bytes` is refused. */
+export const MIN_GENERATED_BYTES = 16;
+
 /** Tries before giving up on a pattern the random values do not match. */
 const ATTEMPTS = 10;
 
@@ -32,10 +38,23 @@ export function generateKeys(
 }
 
 /**
- * A random value from the base64url alphabet (`[A-Za-z0-9_-]`, written
- * unquoted) that passes the variable's rules. Exits 1 when none does.
+ * A random value that passes the variable's rules: for a string with
+ * `encoding`, `bytes` random bytes (else 32) in it; else characters from the
+ * base64url alphabet (`[A-Za-z0-9_-]`, written unquoted). Exits 1 when none
+ * passes.
  */
 export function generateValue(key: string, spec: VariableSpec): string {
+  if (spec.type === 'string' && spec.encoding) {
+    const { encoding } = spec;
+    const bytes = spec.bytes ?? GENERATED_BYTES;
+    if (bytes < MIN_GENERATED_BYTES)
+      throw keyError(
+        'usage',
+        key,
+        `bytes ${bytes} is too short for a generated secret; set it with --prompt or --stdin`,
+      );
+    return generateWith(key, spec, () => randomBytes(bytes).toString(encoding));
+  }
   let length = GENERATED_LENGTH;
   if (spec.type === 'string') {
     length = Math.max(length, spec.minLength ?? 0);
@@ -49,10 +68,21 @@ export function generateValue(key: string, spec: VariableSpec): string {
       key,
       `maxLength ${length} is too short for a generated secret; set it with --prompt or --stdin`,
     );
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    const value = randomBytes(Math.ceil((length * 3) / 4))
+  return generateWith(key, spec, () =>
+    randomBytes(Math.ceil((length * 3) / 4))
       .toString('base64url')
-      .slice(0, length);
+      .slice(0, length),
+  );
+}
+
+/** The first of a few random values that passes the rules; exits 1 when none does. */
+function generateWith(
+  key: string,
+  spec: VariableSpec,
+  random: () => string,
+): string {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const value = random();
     if (validateValue(spec, value).ok) return value;
   }
   throw keyError(

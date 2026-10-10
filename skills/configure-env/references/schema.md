@@ -24,7 +24,7 @@ Fields: `type` (required), `description`, `group`, `required`, `allowEmpty`, `de
 
 | Type | Options |
 | --- | --- |
-| `string` | `minLength`, `maxLength`, `pattern`, `patternMessage` |
+| `string` | `minLength`, `maxLength`, `pattern`, `patternMessage`, `encoding` (`base64` padded, `base64url` unpadded, `hex`), `bytes` (decoded length; needs `encoding`) |
 | `number`, `integer` | `min`, `max` |
 | `boolean` | none; written as `true`/`false` |
 | `enum` | `values` (required) |

@@ -169,6 +169,10 @@ describe('parseSchema', () => {
       ['string too long', { type: 'string', maxLength: 1, default: 'ab' }],
       ['string pattern', { type: 'string', pattern: '^a+$', default: 'b' }],
       [
+        'string encoding',
+        { type: 'string', encoding: 'base64', bytes: 4, default: 'AAAA' },
+      ],
+      [
         'empty when not allowed',
         { type: 'string', required: true, default: '' },
       ],
@@ -178,6 +182,37 @@ describe('parseSchema', () => {
       });
       expect(paths(errors)).toEqual([
         expect.stringMatching(/^variables\.X(\.default)?$/),
+      ]);
+    });
+
+    it('accepts encoded values whose length fits minLength and maxLength', () => {
+      const errors = errorsFor((schema) => {
+        Object.assign(schema.variables, {
+          X: {
+            type: 'string',
+            encoding: 'base64',
+            bytes: 3,
+            minLength: 4,
+            maxLength: 4,
+            default: 'AAAA',
+            example: 'AQID',
+          },
+        });
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects an example that is not in the encoding', () => {
+      const errors = errorsFor((schema) => {
+        Object.assign(schema.variables, {
+          X: { type: 'string', encoding: 'hex', example: 'xyz' },
+        });
+      });
+      expect(errors).toEqual([
+        {
+          path: 'variables.X.example',
+          message: 'invalid example: must be hex',
+        },
       ]);
     });
 
@@ -208,6 +243,23 @@ describe('parseSchema', () => {
       ['an empty enum', { type: 'enum', values: [] }, 'values'],
       ['a repeated enum value', { type: 'enum', values: ['a', 'a'] }, 'values'],
       ['an empty protocol list', { type: 'url', protocols: [] }, 'protocols'],
+      ['bytes without encoding', { type: 'string', bytes: 32 }, 'bytes'],
+      ['zero bytes', { type: 'string', encoding: 'hex', bytes: 0 }, 'bytes'],
+      [
+        'an unknown encoding',
+        { type: 'string', encoding: 'base32' },
+        'encoding',
+      ],
+      [
+        'a minLength above the encoded length',
+        { type: 'string', encoding: 'base64', bytes: 32, minLength: 45 },
+        'minLength',
+      ],
+      [
+        'a maxLength below the encoded length',
+        { type: 'string', encoding: 'hex', bytes: 16, maxLength: 31 },
+        'maxLength',
+      ],
     ])('rejects %s', (_label, spec, field) => {
       const errors = errorsFor((schema) => {
         Object.assign(schema.variables, { X: spec });

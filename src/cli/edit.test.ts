@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { CliError } from './common.ts';
-import { MIN_GENERATED_LENGTH } from './generate.ts';
+import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import { readStream } from './stdin.ts';
 import {
   CLI_SCHEMA,
@@ -300,6 +300,49 @@ describe('set --generate', () => {
     await tokenSchema({ type: 'string', secret: true, maxLength: 20 });
     await cli(['set', '--generate', 'TOKEN']);
     expect(await tokenIn('app.env')).toHaveLength(20);
+  });
+
+  it.each([
+    ['base64', 32, /^[A-Za-z0-9+/]{43}=$/],
+    ['base64url', 32, /^[A-Za-z0-9_-]{43}$/],
+    ['hex', 16, /^[0-9a-f]{32}$/],
+  ])(
+    'writes random bytes in the %s encoding',
+    async (encoding, bytes, shape) => {
+      await seed('PORT=1\n');
+      await tokenSchema({
+        type: 'string',
+        secret: true,
+        encoding,
+        ...(encoding === 'hex' ? { bytes } : {}),
+      });
+      const r = await cli(['set', '--generate', 'TOKEN']);
+      expect(r.code).toBe(0);
+      const value = (await tokenIn('app.env'))!;
+      expect(value).toMatch(shape);
+      expect(Buffer.from(value, encoding as BufferEncoding)).toHaveLength(
+        bytes,
+      );
+      expect([...r.out, ...r.err].join('\n')).not.toContain(value);
+    },
+  );
+
+  it('exits 2 for bytes below the floor, writing nothing', async () => {
+    await seed();
+    await tokenSchema({
+      type: 'string',
+      secret: true,
+      encoding: 'base64',
+      bytes: MIN_GENERATED_BYTES - 1,
+    });
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        `configure-env: TOKEN: bytes ${MIN_GENERATED_BYTES - 1} is too short for a generated secret; set it with --prompt or --stdin`,
+      ],
+    });
+    expect(await read('app.env')).toBe(ORIGINAL);
   });
 
   it('exits 2 for a maxLength below the floor, writing nothing', async () => {

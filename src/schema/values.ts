@@ -4,7 +4,7 @@
 
 import { isIP, isIPv4 } from 'node:net';
 import { z } from 'zod';
-import type { VariableSpec } from './definition.ts';
+import type { Encoding, VariableSpec } from './definition.ts';
 
 /** A typed variable value: a string, number or boolean by variable type. */
 export type VariableValue = string | number | boolean;
@@ -59,12 +59,38 @@ function checkRange(
   return valid(value);
 }
 
+const HEX = /^(?:[0-9A-Fa-f]{2})+$/;
+
+/**
+ * Whether `raw` is canonical in the encoding: it re-encodes to itself, so
+ * base64 has its padding and zero pad bits, base64url has no padding, and
+ * neither takes the other's alphabet or whitespace. Hex is either case.
+ * With `bytes`, it must also decode to that many.
+ */
+function isEncoded(raw: string, encoding: Encoding, bytes?: number): boolean {
+  let decoded: Buffer;
+  if (encoding === 'hex') {
+    if (!HEX.test(raw)) return false;
+    decoded = Buffer.from(raw, 'hex');
+  } else {
+    decoded = Buffer.from(raw, encoding);
+    if (decoded.toString(encoding) !== raw) return false;
+  }
+  return bytes === undefined || decoded.length === bytes;
+}
+
 const withoutColon = (protocol: string) => protocol.replace(/:$/, '');
 
 /** Coerces a non-empty raw value by the spec's type. */
 function coerce(spec: VariableSpec, raw: string): ValueResult {
   switch (spec.type) {
     case 'string': {
+      if (spec.encoding && !isEncoded(raw, spec.encoding, spec.bytes))
+        return invalid(
+          spec.bytes === undefined
+            ? `must be ${spec.encoding}`
+            : `must be ${spec.encoding} that decodes to ${spec.bytes} bytes`,
+        );
       const length = [...raw].length;
       if (spec.minLength !== undefined && length < spec.minLength)
         return invalid(`must be at least ${spec.minLength} characters`);

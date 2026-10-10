@@ -37,6 +37,23 @@ export const VARIABLE_TYPES = [
 
 export type VariableType = (typeof VARIABLE_TYPES)[number];
 
+/** The byte encodings a string variable can require. */
+export const ENCODINGS = ['base64', 'base64url', 'hex'] as const;
+
+export type Encoding = (typeof ENCODINGS)[number];
+
+/** The characters `bytes` bytes take in the encoding, as it is validated. */
+export function encodedLength(encoding: Encoding, bytes: number): number {
+  switch (encoding) {
+    case 'base64':
+      return Math.ceil(bytes / 3) * 4;
+    case 'base64url':
+      return Math.ceil((bytes * 4) / 3);
+    case 'hex':
+      return bytes * 2;
+  }
+}
+
 /** The fields every variable type shares. */
 const common = {
   description: z
@@ -90,6 +107,14 @@ const stringVariable = z.strictObject({
   }),
   patternMessage: z.string().optional().meta({
     description: 'The error shown when the value does not match `pattern`.',
+  }),
+  encoding: z.enum(ENCODINGS).optional().meta({
+    description:
+      'The value must be bytes in this encoding: base64 with padding, base64url without padding, or hex of either case.',
+  }),
+  bytes: z.int().positive().optional().meta({
+    description:
+      'The number of bytes the value must decode to; needs `encoding`.',
   }),
 });
 
@@ -283,6 +308,22 @@ function checkOptions(spec: VariableSpec, path: Path, ctx: Ctx): boolean {
         spec.minLength > spec.maxLength
       )
         fail('minLength', 'minLength must not exceed maxLength');
+      if (spec.bytes !== undefined && spec.encoding === undefined)
+        fail('bytes', 'bytes needs encoding');
+      if (spec.bytes !== undefined && spec.encoding !== undefined) {
+        // The encoded length is fixed: a length rule it breaks fails every value.
+        const length = encodedLength(spec.encoding, spec.bytes);
+        if (spec.minLength !== undefined && spec.minLength > length)
+          fail(
+            'minLength',
+            `minLength must not exceed ${length}, the length of ${spec.bytes} bytes in ${spec.encoding}`,
+          );
+        if (spec.maxLength !== undefined && spec.maxLength < length)
+          fail(
+            'maxLength',
+            `maxLength must be at least ${length}, the length of ${spec.bytes} bytes in ${spec.encoding}`,
+          );
+      }
       break;
     case 'number':
     case 'integer':

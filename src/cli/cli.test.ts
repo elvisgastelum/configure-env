@@ -11,7 +11,8 @@ import {
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MIN_GENERATED_LENGTH } from './generate.ts';
+import { getValue, parseDotenv } from '../engine/dotenv.ts';
+import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
 
 const dirs = useProject();
@@ -676,6 +677,35 @@ describe('apply --generate', () => {
       'configure-env: local.env: is a symlink; refusing to write through it',
     ]);
     expect(await secretIn('merge.env')).toBe(kept);
+  });
+
+  it('writes a base64 key of the declared bytes, read back unchanged', async () => {
+    await useSecretSchema({ minLength: 1, encoding: 'base64', bytes: 32 });
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    const doc = parseDotenv(await read('merge.env'));
+    const value = getValue(doc, 'SECRET')!;
+    expect(Buffer.from(value, 'base64').toString('base64')).toBe(value);
+    expect(Buffer.from(value, 'base64')).toHaveLength(32);
+    expect(await secretIn('local.env')).toBe(value);
+    expect(r.out.join('\n')).not.toContain(value);
+  });
+
+  it('prints the failure JSON for bytes below the floor', async () => {
+    await useSecretSchema({
+      minLength: 1,
+      encoding: 'hex',
+      bytes: MIN_GENERATED_BYTES - 1,
+    });
+    const r = await cli(['apply', '--json', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(2);
+    expect(JSON.parse(r.out.join('')).errors).toEqual([
+      {
+        kind: 'usage',
+        key: 'SECRET',
+        message: `bytes ${MIN_GENERATED_BYTES - 1} is too short for a generated secret; set it with --prompt or --stdin`,
+      },
+    ]);
   });
 
   it('prints the failure JSON for a maxLength below the floor', async () => {

@@ -3,7 +3,12 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GENERATED_LENGTH, MIN_GENERATED_LENGTH } from './cli/generate.ts';
+import {
+  GENERATED_BYTES,
+  GENERATED_LENGTH,
+  MIN_GENERATED_BYTES,
+  MIN_GENERATED_LENGTH,
+} from './cli/generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
 
 const doc = (path: string) =>
@@ -20,6 +25,12 @@ describe('the docs', () => {
     expect(readme).toContain(
       `never shorter than ${MIN_GENERATED_LENGTH} characters`,
     );
+    expect(readme).toContain(
+      `random bytes (${GENERATED_BYTES} when not set) in that encoding instead; \`bytes\` under ${MIN_GENERATED_BYTES}`,
+    );
+    expect(readme).toContain(
+      `or ${MIN_GENERATED_BYTES} bytes with \`encoding\``,
+    );
     expect(readme).toContain(`input past ${KIB} KiB`);
     expect(readme).toContain(`nothing new for ${SECONDS} seconds`);
   });
@@ -29,6 +40,9 @@ describe('the docs', () => {
     expect(commands).toContain(`a random ${GENERATED_LENGTH}-character`);
     expect(commands).toContain(
       `a \`maxLength\` under ${MIN_GENERATED_LENGTH} exits 2`,
+    );
+    expect(commands).toContain(
+      `\`bytes\` random bytes (default ${GENERATED_BYTES}) in that encoding; \`bytes\` under ${MIN_GENERATED_BYTES} exits 2`,
     );
     expect(commands).toContain(`input past ${KIB} KiB`);
     expect(commands).toContain(`${SECONDS} s with no new input`);
