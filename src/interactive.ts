@@ -1,5 +1,3 @@
-import { access } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   cancel,
   confirm,
@@ -12,61 +10,41 @@ import {
   spinner,
   text,
 } from '@clack/prompts';
+import { applyPlan } from './engine/apply.ts';
+import { checkDrift } from './engine/check.ts';
+import { fileKeys, planChanges } from './engine/plan.ts';
+import type { EnvSchema, FileSpec } from './schema/definition.ts';
+import { validateValue } from './schema/values.ts';
 import {
-  EXAMPLE_PATH,
-  LOCAL_PATH,
-  PRODUCTION_EXAMPLE_PATH,
-  type Target,
-  applyPlan,
-  checkDrift,
-  describeChange,
-  planChanges,
-} from './plan.ts';
-import {
-  contactEmail,
-  contactWhatsapp,
-  promptValidator,
-  webHost,
-  webPort,
-} from './schema.ts';
-import { EXAMPLE_KEYS, type EnvValues, type ExampleKey } from './template.ts';
+  describeDrift,
+  describeFailure,
+  describeFile,
+  examplePaths,
+  planRun,
+} from './run.ts';
 
 export interface InteractiveContext {
+  schema: EnvSchema;
   root: string;
   check: boolean;
-  /** Starting values for the local .env prompts (flags, env, defaults). */
-  values: EnvValues;
+  /** Starting values for the local file prompts (flags, env, defaults). */
+  values: Readonly<Record<string, string>>;
 }
 
-const PROMPTS: Record<
-  ExampleKey,
-  { message: string; schema: Parameters<typeof promptValidator>[0] }
-> = {
-  WEB_HOST: { message: 'WEB_HOST (address to publish on)', schema: webHost },
-  WEB_PORT: { message: 'WEB_PORT (host port)', schema: webPort },
-  VITE_CONTACT_EMAIL: {
-    message: 'VITE_CONTACT_EMAIL (empty keeps the default)',
-    schema: contactEmail,
-  },
-  VITE_CONTACT_WHATSAPP: {
-    message: 'VITE_CONTACT_WHATSAPP (digits, `off`, or empty for the default)',
-    schema: contactWhatsapp,
-  },
+const HINTS: Record<FileSpec['policy'], string> = {
+  generate: 'rewritten from the schema',
+  merge: 'appends the missing keys',
+  'create-only': 'never overwritten',
 };
-
-const exists = (path: string) =>
-  access(path).then(
-    () => true,
-    () => false,
-  );
 
 function cancelled(): number {
   cancel('Cancelled; nothing was written.');
   return 130;
 }
 
-/** The TUI: pick targets, fill in .env, review the plan, confirm, apply. */
+/** The TUI: pick files, fill in local values, review the plan, confirm, apply. */
 export async function runInteractive({
+  schema,
   root,
   check,
   values,
@@ -74,63 +52,82 @@ export async function runInteractive({
   intro('configure-env');
 
   if (check) {
-    const { drift, lines } = await checkDrift(root);
-    note(lines.join('\n'), 'Check');
-    outro(drift ? 'Out of date: run without --check to fix it.' : 'Current.');
-    return drift ? 1 : 0;
+    const report = await checkDrift({
+      schema,
+      root,
+      files: examplePaths(schema),
+    });
+    note(report.files.flatMap(describeDrift).join('\n'), 'Check');
+    outro(
+      report.ok ? 'Current.' : 'Out of date: run without --check to fix it.',
+    );
+    return report.ok ? 0 : 1;
   }
 
-  const picked = await multiselect<Target>({
+  const picked = await multiselect<string>({
     message: 'Which files should be written?',
-    options: [
-      {
-        value: 'production',
-        label: PRODUCTION_EXAMPLE_PATH,
-        hint: 'rewritten from the template',
-      },
-      {
-        value: 'example',
-        label: `${EXAMPLE_PATH} keys`,
-        hint: 'appends the missing keys',
-      },
-      {
-        value: 'local',
-        label: `local ${LOCAL_PATH}`,
-        hint: 'mode 600; never overwritten',
-      },
-    ],
-    initialValues: ['production', 'example'],
+    options: schema.files.map((file) => ({
+      value: file.path,
+      label: file.path,
+      hint: file.mode
+        ? `${HINTS[file.policy]}; mode ${file.mode}`
+        : HINTS[file.policy],
+    })),
+    initialValues: examplePaths(schema),
     required: true,
   });
   if (isCancel(picked)) return cancelled();
-  let targets = picked;
+  let paths = picked;
 
-  const chosen = { ...values };
-  if (targets.includes('local')) {
-    if (await exists(join(root, LOCAL_PATH))) {
-      log.info(`${LOCAL_PATH} exists; skipping it (it is never overwritten).`);
-      targets = targets.filter((target) => target !== 'local');
-    } else {
-      for (const key of EXAMPLE_KEYS) {
-        const { message, schema } = PROMPTS[key];
-        const answer = await text({
-          message,
-          initialValue: chosen[key],
-          validate: promptValidator(schema),
-        });
-        if (isCancel(answer)) return cancelled();
-        chosen[key] = answer ?? '';
-      }
+  const chosen: Record<string, string> = { ...values };
+  for (const file of schema.files) {
+    if (file.policy !== 'create-only' || !paths.includes(file.path)) continue;
+    const planned = await planChanges({
+      schema,
+      root,
+      values: {},
+      files: [file.path],
+    });
+    if (planned.files[0]?.action !== 'create') {
+      log.info(`${file.path} exists; skipping it (it is never overwritten).`);
+      paths = paths.filter((path) => path !== file.path);
+      continue;
+    }
+    for (const key of fileKeys(schema, file)) {
+      const spec = schema.variables[key]!;
+      const answer = await text({
+        message: spec.description ? `${key} (${spec.description})` : key,
+        initialValue: chosen[key] ?? '',
+        validate: (value) => {
+          const result = validateValue(spec, value ?? '');
+          return result.ok ? undefined : result.error;
+        },
+      });
+      if (isCancel(answer)) return cancelled();
+      chosen[key] = answer ?? '';
     }
   }
-  if (!targets.length) {
+  if (!paths.length) {
     outro('Nothing to do.');
     return 0;
   }
 
-  const plan = await planChanges({ root, targets, values: chosen });
-  note(plan.changes.map(describeChange).join('\n'), 'Planned changes');
-  if (plan.changes.every((change) => change.content === undefined)) {
+  const plan = await planRun({ schema, root, paths, values: chosen });
+  if (plan.errors.length) {
+    log.error(
+      plan.errors
+        .map((e) => `${e.kind === 'file' ? e.path : e.key}: ${e.message}`)
+        .join('\n'),
+    );
+    outro('Nothing was written.');
+    return 1;
+  }
+  note(plan.files.map(describeFile).join('\n'), 'Planned changes');
+  if (
+    plan.files.every(
+      (file) => file.action !== 'create' && file.action !== 'update',
+    )
+  ) {
     outro('Everything is current.');
     return 0;
   }
@@ -144,10 +141,9 @@ export async function runInteractive({
 
   const progress = spinner();
   progress.start('Writing');
-  try {
-    await applyPlan(root, plan);
-  } catch (error) {
-    progress.error(`Failed: ${(error as Error).message}`);
+  const failed = (await applyPlan(plan)).filter((result) => !result.ok);
+  if (failed.length) {
+    progress.error(`Failed: ${failed.map(describeFailure).join('; ')}`);
     return 1;
   }
   progress.stop('Written');

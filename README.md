@@ -27,7 +27,7 @@ npx @elvisgastelum/configure-env apply
 
 ## Schema (v1)
 
-A project describes its env files in `env.schema.json` at its root. The format is versioned; this is version 1. The CLI does not read it yet (the commands above are being built on it), but the format, its loader and its JSON Schema are in place.
+A project describes its env files in `env.schema.json` at its root. The format is versioned; this is version 1. The CLI does not read a project's own schema yet (the commands above are being built on it), but the format, its loader, its JSON Schema and the engine that plans, applies and checks the files are in place.
 
 ```json
 {
@@ -138,7 +138,7 @@ The JSON Schema is generated from the zod definition in `src/schema/definition.t
 
 ## Current usage
 
-Today the CLI still carries the env layout of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project it was extracted from. It writes the files into the current directory, or into `--root <dir>`:
+Today the CLI runs the schema-driven engine (`src/engine/`) on a built-in schema, [`examples/portfolio.env.schema.json`](examples/portfolio.env.schema.json): the env layout of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project it was extracted from. It writes the files into the current directory, or into `--root <dir>`; `--check` also reports values in the example files that break their variable's rules:
 
 ```sh
 pnpm install

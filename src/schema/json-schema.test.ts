@@ -47,8 +47,8 @@ describe('examples/portfolio.env.schema.json', () => {
     expect(
       result.schema.files.map(({ path, policy, mode }) => [path, policy, mode]),
     ).toEqual([
-      ['.env.example', 'merge', undefined],
       ['deploy/.env.production.example', 'generate', undefined],
+      ['.env.example', 'merge', undefined],
       ['.env', 'create-only', '600'],
     ]);
   });

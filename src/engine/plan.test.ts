@@ -111,6 +111,21 @@ describe('planChanges on existing files', () => {
     );
   });
 
+  it('adds no blank line to an empty merge file', async () => {
+    await writeFile(join(root(), 'merge.env'), '');
+    expect((await byPath())['merge.env']!.content).toBe(MERGED);
+  });
+
+  it('is idempotent after a merge', async () => {
+    await writeFile(join(root(), 'merge.env'), '# mine\nCUSTOM=1\nHOST=web');
+    await applyPlan(await plan({ files: ['merge.env'] }));
+    const again = await plan({ files: ['merge.env'] });
+    expect(again.files[0]).toMatchObject({
+      action: 'unchanged',
+      addedKeys: [],
+    });
+  });
+
   it('leaves a merge file with every key unchanged, whatever its values', async () => {
     await writeFile(join(root(), 'merge.env'), 'DEBUG=maybe\nPORT=1\nHOST=x\n');
     expect((await byPath())['merge.env']).toMatchObject({

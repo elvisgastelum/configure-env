@@ -4,9 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Io, main, resolveValues } from './cli.ts';
-import { EXAMPLE_PATH, LOCAL_PATH, PRODUCTION_EXAMPLE_PATH } from './plan.ts';
-import { DEFAULT_VALUES } from './template.ts';
+import { DEFAULT_VALUES, type Io, main, resolveValues } from './cli.ts';
+import { EXAMPLE_PATH, LOCAL_PATH, PRODUCTION_EXAMPLE_PATH } from './run.ts';
 
 let root: string;
 beforeEach(async () => {
@@ -173,6 +172,21 @@ describe('main --check', () => {
       `${EXAMPLE_PATH}: current`,
     ]);
     await expect(stat(join(root, LOCAL_PATH))).rejects.toThrow();
+  });
+});
+
+describe('main --check values', () => {
+  it('exits 1 and names an invalid value in an example file', async () => {
+    await run(['--ci', '--root', root]);
+    await writeFile(
+      join(root, EXAMPLE_PATH),
+      'WEB_HOST=127.0.0.1\nWEB_PORT=http\nVITE_CONTACT_EMAIL=\nVITE_CONTACT_WHATSAPP=\n',
+    );
+    const r = await run(['--ci', '--check', '--root', root]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      `${EXAMPLE_PATH}: invalid WEB_PORT: must be a port between 1 and 65535`,
+    );
   });
 });
 

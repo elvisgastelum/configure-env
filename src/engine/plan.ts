@@ -35,6 +35,8 @@ export type PlanError =
   | { kind: 'value'; key: string; message: string }
   | { kind: 'file'; path: string; message: string };
 
+export type ValueError = Extract<PlanError, { kind: 'value' }>;
+
 export interface Plan {
   /** The real path of the project root. */
   root: string;
@@ -63,12 +65,12 @@ const commentLines = (text: string) =>
  * Validates the given values; each valid one in the form written after
  * `KEY=`. Errors name the rule, never the value.
  */
-export function resolveValues(
+export function validateValues(
   schema: EnvSchema,
   values: Readonly<Record<string, string>>,
-): { written: Map<string, string>; errors: PlanError[] } {
+): { written: Map<string, string>; errors: ValueError[] } {
   const written = new Map<string, string>();
-  const errors: PlanError[] = [];
+  const errors: ValueError[] = [];
   for (const [key, raw] of Object.entries(values)) {
     const spec = schema.variables[key];
     if (!spec) {
@@ -200,7 +202,9 @@ export async function planChanges({
   files,
 }: PlanOptions): Promise<Plan> {
   const realRoot = await realpath(root);
-  const { written, errors } = resolveValues(schema, values);
+  const validated = validateValues(schema, values);
+  const { written } = validated;
+  const errors: PlanError[] = validated.errors;
   for (const path of files ?? []) {
     if (!schema.files.some((file) => file.path === path))
       errors.push({ kind: 'file', path, message: 'is not in the schema' });

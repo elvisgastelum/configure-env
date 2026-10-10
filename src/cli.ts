@@ -5,16 +5,22 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { applyPlan } from './engine/apply.ts';
+import { checkDrift } from './engine/check.ts';
+import { validateValues } from './engine/plan.ts';
 import { type InteractiveContext, runInteractive } from './interactive.ts';
 import {
-  type Target,
-  applyPlan,
-  checkDrift,
-  describeChange,
-  planChanges,
-} from './plan.ts';
-import { validateValues } from './schema.ts';
-import { DEFAULT_VALUES, type EnvValues, type ExampleKey } from './template.ts';
+  describeDrift,
+  describeFailure,
+  describeFile,
+  examplePaths,
+  loadBuiltinSchema,
+  localPaths,
+  planRun,
+} from './run.ts';
+
+/** The built-in schema: the elvisgastelum.com env setup. */
+const SCHEMA = loadBuiltinSchema();
 
 const OPTIONS = {
   check: { type: 'boolean' },
@@ -34,16 +40,27 @@ const VALUE_FLAGS = {
   'web-port': 'WEB_PORT',
   'contact-email': 'VITE_CONTACT_EMAIL',
   'contact-whatsapp': 'VITE_CONTACT_WHATSAPP',
-} as const satisfies Record<string, ExampleKey>;
+} as const satisfies Record<string, string>;
 
+type ValueKey = (typeof VALUE_FLAGS)[keyof typeof VALUE_FLAGS];
+export type EnvValues = Record<ValueKey, string>;
 export type ValueFlags = Partial<Record<keyof typeof VALUE_FLAGS, string>>;
+
+/** The schema defaults of the value flags' variables, as env file text. */
+export const DEFAULT_VALUES: Readonly<EnvValues> = Object.fromEntries(
+  Object.values(VALUE_FLAGS).map((key) => [
+    key,
+    String(SCHEMA.variables[key]?.default ?? ''),
+  ]),
+) as EnvValues;
 
 const USAGE = `Usage: pnpm configure:env [--ci] [--check] [--local] [--root <dir>]
                           [--web-host <host>] [--web-port <port>]
                           [--contact-email <email>] [--contact-whatsapp <digits|off>]
 
-Writes deploy/.env.production.example (always rewritten from the template)
-and .env.example (gains only the keys it lacks).
+Writes deploy/.env.production.example (always rewritten from the schema)
+and .env.example (gains only the keys it lacks), as the built-in schema
+examples/portfolio.env.schema.json describes them.
 
   --ci          never prompt (also when CI=true); required without a TTY
   --check       change nothing; list the drift and exit 1 when out of date
@@ -56,7 +73,8 @@ and .env.example (gains only the keys it lacks).
                 VITE_CONTACT_WHATSAPP), then to the default
   -h, --help    show this help
 
-Exit codes: 0 ok, 1 drift or an invalid value, 2 usage error, 130 cancelled.`;
+Exit codes: 0 ok, 1 drift, an invalid value or a failed write, 2 usage
+error, 130 cancelled.`;
 
 export interface Io {
   stdout: (line: string) => void;
@@ -136,29 +154,52 @@ export async function main(argv: string[], io: Io): Promise<number> {
       );
       return 2;
     }
-    return (io.interactive ?? runInteractive)({ root, check, values });
+    return (io.interactive ?? runInteractive)({
+      schema: SCHEMA,
+      root,
+      check,
+      values,
+    });
   }
 
   if (check) {
-    const { drift, lines } = await checkDrift(root);
-    lines.forEach((line) => io.stdout(line));
-    return drift ? 1 : 0;
+    const report = await checkDrift({
+      schema: SCHEMA,
+      root,
+      files: examplePaths(SCHEMA),
+    });
+    report.files.flatMap(describeDrift).forEach((line) => io.stdout(line));
+    return report.ok ? 0 : 1;
   }
 
   // The values only reach .env, but an explicit flag is checked either way.
   if (options.local || Object.keys(flags).length) {
-    const result = validateValues(values);
-    if (!result.ok) {
-      result.errors.forEach((error) => io.stderr(`configure-env: ${error}`));
+    const { errors } = validateValues(SCHEMA, values);
+    if (errors.length) {
+      errors.forEach((error) =>
+        io.stderr(`configure-env: ${error.key}: ${error.message}`),
+      );
       return 1;
     }
   }
-  const targets: Target[] = ['production', 'example'];
-  if (options.local) targets.push('local');
-  const plan = await planChanges({ root, targets, values });
-  await applyPlan(root, plan);
-  plan.changes.forEach((change) => io.stdout(describeChange(change)));
-  return 0;
+  const paths = examplePaths(SCHEMA);
+  if (options.local) paths.push(...localPaths(SCHEMA));
+  const plan = await planRun({ schema: SCHEMA, root, paths, values });
+  if (plan.errors.length) {
+    plan.errors.forEach((error) =>
+      io.stderr(
+        `configure-env: ${error.kind === 'file' ? error.path : error.key}: ${error.message}`,
+      ),
+    );
+    return 1;
+  }
+  const results = await applyPlan(plan);
+  plan.files.forEach((file, index) => {
+    const result = results[index]!;
+    if (result.ok) io.stdout(describeFile(file));
+    else io.stderr(`configure-env: ${describeFailure(result)}`);
+  });
+  return results.every((result) => result.ok) ? 0 : 1;
 }
 
 const isEntryPoint = () => {

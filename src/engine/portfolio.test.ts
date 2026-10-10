@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadSchema } from '../schema/load.ts';
+import { validateValue } from '../schema/values.ts';
 import { planChanges } from './plan.ts';
 import { useTempRoot } from './test-helpers.ts';
 
@@ -107,5 +108,39 @@ describe('the portfolio schema', () => {
       'CUSTOM=1\nWEB_HOST=10.0.0.5\n\n' +
         LEGACY_EXAMPLE.slice(LEGACY_EXAMPLE.indexOf('# Host port')),
     );
+  });
+});
+
+// The value rules of the retired src/schema.ts, now in the schema.
+describe('the portfolio schema value rules', () => {
+  it.each([
+    ['WEB_HOST', '192.168.1.70'],
+    ['WEB_HOST', 'web.internal'],
+    ['WEB_HOST', 'localhost'],
+    ['WEB_PORT', '1'],
+    ['WEB_PORT', '65535'],
+    ['VITE_CONTACT_EMAIL', ''],
+    ['VITE_CONTACT_EMAIL', 'you@example.com'],
+    ['VITE_CONTACT_WHATSAPP', ''],
+    ['VITE_CONTACT_WHATSAPP', '5215555555555'],
+    ['VITE_CONTACT_WHATSAPP', 'off'],
+  ])('accepts %s=%j', async (key, value) => {
+    const spec = (await portfolio()).variables[key]!;
+    expect(validateValue(spec, value).ok).toBe(true);
+  });
+
+  it.each([
+    ['WEB_HOST', ''],
+    ['WEB_HOST', 'bad host'],
+    ['WEB_HOST', '-leading.dash'],
+    ['WEB_PORT', '0'],
+    ['WEB_PORT', '65536'],
+    ['WEB_PORT', '80a'],
+    ['VITE_CONTACT_EMAIL', 'not-an-email'],
+    ['VITE_CONTACT_WHATSAPP', '+52 638'],
+    ['VITE_CONTACT_WHATSAPP', 'on'],
+  ])('rejects %s=%j', async (key, value) => {
+    const spec = (await portfolio()).variables[key]!;
+    expect(validateValue(spec, value).ok).toBe(false);
   });
 });
