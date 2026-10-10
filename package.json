@@ -1,7 +1,6 @@
 {
   "name": "@elvisgastelum/configure-env",
   "version": "0.0.0",
-  "private": true,
   "description": "Configure, check and edit env files from a schema, interactively or in CI",
   "keywords": [
     "env",
@@ -9,15 +8,51 @@
     "environment",
     "configuration",
     "cli",
-    "schema"
+    "schema",
+    "env-file",
+    "validation",
+    "ci"
   ],
   "license": "MIT",
   "author": "Elvis Gastelum",
-  "repository": "github:elvisgastelum/configure-env",
+  "homepage": "https://github.com/elvisgastelum/configure-env#readme",
+  "bugs": {
+    "url": "https://github.com/elvisgastelum/configure-env/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elvisgastelum/configure-env.git"
+  },
   "type": "module",
+  "sideEffects": [
+    "./dist/cli.js"
+  ],
+  "bin": {
+    "configure-env": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema.json": "./schema/env.schema.v1.json",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "schema",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "packageManager": "pnpm@12.9.1",
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
@@ -28,7 +63,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "schema:generate": "tsx scripts/generate-json-schema.ts",
-    "schema:check": "tsx scripts/generate-json-schema.ts --check"
+    "schema:check": "tsx scripts/generate-json-schema.ts --check",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",

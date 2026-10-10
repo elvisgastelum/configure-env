@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // The configure-env entry point: runs `main` on the process. See
 // `configure-env --help` and the README, "Usage".
 
