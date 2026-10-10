@@ -400,6 +400,31 @@ To write a real env file in a deploy job, pass the values as environment variabl
 
 `CI=true`, which GitHub Actions sets, turns on `--ci` by itself; passing it keeps the intent visible. `--json` prints one JSON document on stdout for scripts (see "JSON output").
 
+## AI agents
+
+An agent runs without a terminal, so it uses `--ci` and `--json` and never sees a secret. It inspects files with `list`, `validate` and `check`, which mask secrets. It writes them with `apply` and `set`. A secret goes in without passing through the agent:
+
+| Secret                                         | How it is set                                                              |
+| ---------------------------------------------- | -------------------------------------------------------------------------- |
+| one the project makes (session, JWT, signing)   | `configure-env set --ci --file .env --generate SESSION_SECRET`             |
+| one from a vendor, held in a secret manager    | `op read op://dev/api/token \| configure-env set --ci --file .env --stdin API_TOKEN` |
+| one only a person knows                        | the person runs `configure-env set --file .env --prompt API_TOKEN`, or `apply` |
+
+The package ships a skill that teaches an agent this workflow: [`skills/configure-env/SKILL.md`](skills/configure-env/SKILL.md), with a command and schema reference next to it. To install it for Claude Code in a project, copy it from the installed package:
+
+```sh
+mkdir -p .claude/skills
+cp -R node_modules/@elvisgastelum/configure-env/skills/configure-env .claude/skills/
+```
+
+Other agents that read `SKILL.md` files take the same folder, for example under `.agents/skills/`.
+
+The skill tells the agent not to read real env files directly. Agent permissions can enforce that: in Claude Code, deny the read in `.claude/settings.json`, and list your project's real env files:
+
+```json
+{ "permissions": { "deny": ["Read(./.env)", "Read(./.env.local)"] } }
+```
+
 ## Programmatic API
 
 The package also exports the functions the CLI is built on, as ESM with type declarations:
