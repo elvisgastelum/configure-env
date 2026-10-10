@@ -60,6 +60,8 @@ function position(text: string, offset: number) {
 
 /** Parses JSON text, reporting a syntax error with its line and column. */
 export function parseSchemaText(text: string): SchemaResult {
+  // Editors on Windows may save a UTF-8 byte order mark; JSON.parse rejects it.
+  if (text.startsWith('\uFEFF')) text = text.slice(1);
   let json: unknown;
   try {
     json = JSON.parse(text);

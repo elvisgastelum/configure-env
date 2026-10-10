@@ -108,7 +108,8 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `variables`   | `"*"` or list | `"*"` for every variable in declaration order, or declared names in output order; required     |
 | `mode`        | string        | the permissions as three octal digits, like `"600"`                                            |
 | `header`      | string        | written as `#` lines at the top of the file                                                    |
-| `values`      | object        | literal values for this file only, like placeholders in an example; strings, not type-checked  |
+| `values`      | object        | literal values for this file only, like placeholders in an example; written as is, not type-checked, no line breaks |
+| `comments`    | object        | comments for this file only, replacing the variables' own `comment`; for this file's variables only |
 | `description` | string        | what the file is for                                                                           |
 
 | Policy        | What the tool does with the file                                              |
@@ -116,6 +117,18 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `generate`    | owns it: writes the whole file and rewrites it whenever it differs            |
 | `merge`       | appends the keys it lacks, with their comments, and keeps every existing line |
 | `create-only` | writes it only when it does not exist, then never touches it                  |
+
+### How files are written
+
+A generated or created file holds the `header` as `#` lines, a blank line, then each variable in the file's order: its comment as `#` lines, then `KEY=value`. A blank line separates blocks; a new block starts where the `group` changes or a variable has a comment. The value is the file's `values` entry, else the given value, else the `default`, else empty.
+
+A `merge` file keeps every existing line byte for byte, including its line endings, `export` prefixes, quotes and comments; the missing keys go at the end after a blank line, with their comments. Existing values are never changed.
+
+Values are written plain when they can be. A value holding whitespace, `#` or quotes is double-quoted with backslash escapes. A value holding `$` is single-quoted, so Docker Compose and dotenv-expand do not interpolate it: `PASSWORD='pa$$word'`. When it also holds a single quote or a line break, it is double-quoted with `$` written as `\$`.
+
+A file path that leaves the project root, directly or through a symlinked directory, is refused, and so is writing through a symlink. Each file is written atomically (a temporary file in the same directory, flushed, then renamed into place) with the schema's `mode`, else the existing file's mode, else `644`.
+
+The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` whose last label is all digits must be a valid IPv4 address, so `999.1.1.1` is rejected.
 
 ### Editor support
 

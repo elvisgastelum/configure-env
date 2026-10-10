@@ -20,6 +20,9 @@ export type ValueResult =
 // hyphens, each at most 63 characters.
 const HOSTNAME =
   /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+// A name whose last label is all digits reads as an IPv4 address (as in the
+// WHATWG URL parser), so it is accepted only when it is a valid one.
+const NUMERIC_TLD = /(?:^|\.)\d+$/;
 const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 const INTEGER = /^[+-]?\d+$/;
 const BOOLEANS: Record<string, boolean> = {
@@ -111,7 +114,7 @@ function coerce(spec: VariableSpec, raw: string): ValueResult {
       return valid(raw);
     }
     case 'host':
-      return HOSTNAME.test(raw) || isIP(raw)
+      return isIP(raw) || (HOSTNAME.test(raw) && !NUMERIC_TLD.test(raw))
         ? valid(raw)
         : invalid('must be a hostname or an IP address');
     case 'ipv4':
@@ -146,12 +149,16 @@ export function validateValue(
 const plainText = (value: VariableValue | null): string =>
   value === null ? '' : String(value);
 
-// Whitespace, comment markers and quote characters would change how an env
-// file reader splits or unquotes the value.
-const NEEDS_QUOTES = /[\s#"'`]/;
+// Whitespace, comment markers, quote characters and `$` would change how an
+// env file reader splits, unquotes or interpolates the value.
+const NEEDS_QUOTES = /[\s#"'`$]/;
+// Single quotes hold a value literally, but cannot hold a single quote or a
+// line break.
+const SINGLE_QUOTE_UNSAFE = /['\n\r]/;
 const ESCAPES: Record<string, string> = {
   '\\': '\\\\',
   '"': '\\"',
+  $: '\\$',
   '\n': '\\n',
   '\r': '\\r',
   '\t': '\\t',
@@ -159,15 +166,19 @@ const ESCAPES: Record<string, string> = {
 const UNESCAPES: Record<string, string> = {
   '\\': '\\',
   '"': '"',
+  $: '$',
   n: '\n',
   r: '\r',
   t: '\t',
 };
 
 /**
- * The value as written after `KEY=` in an env file: double-quoted, with
- * backslash escapes, when it holds whitespace, `#` or quotes. `spec` is
- * taken for type-specific formatting; every type writes its plain text today.
+ * The value as written after `KEY=` in an env file: as is when plain;
+ * single-quoted when it holds `$`, so Docker Compose and dotenv-expand do not
+ * interpolate it; otherwise, or when single quotes cannot hold it (a single
+ * quote or a line break), double-quoted with backslash escapes, `$` written
+ * as `\$`. `spec` is taken for type-specific formatting; every type writes
+ * its plain text today.
  */
 export function formatValue(
   spec: VariableSpec,
@@ -175,7 +186,8 @@ export function formatValue(
 ): string {
   const text = plainText(value);
   if (!NEEDS_QUOTES.test(text)) return text;
-  return `"${text.replace(/[\\"\n\r\t]/g, (char) => ESCAPES[char] ?? char)}"`;
+  if (text.includes('$') && !SINGLE_QUOTE_UNSAFE.test(text)) return `'${text}'`;
+  return `"${text.replace(/[\\"$\n\r\t]/g, (char) => ESCAPES[char] ?? char)}"`;
 }
 
 /**

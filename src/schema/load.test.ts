@@ -250,6 +250,35 @@ describe('parseSchema', () => {
       expect(errors).toEqual([]);
     });
 
+    it('accepts per-file comment overrides', () => {
+      const errors = errorsFor((schema) => {
+        (schema.files[1] as Record<string, unknown>).comments = {
+          WEB_HOST: 'For production.\nSecond line.',
+        };
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects a comment override for a variable the file does not hold', () => {
+      const errors = errorsFor((schema) => {
+        (schema.files[1] as Record<string, unknown>).comments = {
+          MODE: 'x',
+          NOPE: 'y',
+        };
+      });
+      expect(paths(errors)).toEqual([
+        'files[1].comments.MODE',
+        'files[1].comments.NOPE',
+      ]);
+    });
+
+    it('rejects a value override with a line break', () => {
+      const errors = errorsFor((schema) => {
+        schema.files[1]!.values = { WEB_HOST: 'a\nB=1' } as never;
+      });
+      expect(paths(errors)).toEqual(['files[1].values.WEB_HOST']);
+    });
+
     it('rejects a duplicate path', () => {
       const errors = errorsFor((schema) => {
         schema.files[2]!.path = '.env.example';
@@ -318,6 +347,11 @@ describe('formatIssuePath', () => {
 describe('parseSchemaText', () => {
   it('parses and validates JSON text', () => {
     const result = parseSchemaText(JSON.stringify(fullSchema()));
+    expect(result.ok).toBe(true);
+  });
+
+  it('tolerates a UTF-8 byte order mark', () => {
+    const result = parseSchemaText(`\uFEFF${JSON.stringify(fullSchema())}`);
     expect(result.ok).toBe(true);
   });
 

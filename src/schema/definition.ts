@@ -225,9 +225,19 @@ export const fileSpec = z.strictObject({
       'Text written as `#` comment lines at the top of the file; may span lines.',
   }),
   description: z.string().optional(),
-  values: z.record(variableName, z.string()).optional().meta({
+  values: z
+    .record(
+      variableName,
+      z.string().regex(/^[^\r\n]*$/, 'must not contain a line break'),
+    )
+    .optional()
+    .meta({
+      description:
+        'Literal values for this file that replace the defaults, like placeholders in an example file. Written after `KEY=` as is; not type-checked.',
+    }),
+  comments: z.record(variableName, z.string()).optional().meta({
     description:
-      'Literal values for this file that replace the defaults, like placeholders in an example file. Not type-checked.',
+      "Comments for this file that replace the variables' own `comment`; may span lines.",
   }),
 });
 
@@ -324,13 +334,15 @@ function checkFiles(schema: z.output<typeof envSchemaObject>, ctx: Ctx) {
       });
     }
 
-    for (const name of Object.keys(file.values ?? {})) {
-      if (!held.has(name))
-        issue(
-          ctx,
-          at('values', name),
-          `${name} is not one of this file's variables`,
-        );
+    for (const field of ['values', 'comments'] as const) {
+      for (const name of Object.keys(file[field] ?? {})) {
+        if (!held.has(name))
+          issue(
+            ctx,
+            at(field, name),
+            `${name} is not one of this file's variables`,
+          );
+      }
     }
   });
 }

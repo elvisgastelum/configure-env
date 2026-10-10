@@ -213,12 +213,25 @@ describe('validateValue', () => {
       },
     );
 
-    it.each(['bad host', '-leading.dash', 'trailing-.dash', 'a'.repeat(64)])(
-      'rejects %j',
+    it.each(['1.2.3.4', 'web1.example', '123.example', 'web.internal1'])(
+      'accepts %j, whose last label is not all digits or which is IPv4',
       (raw) => {
-        expect(validateValue(host, raw)).toEqual(fails(/hostname/));
+        expect(validateValue(host, raw)).toEqual(ok(raw));
       },
     );
+
+    it.each([
+      'bad host',
+      '-leading.dash',
+      'trailing-.dash',
+      'a'.repeat(64),
+      '999.1.1.1',
+      '1.2.3',
+      '123',
+      'web.123',
+    ])('rejects %j', (raw) => {
+      expect(validateValue(host, raw)).toEqual(fails(/hostname/));
+    });
   });
 
   describe('ipv4', () => {
@@ -296,6 +309,16 @@ describe('formatValue', () => {
   });
 
   it.each([
+    ['pa$$word', "'pa$$word'"],
+    ['${HOME}/x', "'${HOME}/x'"],
+    ['$ two words', "'$ two words'"],
+    ["it's $5", '"it\'s \\$5"'],
+    ['$line\nbreak', '"\\$line\\nbreak"'],
+  ])('keeps %j from interpolation as %s', (value, expected) => {
+    expect(formatValue(text, value)).toBe(expected);
+  });
+
+  it.each([
     'plain',
     'two words',
     ' padded ',
@@ -308,6 +331,10 @@ describe('formatValue', () => {
     '"already quoted"',
     "'single'",
     '\\n literal',
+    'pa$$word',
+    "it's $5",
+    '$multi\nline',
+    '\\$ literal backslash',
     '',
   ])('round-trips %j', (value) => {
     expect(unquoteValue(formatValue(text, value))).toBe(value);
