@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { type VariableSpec, variableSpec } from './definition.ts';
-import { validateValue } from './values.ts';
+import {
+  formatValue,
+  maskValue,
+  unquoteValue,
+  validateValue,
+} from './values.ts';
 
 /** A spec with the definition's defaults applied, as a loaded schema has. */
 const spec = (input: Record<string, unknown>): VariableSpec =>
@@ -251,5 +256,100 @@ describe('validateValue', () => {
       expect(result.ok).toBe(false);
       expect(JSON.stringify(result)).not.toContain('hunter2');
     });
+  });
+});
+
+describe('formatValue', () => {
+  const text = spec({ type: 'string' });
+
+  it.each([
+    [spec({ type: 'boolean' }), true, 'true'],
+    [spec({ type: 'boolean' }), false, 'false'],
+    [spec({ type: 'port' }), 8080, '8080'],
+    [spec({ type: 'number' }), 0.5, '0.5'],
+    [text, null, ''],
+    [text, '', ''],
+    [text, 'plain', 'plain'],
+    [
+      text,
+      'docker-compose.yml:deploy/compose.prod.yml',
+      'docker-compose.yml:deploy/compose.prod.yml',
+    ],
+    [text, 'C:\\path', 'C:\\path'],
+  ])('writes %#: %j as %s', (s, value, expected) => {
+    expect(formatValue(s, value)).toBe(expected);
+  });
+
+  it.each([
+    ['two words', '"two words"'],
+    [' leading', '" leading"'],
+    ['a#b', '"a#b"'],
+    ['say "hi"', '"say \\"hi\\""'],
+    ["it's", '"it\'s"'],
+    ['back`tick', '"back`tick"'],
+    ['line\nbreak', '"line\\nbreak"'],
+    ['cr\rlf', '"cr\\rlf"'],
+    ['tab\there', '"tab\\there"'],
+    ['quoted \\ slash', '"quoted \\\\ slash"'],
+  ])('quotes %j as %s', (value, expected) => {
+    expect(formatValue(text, value)).toBe(expected);
+  });
+
+  it.each([
+    'plain',
+    'two words',
+    ' padded ',
+    'a#b',
+    'say "hi"',
+    "it's",
+    'multi\nline\r\nvalue',
+    'tab\tand \\ slash',
+    'C:\\no\\quotes',
+    '"already quoted"',
+    "'single'",
+    '\\n literal',
+    '',
+  ])('round-trips %j', (value) => {
+    expect(unquoteValue(formatValue(text, value))).toBe(value);
+  });
+});
+
+describe('unquoteValue', () => {
+  it.each([
+    ['plain', 'plain'],
+    ['"a \\"b\\" c"', 'a "b" c'],
+    ["'kept \\n as is'", 'kept \\n as is'],
+    ['"unknown \\q escape"', 'unknown \\q escape'],
+    ['"unterminated', '"unterminated'],
+  ])('reads %s as %j', (raw, expected) => {
+    expect(unquoteValue(raw)).toBe(expected);
+  });
+});
+
+describe('maskValue', () => {
+  const secret = spec({ type: 'string', secret: true });
+
+  it('masks all but the last 2 characters of a long secret', () => {
+    expect(maskValue(secret, 'abcdefghij')).toBe('••••ij');
+  });
+
+  it('masks a short secret entirely', () => {
+    expect(maskValue(secret, 'abcdefgh')).toBe('••••••••');
+    expect(maskValue(secret, 'abc')).toBe('•••');
+  });
+
+  it('shows nothing for an empty secret', () => {
+    expect(maskValue(secret, null)).toBe('');
+    expect(maskValue(secret, '')).toBe('');
+  });
+
+  it('masks a typed secret by its written form', () => {
+    const pin = spec({ type: 'integer', secret: true });
+    expect(maskValue(pin, 123456789)).toBe('••••89');
+  });
+
+  it('shows a value that is not secret as written', () => {
+    expect(maskValue(spec({ type: 'string' }), 'two words')).toBe('two words');
+    expect(maskValue(spec({ type: 'port' }), 8080)).toBe('8080');
   });
 });

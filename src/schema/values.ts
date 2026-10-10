@@ -141,3 +141,69 @@ export function validateValue(
   }
   return coerce(spec, raw);
 }
+
+/** The value as plain text: `true`/`false`, the number, or the string. */
+const plainText = (value: VariableValue | null): string =>
+  value === null ? '' : String(value);
+
+// Whitespace, comment markers and quote characters would change how an env
+// file reader splits or unquotes the value.
+const NEEDS_QUOTES = /[\s#"'`]/;
+const ESCAPES: Record<string, string> = {
+  '\\': '\\\\',
+  '"': '\\"',
+  '\n': '\\n',
+  '\r': '\\r',
+  '\t': '\\t',
+};
+const UNESCAPES: Record<string, string> = {
+  '\\': '\\',
+  '"': '"',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+};
+
+/**
+ * The value as written after `KEY=` in an env file: double-quoted, with
+ * backslash escapes, when it holds whitespace, `#` or quotes. `spec` is
+ * taken for type-specific formatting; every type writes its plain text today.
+ */
+export function formatValue(
+  spec: VariableSpec,
+  value: VariableValue | null,
+): string {
+  const text = plainText(value);
+  if (!NEEDS_QUOTES.test(text)) return text;
+  return `"${text.replace(/[\\"\n\r\t]/g, (char) => ESCAPES[char] ?? char)}"`;
+}
+
+/**
+ * Reads a value written after `KEY=`: undoes {@link formatValue}'s double
+ * quotes and escapes, strips single quotes, and keeps anything else as is.
+ */
+export function unquoteValue(raw: string): string {
+  if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'"))
+    return raw.slice(1, -1);
+  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+  return raw
+    .slice(1, -1)
+    .replace(/\\(.)/gs, (escape, char: string) => UNESCAPES[char] ?? escape);
+}
+
+const BULLET = '•';
+
+/**
+ * The value for display: a secret longer than 8 characters shows `••••`
+ * and its last 2; a shorter one is all bullets. Other values show as is.
+ */
+export function maskValue(
+  spec: VariableSpec,
+  value: VariableValue | null,
+): string {
+  const text = plainText(value);
+  if (!spec.secret) return text;
+  const chars = [...text];
+  if (chars.length > 8) return BULLET.repeat(4) + chars.slice(-2).join('');
+  return BULLET.repeat(chars.length);
+}
