@@ -45,6 +45,9 @@ describe('the docs', () => {
       `\`bytes\` random bytes (default ${GENERATED_BYTES}) in that encoding; \`bytes\` under ${MIN_GENERATED_BYTES} exits 2`,
     );
     expect(commands).toContain(`input past ${KIB} KiB`);
+    expect(doc('skills/configure-env/references/schema.md')).toContain(
+      `\`bytes\` random bytes (default ${GENERATED_BYTES})`,
+    );
     expect(commands).toContain(`${SECONDS} s with no new input`);
   });
 });

@@ -36,6 +36,7 @@ Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project
 | New variable | add it to the schema → `apply --ci --file .env.example` → `set` it in the real file |
 | Non-secret value | `set --ci --file .env KEY=VALUE` |
 | Generated secret | `set --ci --file .env --generate KEY` (it keeps an existing value) |
+| Key or key file (either-or) | `--generate` only the key when the `*_FILE` partner is unset; `validate --ci --json` reports `requiredUnless`/`conflictsWith` breaks |
 | Vendor secret, manager known | `<manager read cmd> \| configure-env set --ci --file .env --stdin KEY` |
 | Vendor secret, no manager | ask the user to run `configure-env set --file .env --prompt KEY` in their terminal (Claude Code: `! <command>`) |
 | Many values for a human | ask them to run `configure-env apply` (TUI) |
