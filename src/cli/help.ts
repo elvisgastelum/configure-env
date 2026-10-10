@@ -29,9 +29,17 @@ const GLOBAL = `Global options:
 const EXIT_CODES = `Exit codes:
   0    ok
   1    drift, an invalid value or schema, or a failed write
-  2    usage error: a bad option, no schema, no terminal without --ci, or
-       init over an existing schema without --force
+  2    usage error: a bad option, no schema, no terminal without --ci,
+       init over an existing schema without --force, or a change to a
+       protected value
   130  cancelled`;
+
+const PROTECTED = `A protected variable keeps the value a file holds: a different value,
+or removing it, exits 2 and writes nothing. So does a new value where a
+file lost one that the state (.configure-env/state.json) recorded; the
+recorded value itself is taken back. --replace-protected KEY allows the
+change: in a terminal you type KEY to confirm, with --ci or --json the
+flag is enough.`;
 
 export const MAIN_HELP = `Usage: configure-env [command] [options]
 
@@ -78,6 +86,8 @@ instead. It lands only where a file lacks the key, so it cannot take a key
 that a chosen generate file writes, or one that a file of the run would
 hold with its conflictsWith partner set. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
 
+${PROTECTED}
+
 --defer KEY leaves a required (or requiredUnless) variable for a person: with no value, it is
 written empty instead of failing the run, not prompted for, and reported,
 so it can be set later with set --prompt KEY or set --stdin KEY. An
@@ -89,6 +99,8 @@ Options:
   --generate KEY   a random value for a secret string; repeat for more
   --defer KEY      write a required variable empty when it has no value;
                    repeat for more
+  --replace-protected KEY
+                   replace a protected value; repeat for more
 
 ${GLOBAL}
 
@@ -180,6 +192,8 @@ closes.
 ${FILE_CHOICE} A template file is
 edited only with --allow-template, and never with --generate or --stdin.
 
+${PROTECTED}
+
 Options:
   --prompt KEY      ask for the value in the terminal (hidden for a
                     secret); repeat for more
@@ -191,6 +205,8 @@ Options:
                     schema's mode
   --allow-unknown   set a key that is not one of the file's variables
   --allow-template  edit a template file
+  --replace-protected KEY
+                    replace a protected value; repeat for more
 
 ${GLOBAL}
 
@@ -237,8 +253,12 @@ its mode. A key the file does not hold is reported as absent (exit 0).
 ${FILE_CHOICE} A template file is
 edited only with --allow-template.
 
+${PROTECTED}
+
 Options:
   --allow-template  edit a template file
+  --replace-protected KEY
+                    remove a protected value; repeat for more
 
 ${GLOBAL}
 

@@ -18,17 +18,21 @@ import {
 import { DEFAULT_SCHEMA_PATH, loadSchema } from '../schema/load.ts';
 import { ruleKeys, validateValue } from '../schema/values.ts';
 import type { Io, Prompts } from './io.ts';
+import { type ProtectedProblem, protectedLine } from './protect.ts';
 import { clackPrompts } from './prompts.ts';
 
 /**
  * A problem with one key, as `--json` reports it: `value` when a value
  * breaks the variable's rules (exit 1), `usage` when the options misuse the
- * key (exit 2). Never holds a value. apply's failure document carries these
- * and the `PlanError` kinds alike, so `file` (an unsafe path, exit 1) reaches
- * it too.
+ * key (exit 2), `protected` when a run would change a protected value
+ * (exit 2, with the schema's `reason`). Never holds a value. apply's failure
+ * document carries these and the `PlanError` kinds alike, so `file` (an
+ * unsafe path, exit 1) reaches it too.
  */
 export type KeyProblem =
-  ValueError | { kind: 'usage'; key: string; message: string };
+  | ValueError
+  | { kind: 'usage'; key: string; message: string }
+  | ProtectedProblem;
 
 /**
  * A failure that ends the command with `code` after printing `lines`.
@@ -49,7 +53,7 @@ export class CliError extends Error {
  * a `value` one 1. `hints` follow the message.
  */
 export const keyError = (
-  kind: KeyProblem['kind'],
+  kind: 'value' | 'usage',
   key: string,
   message: string,
   ...hints: string[]
@@ -340,6 +344,8 @@ export function ruleErrors(
   return [...errors.values()];
 }
 
-/** A plan error as one line. */
-export const describeError = (error: PlanError) =>
-  `${error.kind === 'file' ? error.path : (error.keys?.join(', ') ?? error.key)}: ${error.message}`;
+/** A plan error or key problem as one line. */
+export const describeError = (error: PlanError | KeyProblem) =>
+  error.kind === 'protected'
+    ? protectedLine(error)
+    : `${error.kind === 'file' ? error.path : (error.kind === 'value' && error.keys?.join(', ')) || error.key}: ${error.message}`;

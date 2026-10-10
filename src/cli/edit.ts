@@ -38,6 +38,17 @@ import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
+  type ProtectedProblem,
+  type RunState,
+  confirmReplacements,
+  loadRunState,
+  protectVerdict,
+  protectedError,
+  recordValues,
+  replaceKeys,
+  saveRunState,
+} from './protect.ts';
+import {
   type EnvFile,
   UNKNOWN_SPEC,
   chooseFile,
@@ -48,6 +59,38 @@ import {
 } from './target.ts';
 
 const CANCELLED = 130;
+
+function cancelled(context: { prompts: { cancel(message?: string): void } }) {
+  context.prompts.cancel('Cancelled; nothing was written.');
+  return CANCELLED;
+}
+
+/**
+ * Writes the file, then records the protected values it holds: the state
+ * never learns a value that was not written.
+ */
+async function writeAndRecord(
+  context: Parameters<typeof saveRunState>[0],
+  schema: EnvSchema,
+  file: EnvFile,
+  run: RunState | undefined,
+  replaced: ReadonlySet<string>,
+  write: boolean,
+) {
+  if (write) await writeEnvFile(file, serialize(file.doc));
+  recordValues(
+    run,
+    schema,
+    file.spec,
+    (key) => getValue(file.doc, key),
+    replaced,
+  );
+  await saveRunState(context, run, write ? [file.spec.path] : []);
+}
+
+/** The report line of each replaced key. */
+const replacedLines = (replaced: ReadonlySet<string>) =>
+  [...replaced].map((key) => `replaced protected ${key}`);
 
 /** The context, schema and file every edit command starts from. */
 async function start(
@@ -80,6 +123,7 @@ const SET_OPTIONS = {
   create: { type: 'boolean' },
   'allow-unknown': { type: 'boolean' },
   'allow-template': { type: 'boolean' },
+  'replace-protected': { type: 'string', multiple: true },
 } as const;
 
 type SetStatus = 'updated' | 'added' | 'unchanged';
@@ -193,6 +237,8 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     (key) => specFor(schema, spec, key),
     schema,
   );
+  const replace = replaceKeys(schema, options['replace-protected']);
+  const run = await loadRunState(context, schema);
 
   const allowUnknown = Boolean(options['allow-unknown']);
   const unknown = [
@@ -228,10 +274,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       variable,
       variable.secret ? '' : initial,
     );
-    if (context.prompts.isCancel(answer)) {
-      context.prompts.cancel('Cancelled; nothing was written.');
-      return CANCELLED;
-    }
+    if (context.prompts.isCancel(answer)) return cancelled(context);
     pairs.set(key, answer);
   }
   if (stdinKey !== undefined) {
@@ -316,8 +359,24 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     spec: VariableSpec;
     plain: string;
   }[] = [];
+  const refused: ProtectedProblem[] = [];
+  const replaced = new Set<string>();
   for (const [key, { spec: variable, text, plain }] of written) {
     const current = getValue(file.doc, key);
+    const verdict = protectVerdict(
+      schema,
+      run?.state,
+      spec,
+      key,
+      current,
+      plain,
+      replace,
+    );
+    if (verdict.action === 'refuse') {
+      refused.push(verdict.problem);
+      continue;
+    }
+    if (verdict.action === 'replace') replaced.add(key);
     let status: SetStatus;
     if (current === undefined) {
       appendKey(file, newEntryLines(schema, spec, key, text));
@@ -332,6 +391,8 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     const shown = key === stdinKey ? { ...variable, secret: true } : variable;
     report.push({ key, status, spec: shown, plain });
   }
+  if (refused.length)
+    throw protectedError(refused, `nothing was written to ${spec.path}`);
   // The rules between variables, over the values the file would hold: one
   // that names a key this run sets and breaks writes nothing.
   const broken = fileRules(schema, spec, file.doc).filter((problem) =>
@@ -344,8 +405,16 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ),
       `nothing was written to ${spec.path}`,
     ]);
-  if (report.some((entry) => entry.status !== 'unchanged'))
-    await writeEnvFile(file, serialize(file.doc));
+  if (!(await confirmReplacements(context, [...replaced])))
+    return cancelled(context);
+  await writeAndRecord(
+    context,
+    schema,
+    file,
+    run,
+    replaced,
+    report.some((entry) => entry.status !== 'unchanged'),
+  );
 
   if (context.json)
     io.stdout(
@@ -357,13 +426,16 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
           key,
           status,
           ...jsonValue(variable, plain),
+          ...(replaced.has(key) ? { replaced: true } : {}),
         })),
       }),
     );
-  else
+  else {
     report.forEach(({ key, status, spec: variable, plain }) =>
       io.stdout(`${key}: ${status} (${maskValue(variable, plain)})`),
     );
+    replacedLines(replaced).forEach((line) => io.stdout(line));
+  }
   return 0;
 }
 
@@ -414,7 +486,10 @@ export async function getCommand(args: string[], io: Io): Promise<number> {
 
 // ---------------------------------------------------------------- unset
 
-const UNSET_OPTIONS = { 'allow-template': { type: 'boolean' } } as const;
+const UNSET_OPTIONS = {
+  'allow-template': { type: 'boolean' },
+  'replace-protected': { type: 'string', multiple: true },
+} as const;
 
 export async function unsetCommand(args: string[], io: Io): Promise<number> {
   const { values: options, positionals } = parseCommandArgs(
@@ -431,9 +506,35 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     guard: true,
     allowTemplate: Boolean(options['allow-template']),
   });
+  const replace = replaceKeys(schema, options['replace-protected']);
+  const run = await loadRunState(context, schema);
   const file = await readEnvFile(context, spec);
+  const keys = new Set(positionals);
+  // Every protected key is checked before any is removed.
+  const refused: ProtectedProblem[] = [];
+  const replaced = new Set<string>();
+  for (const key of keys) {
+    const current = getValue(file.doc, key);
+    if (current === undefined) continue;
+    const verdict = protectVerdict(
+      schema,
+      run?.state,
+      spec,
+      key,
+      current,
+      undefined,
+      replace,
+    );
+    if (verdict.action === 'refuse') refused.push(verdict.problem);
+    if (verdict.action === 'replace') replaced.add(key);
+  }
+  if (refused.length)
+    throw protectedError(refused, `nothing was written to ${spec.path}`);
+  if (!(await confirmReplacements(context, [...replaced])))
+    return cancelled(context);
+
   const report: { key: string; status: 'removed' | 'absent' }[] = [];
-  for (const key of new Set(positionals)) {
+  for (const key of keys) {
     const known = specFor(schema, spec, key) !== undefined;
     const comment = known ? entryComment(schema, spec, key) : undefined;
     const removed = removeEntry(
@@ -443,8 +544,14 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     );
     report.push({ key, status: removed ? 'removed' : 'absent' });
   }
-  if (report.some((entry) => entry.status === 'removed'))
-    await writeEnvFile(file, serialize(file.doc));
+  await writeAndRecord(
+    context,
+    schema,
+    file,
+    run,
+    replaced,
+    report.some((entry) => entry.status === 'removed'),
+  );
 
   if (context.json)
     io.stdout(
@@ -452,9 +559,14 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
         command: 'unset',
         ok: true,
         file: spec.path,
-        keys: report,
+        keys: report.map((entry) =>
+          replaced.has(entry.key) ? { ...entry, replaced: true } : entry,
+        ),
       }),
     );
-  else report.forEach(({ key, status }) => io.stdout(`${key}: ${status}`));
+  else {
+    report.forEach(({ key, status }) => io.stdout(`${key}: ${status}`));
+    replacedLines(replaced).forEach((line) => io.stdout(line));
+  }
   return 0;
 }

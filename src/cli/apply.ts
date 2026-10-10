@@ -9,6 +9,7 @@ import {
   planChanges,
 } from '../engine/plan.ts';
 import { fileRules } from '../engine/check.ts';
+import { fileKeys } from '../engine/plan.ts';
 import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
@@ -36,11 +37,23 @@ import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
 import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
+import {
+  type ProtectedProblem,
+  type RunState,
+  confirmReplacements,
+  loadRunState,
+  protectVerdict,
+  protectedLine,
+  recordValues,
+  replaceKeys,
+  saveRunState,
+} from './protect.ts';
 
 const OPTIONS = {
   set: { type: 'string', multiple: true },
   generate: { type: 'string', multiple: true },
   defer: { type: 'string', multiple: true },
+  'replace-protected': { type: 'string', multiple: true },
 } as const;
 
 export async function applyCommand(args: string[], io: Io): Promise<number> {
@@ -98,13 +111,112 @@ async function applyWith(
     [...Object.keys(sets), ...generated],
     options.defer,
   );
+  const guard: Guard = {
+    run: undefined,
+    replace: replaceKeys(schema, options['replace-protected']),
+  };
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
-    return applyUnattended(context, schema, sets, generated, deferred);
+    guard.run = await loadRunState(context, schema);
+    return applyUnattended(context, schema, sets, generated, deferred, guard);
   }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
-  return applyInteractive(context, schema, sets, generated, deferred);
+  guard.run = await loadRunState(context, schema);
+  return applyInteractive(context, schema, sets, generated, deferred, guard);
 }
+
+/** The protected variables' state of a run and its --replace-protected keys. */
+interface Guard {
+  run: RunState | undefined;
+  replace: ReadonlySet<string>;
+}
+
+/** A protected key a run replaces. */
+interface Replaced {
+  file: string;
+  key: string;
+}
+
+/**
+ * Checks every protected key the planned files would write, before any is
+ * written: the refusals, and the keys --replace-protected replaces.
+ */
+function protectedChanges(
+  schema: EnvSchema,
+  { run, replace }: Guard,
+  plans: readonly FilePlan[],
+): { refused: ProtectedProblem[]; replaced: Replaced[] } {
+  const refused: ProtectedProblem[] = [];
+  const replaced: Replaced[] = [];
+  if (!run) return { refused, replaced };
+  for (const plan of plans) {
+    if (plan.action !== 'create' && plan.action !== 'update') continue;
+    const spec = schema.files.find((file) => file.path === plan.path)!;
+    const before =
+      plan.previous === undefined ? undefined : parseDotenv(plan.previous);
+    const after = parseDotenv(plan.content ?? '');
+    for (const key of fileKeys(schema, spec)) {
+      const verdict = protectVerdict(
+        schema,
+        run.state,
+        spec,
+        key,
+        before && getValue(before, key),
+        getValue(after, key),
+        replace,
+      );
+      if (verdict.action === 'refuse') refused.push(verdict.problem);
+      if (verdict.action === 'replace') replaced.push({ file: plan.path, key });
+    }
+  }
+  return { refused, replaced };
+}
+
+/**
+ * Records the protected values of the run's files after the write: what a
+ * written file holds now, what an untouched one held. A failed file records
+ * nothing. Returns the state failure's lines, if any.
+ */
+async function recordRun(
+  context: Context,
+  schema: EnvSchema,
+  run: RunState | undefined,
+  plans: readonly FilePlan[],
+  results: readonly ApplyResult[],
+  replaced: readonly Replaced[],
+): Promise<string[] | undefined> {
+  plans.forEach((plan, i) => {
+    const result = results[i];
+    if (!result?.ok || plan.reason === 'refused') return;
+    const content = result.written ? plan.content : plan.previous;
+    if (content === undefined) return;
+    const doc = parseDotenv(content);
+    const spec = schema.files.find((file) => file.path === plan.path)!;
+    const keys = result.written
+      ? replaced.filter((entry) => entry.file === plan.path)
+      : [];
+    recordValues(
+      run,
+      schema,
+      spec,
+      (key) => getValue(doc, key),
+      new Set(keys.map((entry) => entry.key)),
+    );
+  });
+  const written = plans
+    .filter((_, i) => results[i]?.written)
+    .map((plan) => plan.path);
+  try {
+    await saveRunState(context, run, written);
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    return error.lines;
+  }
+}
+
+const replacedLines = (replaced: readonly Replaced[]) =>
+  replaced.map(({ file, key }) => `${file}: replaced protected ${key}`);
 
 /** The keys of the repeated --defer option, each once and checked. */
 function deferKeys(
@@ -295,12 +407,14 @@ const toWrite = (plan: Plan) =>
   );
 
 async function applyUnattended(
-  { io, root, files, json }: Context,
+  context: Context,
   schema: EnvSchema,
   sets: Readonly<Record<string, string>>,
   generated: readonly string[],
   deferred: readonly string[],
+  guard: Guard,
 ): Promise<number> {
+  const { io, root, files, json } = context;
   const first = await planChanges({ schema, root, values: {}, files });
   const givenValues = withGenerated(
     schema,
@@ -335,25 +449,61 @@ async function applyUnattended(
     return 1;
   }
 
+  // A protected value never changes without --replace-protected: a refusal
+  // writes nothing.
+  const { refused, replaced } = protectedChanges(schema, guard, plan.files);
+  if (refused.length) {
+    if (json) io.stdout(failureJson(refused, plan.files));
+    else
+      refused.forEach((problem) =>
+        io.stderr(`configure-env: ${protectedLine(problem)}`),
+      );
+    return 2;
+  }
+
   const results = await applyPlan(plan);
-  const ok = results.every((result) => result.ok);
+  const stateError = await recordRun(
+    context,
+    schema,
+    guard.run,
+    plan.files,
+    results,
+    replaced,
+  );
+  const ok = results.every((result) => result.ok) && !stateError;
   const left = writtenEmpty(schema, plan.files, results, empty);
+  const done = replaced.filter((entry) =>
+    plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
+  );
   if (json)
     io.stdout(
       JSON.stringify({
         command: 'apply',
         ok,
-        errors: [],
+        errors: stateError
+          ? [
+              {
+                kind: 'file',
+                path: displayPath(io.cwd, guard.run!.path),
+                message: stateError.join('; '),
+              },
+            ]
+          : [],
         files: plan.files.map((file, i) => applyJson(file, results[i])),
         deferred: left.keys,
+        ...(done.length ? { replaced: done } : {}),
       }),
     );
   else {
     plan.files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
+    replacedLines(done).forEach((line) => io.stdout(line));
     if (left.keys.length)
       io.stdout(deferredLine(schema, left.written, left.keys));
+    stateError?.forEach((line, i) =>
+      io.stderr(i ? line : `configure-env: ${line}`),
+    );
   }
   return ok ? 0 : 1;
 }
@@ -438,12 +588,14 @@ function previewLines(
 }
 
 async function applyInteractive(
-  { io, prompts, root, files, schemaPath }: Context,
+  context: Context,
   schema: EnvSchema,
   sets: Readonly<Record<string, string>>,
   generated: readonly string[],
   deferred: readonly string[],
+  guard: Guard,
 ): Promise<number> {
+  const { io, prompts, root, files, schemaPath } = context;
   prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
 
   const first = await planChanges({ schema, root, values: {}, files });
@@ -541,6 +693,16 @@ async function applyInteractive(
     prompts.outro('Nothing was written.');
     return 1;
   }
+  const { refused: blocked, replaced } = protectedChanges(
+    schema,
+    guard,
+    plan.files,
+  );
+  if (blocked.length) {
+    prompts.log.error(blocked.map(protectedLine).join('\n'));
+    prompts.outro('Nothing was written.');
+    return 2;
+  }
   prompts.note(
     previewLines(schema, plan, { ...givenValues, ...answers }).join('\n'),
     'Plan',
@@ -556,14 +718,35 @@ async function applyInteractive(
     prompts.outro('Nothing was written.');
     return failure;
   }
+  try {
+    const keys = [...new Set(replaced.map((entry) => entry.key))];
+    if (!(await confirmReplacements(context, keys))) return cancelled(prompts);
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    prompts.log.error(error.lines.join('\n'));
+    prompts.outro('Nothing was written.');
+    return error.code;
+  }
 
   const progress = prompts.spinner();
   progress.start('Writing');
   const results = await applyPlan(plan);
+  const stateError = await recordRun(
+    context,
+    schema,
+    guard.run,
+    plan.files,
+    results,
+    replaced,
+  );
   const left = writtenEmpty(schema, plan.files, results, empty);
   const deferredLines = left.keys.length
     ? [deferredLine(schema, left.written, left.keys)]
     : [];
+  const done = replaced.filter((entry) =>
+    plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
+  );
+  if (stateError) prompts.log.error(stateError.join('\n'));
   const failed = results.filter((result) => !result.ok);
   if (failed.length) {
     progress.error(`${failed.length} of ${results.length} files failed`);
@@ -581,8 +764,9 @@ async function applyInteractive(
       ...plan.files.map(
         (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
       ),
+      ...replacedLines(done),
       ...deferredLines,
     ].join('\n'),
   );
-  return failure;
+  return stateError ? 1 : failure;
 }
