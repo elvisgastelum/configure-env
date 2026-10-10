@@ -1015,7 +1015,17 @@ describe('apply', () => {
     expect(check.out).toContain(
       `.env: SM_MASTER_KEY no longer matches the value recorded on 2020-01-02`,
     );
-    await expectNoValue([r, check], KEY_A, KEY_B);
+    // Just after midnight UTC too: local-time formatting fails on one side
+    // of UTC or the other.
+    const after = await state();
+    after.fingerprints['.env']!['SM_MASTER_KEY']!.recordedAt =
+      '2020-01-03T00:00:30.000Z';
+    await writeFile(path(STATE), JSON.stringify(after));
+    const next = await cli(['check', '--ci', '--file', '.env']);
+    expect(next.out).toContain(
+      `.env: SM_MASTER_KEY no longer matches the value recorded on 2020-01-03`,
+    );
+    await expectNoValue([r, check, next], KEY_A, KEY_B);
   });
 
   it('takes --state for another place', async () => {
