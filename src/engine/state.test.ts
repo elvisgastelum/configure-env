@@ -7,6 +7,7 @@ import {
   open,
   readFile,
   readdir,
+  rm,
   stat,
   symlink,
   unlink,
@@ -488,20 +489,27 @@ describe('updateState', () => {
           },
         );
 
-        it('reports the close error when the lock is gone or cannot be read', async () => {
+        it('reports the close error when the lock is gone', async () => {
           await expect(
             lockWith({ link: noLink, open: closeThen(() => unlink(lock())) }),
           ).rejects.toThrow('close failed');
           expect(await entries()).toEqual([]);
+        });
+
+        it('reports the close error and leaves a lock it cannot read', async () => {
           // A read that fails (EISDIR) counts as not ours.
           const unreadable = closeThen(async () => {
             await unlink(lock());
             await mkdir(lock());
           });
-          await expect(
-            lockWith({ link: noLink, open: unreadable }),
-          ).rejects.toThrow('close failed');
-          expect((await stat(lock())).isDirectory()).toBe(true);
+          try {
+            await expect(
+              lockWith({ link: noLink, open: unreadable }),
+            ).rejects.toThrow('close failed');
+            expect((await stat(lock())).isDirectory()).toBe(true);
+          } finally {
+            await rm(lock(), { recursive: true, force: true });
+          }
         });
       });
 
