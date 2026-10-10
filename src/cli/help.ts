@@ -1,7 +1,7 @@
 // The help text of each command.
 
 import { readFileSync } from 'node:fs';
-import { GENERATED_LENGTH } from './generate.ts';
+import { GENERATED_LENGTH, MIN_GENERATED_LENGTH } from './generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './stdin.ts';
 
 /** The package version, from package.json. */
@@ -72,12 +72,13 @@ prompt is shown for a variable only template files need.
 --generate KEY puts a random value in place of a secret string variable,
 one per run, never printed; a value the run's files already hold is used
 instead. It lands only where a file lacks the key, so it cannot take a key
-that a chosen generate file writes.
+that a chosen generate file writes. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
 
 --defer KEY leaves a required variable for a person: with no value, it is
 written empty instead of failing the run, not prompted for, and reported,
 so it can be set later with set --prompt KEY or set --stdin KEY. An
-optional variable exits 2.
+optional or undeclared variable, or one also given with --set or
+--generate, exits 2.
 
 Options:
   --set KEY=VALUE  a value; repeat for more
@@ -163,12 +164,13 @@ other line stays byte for byte, and the file keeps its mode. Each key is
 reported as updated, added or unchanged, secrets masked.
 
 --generate KEY writes a random value for a secret string variable (${GENERATED_LENGTH}
-characters of [A-Za-z0-9_-], within minLength and maxLength); a key that
-already has a value keeps it. --stdin KEY reads one value from stdin, one
-trailing newline stripped, so a secret never goes through argv. An empty
-stdin, as a failed command in the pipe leaves, writes nothing (exit 1); so
-does input past ${STDIN_MAX_BYTES / 1024} KiB. ${STDIN_IDLE_MS / 1000}s with no new input exits 2, as does a pipe
-that sends the value but never closes.
+characters of [A-Za-z0-9_-], within minLength and maxLength; a maxLength
+under ${MIN_GENERATED_LENGTH} exits 2); a key that already has a value keeps it. --stdin
+KEY reads one value from stdin, one trailing newline stripped, so a secret
+never goes through argv. An empty stdin, as a failed command in the pipe
+leaves, writes nothing (exit 1); so does input past ${STDIN_MAX_BYTES / 1024} KiB. ${STDIN_IDLE_MS / 1000}s
+with no new input exits 2, as does a pipe that sends the value but never
+closes.
 
 ${FILE_CHOICE} A template file is
 edited only with --allow-template, and never with --generate or --stdin.

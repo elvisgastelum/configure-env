@@ -38,12 +38,12 @@ export function readStream(
     const wait = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        const seconds = waitText(idleMs);
+        const waited = waitText(idleMs);
         settle(
           new CliError(2, [
             size
-              ? `--stdin got no end of input in ${seconds}; close the pipe after the value`
-              : `--stdin got no input in ${seconds}; pipe the value in, such as: <cmd> | configure-env set --stdin KEY`,
+              ? `--stdin got no end of input in ${waited}; close the pipe after the value`
+              : `--stdin got no input in ${waited}; pipe the value in, such as: <cmd> | configure-env set --stdin KEY`,
           ]),
         );
       }, idleMs);

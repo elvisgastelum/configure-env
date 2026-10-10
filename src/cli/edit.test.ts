@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { CliError } from './common.ts';
+import { MIN_GENERATED_LENGTH } from './generate.ts';
 import { readStream } from './stdin.ts';
 import {
   CLI_SCHEMA,
@@ -299,6 +300,30 @@ describe('set --generate', () => {
     await tokenSchema({ type: 'string', secret: true, maxLength: 20 });
     await cli(['set', '--generate', 'TOKEN']);
     expect(await tokenIn('app.env')).toHaveLength(20);
+  });
+
+  it('exits 2 for a maxLength below the floor, writing nothing', async () => {
+    await seed();
+    await tokenSchema({
+      type: 'string',
+      secret: true,
+      maxLength: MIN_GENERATED_LENGTH - 1,
+    });
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        `configure-env: TOKEN: maxLength ${MIN_GENERATED_LENGTH - 1} is too short for a generated secret; set it with --prompt or --stdin`,
+      ],
+    });
+    expect(await read('app.env')).toBe(ORIGINAL);
+    await tokenSchema({
+      type: 'string',
+      secret: true,
+      maxLength: MIN_GENERATED_LENGTH,
+    });
+    expect((await cli(['set', '--generate', 'TOKEN'])).code).toBe(0);
+    expect(await tokenIn('app.env')).toHaveLength(MIN_GENERATED_LENGTH);
   });
 
   it('exits 1 and writes nothing when no value passes the rules', async () => {

@@ -3,7 +3,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GENERATED_LENGTH } from './cli/generate.ts';
+import { GENERATED_LENGTH, MIN_GENERATED_LENGTH } from './cli/generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
 
 const doc = (path: string) =>
@@ -16,6 +16,10 @@ describe('the docs', () => {
   it('README states the generated length and the stdin limits', () => {
     const readme = doc('README.md');
     expect(readme).toContain(`${GENERATED_LENGTH} characters of`);
+    expect(readme).toContain(`A \`maxLength\` under ${MIN_GENERATED_LENGTH}`);
+    expect(readme).toContain(
+      `never shorter than ${MIN_GENERATED_LENGTH} characters`,
+    );
     expect(readme).toContain(`input past ${KIB} KiB`);
     expect(readme).toContain(`nothing new for ${SECONDS} seconds`);
   });
@@ -23,6 +27,9 @@ describe('the docs', () => {
   it('the command reference states them too', () => {
     const commands = doc('skills/configure-env/references/commands.md');
     expect(commands).toContain(`a random ${GENERATED_LENGTH}-character`);
+    expect(commands).toContain(
+      `a \`maxLength\` under ${MIN_GENERATED_LENGTH} exits 2`,
+    );
     expect(commands).toContain(`input past ${KIB} KiB`);
     expect(commands).toContain(`${SECONDS} s with no new input`);
   });

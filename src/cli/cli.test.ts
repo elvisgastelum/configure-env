@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MIN_GENERATED_LENGTH } from './generate.ts';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
 
 const dirs = useProject();
@@ -657,6 +658,40 @@ describe('apply --generate', () => {
     });
     expect(refused.code).toBe(2);
     expect(await exists('gen.env')).toBe(false);
+    expect(picked.logs.slice(-2)).toEqual([
+      'error: SECRET: --generate would rotate it on every run of gen.env, a generate file\npass --file to leave that file out of the run',
+      'outro: Nothing was written.',
+    ]);
+  });
+
+  it('takes no held value from a refused file in an unattended run', async () => {
+    await useSecretSchema();
+    const kept = 'a'.repeat(32);
+    await writeFile(join(root(), 'merge.env'), `SECRET=${kept}\n`);
+    await writeFile(join(root(), 'elsewhere'), `SECRET=${'b'.repeat(32)}\n`);
+    await symlink(join(root(), 'elsewhere'), join(root(), 'local.env'));
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: local.env: is a symlink; refusing to write through it',
+    ]);
+    expect(await secretIn('merge.env')).toBe(kept);
+  });
+
+  it('prints the failure JSON for a maxLength below the floor', async () => {
+    await useSecretSchema({
+      minLength: 1,
+      maxLength: MIN_GENERATED_LENGTH - 1,
+    });
+    const r = await cli(['apply', '--json', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(2);
+    expect(JSON.parse(r.out.join('')).errors).toEqual([
+      {
+        kind: 'usage',
+        key: 'SECRET',
+        message: `maxLength ${MIN_GENERATED_LENGTH - 1} is too short for a generated secret; set it with --prompt or --stdin`,
+      },
+    ]);
   });
 });
 

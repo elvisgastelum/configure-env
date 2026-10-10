@@ -9,6 +9,9 @@ import { keyError } from './common.ts';
 /** The length of a generated value, unless minLength or maxLength says otherwise. */
 export const GENERATED_LENGTH = 48;
 
+/** The shortest value --generate makes: a lower maxLength is refused. */
+export const MIN_GENERATED_LENGTH = 16;
+
 /** Tries before giving up on a pattern the random values do not match. */
 const ATTEMPTS = 10;
 
@@ -38,6 +41,13 @@ export function generateValue(key: string, spec: VariableSpec): string {
     length = Math.max(length, spec.minLength ?? 0);
     length = Math.min(length, spec.maxLength ?? length);
   }
+  // A short secret is a weak one: never make it without notice.
+  if (length < MIN_GENERATED_LENGTH)
+    throw keyError(
+      'usage',
+      key,
+      `maxLength ${length} is too short for a generated secret; set it with --prompt or --stdin`,
+    );
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const value = randomBytes(Math.ceil((length * 3) / 4))
       .toString('base64url')

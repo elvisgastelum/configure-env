@@ -382,13 +382,22 @@ async function applyInteractive(
     required: true,
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
-  checkGenerated(schema, picked, generated);
-  const givenValues = withGenerated(
-    schema,
-    first.files.filter((file) => picked.includes(file.path)),
-    sets,
-    generated,
-  );
+  let givenValues: Record<string, string>;
+  try {
+    checkGenerated(schema, picked, generated);
+    givenValues = withGenerated(
+      schema,
+      first.files.filter((file) => picked.includes(file.path)),
+      sets,
+      generated,
+    );
+  } catch (error) {
+    // The prompts are open: close them with the error, not a bare exit.
+    if (!(error instanceof CliError)) throw error;
+    prompts.log.error(error.lines.join('\n'));
+    prompts.outro('Nothing was written.');
+    return error.code;
+  }
 
   let refused = false;
   const selected: FilePlan[] = [];

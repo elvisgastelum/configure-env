@@ -39,6 +39,17 @@ describe('readStream', () => {
     expect(stream.destroyed).toBe(true);
   });
 
+  it('takes exactly maxBytes, and refuses one byte more', async () => {
+    const full = new PassThrough();
+    const read = readStream(full, limits);
+    full.end('x'.repeat(limits.maxBytes));
+    expect(await read).toHaveLength(limits.maxBytes);
+    const over = new PassThrough();
+    const refused = readStream(over, limits);
+    over.end('x'.repeat(limits.maxBytes + 1));
+    expect(await refused.catch((e: unknown) => e)).toMatchObject({ code: 1 });
+  });
+
   it('exits 1 for input past maxBytes, never echoing it', async () => {
     const stream = new PassThrough();
     const read = readStream(stream, limits);
