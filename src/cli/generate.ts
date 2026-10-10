@@ -42,12 +42,18 @@ export function generateValue(key: string, spec: VariableSpec): string {
     length = Math.min(length, spec.maxLength ?? length);
   }
   // A short secret is a weak one: never make it without notice.
-  if (length < MIN_GENERATED_LENGTH)
+  if (length < MIN_GENERATED_LENGTH) {
+    const max = spec.type === 'string' ? spec.maxLength : undefined;
+    const cause =
+      max !== undefined && max < MIN_GENERATED_LENGTH
+        ? `maxLength ${max}`
+        : `a length of ${length}`;
     throw keyError(
       'usage',
       key,
-      `maxLength ${length} is too short for a generated secret; set it with --prompt or --stdin`,
+      `${cause} is too short for a generated secret; set it with --prompt or --stdin`,
     );
+  }
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const value = randomBytes(Math.ceil((length * 3) / 4))
       .toString('base64url')

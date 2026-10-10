@@ -472,6 +472,19 @@ describe('set --stdin', () => {
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 
+  it('exits 1 with a clear message when the reader fails on its own', async () => {
+    await seed();
+    const r = await cli(['set', '--stdin', 'TOKEN'], {
+      stdin: new Error('EIO: i/o error, read'),
+    });
+    expect(r).toMatchObject({
+      code: 1,
+      out: [],
+      err: ['configure-env: --stdin could not be read: EIO: i/o error, read'],
+    });
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
   it('reads the file after stdin, so a change made while it waits survives', async () => {
     await seed('PORT=1\n');
     // Another command edits the file while this one waits on the pipe.

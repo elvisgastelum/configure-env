@@ -108,6 +108,21 @@ function newEntryLines(
   return [...(comment ? commentLines(comment) : []), `${key}=${written}`];
 }
 
+/**
+ * What the stdin reader returns. A failure of its own (EIO, say) exits 1
+ * with its reason, which never holds the input.
+ */
+async function readStdin(read: () => Promise<string>): Promise<string> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw new CliError(1, [
+      `--stdin could not be read: ${(error as Error).message}`,
+    ]);
+  }
+}
+
 /** Exits 1 for a missing file, unless `create` lets set create it. */
 function checkExists(file: EnvFile, create: boolean) {
   if (!file.exists && !create)
@@ -213,7 +228,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     pairs.set(key, answer);
   }
   if (stdinKey !== undefined) {
-    const value = (await io.readStdin!()).replace(/\r?\n$/, '');
+    const value = (await readStdin(io.readStdin!)).replace(/\r?\n$/, '');
     // An empty pipe is almost always a failed command upstream, whose exit
     // status the shell drops: never write it, even for an optional key.
     if (!value)

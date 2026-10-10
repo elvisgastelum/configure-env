@@ -61,6 +61,19 @@ describe('readStream', () => {
     expect(stream.destroyed).toBe(true);
   });
 
+  it('survives a stream error after it settles, either way', async () => {
+    const done = new PassThrough();
+    const read = readStream(done, limits);
+    done.end('abc');
+    await read;
+    expect(() => done.emit('error', new Error('EIO'))).not.toThrow();
+    const failed = new PassThrough();
+    const refused = readStream(failed, limits).catch((e: unknown) => e);
+    failed.write('x'.repeat(limits.maxBytes + 1));
+    await refused;
+    expect(() => failed.emit('error', new Error('EPIPE'))).not.toThrow();
+  });
+
   it('passes on a stream error', async () => {
     const stream = new PassThrough();
     const read = readStream(stream, limits);

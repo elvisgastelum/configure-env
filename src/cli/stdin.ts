@@ -31,6 +31,9 @@ export function readStream(
     const settle = (error?: Error) => {
       clearTimeout(timer);
       stream.off('data', onData).off('end', onEnd).off('error', settle);
+      // A later error (EIO, or EPIPE while it is destroyed) has nobody left
+      // to tell; unhandled, it would crash the process.
+      stream.on('error', () => {});
       if (!error) return resolve(Buffer.concat(chunks).toString('utf8'));
       stream.destroy();
       reject(error);
