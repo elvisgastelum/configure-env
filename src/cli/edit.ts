@@ -3,6 +3,7 @@
 
 import {
   getValue,
+  parseDotenv,
   removeEntry,
   setValue,
   appendLines,
@@ -42,13 +43,13 @@ import type { Io } from './io.ts';
 import {
   type ProtectedProblem,
   type RunState,
+  checksOf,
   confirmReplacements,
   loadRunState,
   protectVerdict,
   protectedError,
-  recordValues,
   replaceKeys,
-  saveRunState,
+  writeProtected,
 } from './protect.ts';
 import {
   type EnvFile,
@@ -68,34 +69,70 @@ function cancelled(context: { prompts: { cancel(message?: string): void } }) {
 }
 
 /**
- * Writes the file, then records the protected values it holds: the state
- * never learns a value that was not written. A failed state write returns
- * its lines; the file is written by then, so the run reports it.
+ * Writes the file and records the protected values it holds; under the
+ * state's lock when the run has anything to settle with it, so the state
+ * never learns a value that was not written. `allowed` are the keys
+ * --replace-protected may replace: all of them unattended, else those
+ * confirmed. A lock it cannot get writes nothing and exits 1, with --json
+ * as the command's document. A state write that fails after the file is
+ * returned as `stateError`.
  */
 async function writeAndRecord(
   context: Context,
+  command: string,
   schema: EnvSchema,
   file: EnvFile,
   run: RunState | undefined,
-  replaced: ReadonlySet<string>,
+  allowed: ReadonlySet<string>,
   write: boolean,
-): Promise<string[] | undefined> {
-  if (write) await writeEnvFile(file, serialize(file.doc));
-  recordValues(
-    run,
-    schema,
-    file.spec,
-    (key) => getValue(file.doc, key),
-    replaced,
-  );
+): Promise<number | { replaced: Set<string>; stateError?: string[] }> {
+  const { spec, doc } = file;
+  const before = parseDotenv(file.previous ?? '');
   try {
-    await saveRunState(context, run, write ? [file.spec.path] : []);
-    return undefined;
+    const result = await writeProtected(
+      context,
+      schema,
+      run,
+      {
+        checks: checksOf(
+          schema,
+          spec,
+          (key) => getValue(before, key),
+          (key) => getValue(doc, key),
+        ),
+        files: [{ spec, valueOf: (key) => getValue(doc, key) }],
+        replace: allowed,
+        hints: [`nothing was written to ${spec.path}`],
+      },
+      async () => {
+        if (write) await writeEnvFile(file, serialize(doc));
+        return {
+          value: undefined,
+          done: [spec.path],
+          written: write ? [spec.path] : [],
+        };
+      },
+    );
+    return {
+      replaced: new Set(result.replaced.map((entry) => entry.key)),
+      ...(result.stateError ? { stateError: result.stateError } : {}),
+    };
   } catch (error) {
-    if (!(error instanceof CliError)) throw error;
-    return error.lines;
+    const errors = error instanceof CliError ? error.errors : undefined;
+    if (!context.json || errors?.[0]?.kind !== 'file') throw error;
+    context.io.stdout(
+      JSON.stringify({ command, ok: false, file: spec.path, keys: [], errors }),
+    );
+    return (error as CliError).code;
   }
 }
+
+/** The keys --replace-protected may replace: all unattended, else those confirmed. */
+const allowedKeys = (
+  context: Context,
+  replace: ReadonlySet<string>,
+  confirmed: ReadonlySet<string>,
+) => (context.ci || context.json ? replace : confirmed);
 
 /**
  * The end of a set or unset run: with --json, its document, `ok` false and
@@ -458,14 +495,19 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     ]);
   if (!(await confirmReplacements(context, [...replaced])))
     return cancelled(context);
-  const stateError = await writeAndRecord(
+  const outcome = await writeAndRecord(
     context,
+    'set',
     schema,
     file,
     run,
-    replaced,
+    allowedKeys(context, replace, replaced),
     report.some((entry) => entry.status !== 'unchanged'),
   );
+  if (typeof outcome === 'number') return outcome;
+  const { stateError } = outcome;
+  replaced.clear();
+  outcome.replaced.forEach((key) => replaced.add(key));
 
   return finish(
     context,
@@ -595,14 +637,19 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     );
     report.push({ key, status: removed ? 'removed' : 'absent' });
   }
-  const stateError = await writeAndRecord(
+  const outcome = await writeAndRecord(
     context,
+    'unset',
     schema,
     file,
     run,
-    replaced,
+    allowedKeys(context, replace, replaced),
     report.some((entry) => entry.status === 'removed'),
   );
+  if (typeof outcome === 'number') return outcome;
+  const { stateError } = outcome;
+  replaced.clear();
+  outcome.replaced.forEach((key) => replaced.add(key));
 
   return finish(
     context,

@@ -9,7 +9,6 @@ import {
   planChanges,
 } from '../engine/plan.ts';
 import { fileRules } from '../engine/check.ts';
-import { fileKeys } from '../engine/plan.ts';
 import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
@@ -38,15 +37,17 @@ import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
 import {
-  type ProtectedProblem,
   type RunState,
+  type ProtectedCheck,
+  type Replaced,
+  type RunFile,
+  checksOf,
   confirmReplacements,
   loadRunState,
-  protectVerdict,
   protectedLine,
-  recordValues,
   replaceKeys,
-  saveRunState,
+  verdictsOf,
+  writeProtected,
 } from './protect.ts';
 
 const OPTIONS = {
@@ -131,88 +132,80 @@ interface Guard {
   replace: ReadonlySet<string>;
 }
 
-/** A protected key a run replaces. */
-interface Replaced {
-  file: string;
-  key: string;
+/**
+ * The protected checks of every file the run writes, and the values of every
+ * file it leaves as planned, for recording.
+ */
+function runChecks(schema: EnvSchema, plan: Plan) {
+  const checks: ProtectedCheck[] = [];
+  const files: RunFile[] = [];
+  for (const file of plan.files) {
+    if (file.reason === 'refused') continue;
+    const spec = schema.files.find((entry) => entry.path === file.path)!;
+    const content = file.content ?? file.previous;
+    if (content !== undefined) {
+      const doc = parseDotenv(content);
+      files.push({ spec, valueOf: (key) => getValue(doc, key) });
+    }
+    if (file.action !== 'create' && file.action !== 'update') continue;
+    const before =
+      file.previous === undefined ? undefined : parseDotenv(file.previous);
+    const after = parseDotenv(file.content ?? '');
+    checks.push(
+      ...checksOf(
+        schema,
+        spec,
+        (key) => before && getValue(before, key),
+        (key) => getValue(after, key),
+      ),
+    );
+  }
+  return { checks, files };
 }
 
 /**
- * Checks every protected key the planned files would write, before any is
- * written: the refusals, and the keys --replace-protected replaces.
+ * Checks every protected key the planned files would write, against the
+ * state the run read, before any is written: the refusals, and the keys
+ * --replace-protected replaces.
  */
-function protectedChanges(
+const protectedChanges = (
   schema: EnvSchema,
   { run, replace }: Guard,
-  plans: readonly FilePlan[],
-): { refused: ProtectedProblem[]; replaced: Replaced[] } {
-  const refused: ProtectedProblem[] = [];
-  const replaced: Replaced[] = [];
-  if (!run) return { refused, replaced };
-  for (const plan of plans) {
-    if (plan.action !== 'create' && plan.action !== 'update') continue;
-    const spec = schema.files.find((file) => file.path === plan.path)!;
-    const before =
-      plan.previous === undefined ? undefined : parseDotenv(plan.previous);
-    const after = parseDotenv(plan.content ?? '');
-    for (const key of fileKeys(schema, spec)) {
-      const verdict = protectVerdict(
-        schema,
-        run.state,
-        spec,
-        key,
-        before && getValue(before, key),
-        getValue(after, key),
-        replace,
-      );
-      if (verdict.action === 'refuse') refused.push(verdict.problem);
-      if (verdict.action === 'replace') replaced.push({ file: plan.path, key });
-    }
-  }
-  return { refused, replaced };
-}
+  plan: Plan,
+) =>
+  run
+    ? verdictsOf(schema, run.state, runChecks(schema, plan).checks, replace)
+    : { refused: [], replaced: [] as Replaced[] };
 
 /**
- * Records the protected values of the run's files after the write: what a
- * written file holds now, what an untouched one held. A failed file records
- * nothing. Returns the state failure's lines, if any.
+ * Writes the plan, under the state's lock when it touches protected values
+ * (see writeProtected), settling its checks and values with the state as it
+ * is then. `allowed` are the keys --replace-protected may replace.
  */
-async function recordRun(
+function writeRun(
   context: Context,
   schema: EnvSchema,
-  run: RunState | undefined,
-  plans: readonly FilePlan[],
-  results: readonly ApplyResult[],
-  replaced: readonly Replaced[],
-): Promise<string[] | undefined> {
-  plans.forEach((plan, i) => {
-    const result = results[i];
-    if (!result?.ok || plan.reason === 'refused') return;
-    const content = result.written ? plan.content : plan.previous;
-    if (content === undefined) return;
-    const doc = parseDotenv(content);
-    const spec = schema.files.find((file) => file.path === plan.path)!;
-    const keys = result.written
-      ? replaced.filter((entry) => entry.file === plan.path)
-      : [];
-    recordValues(
-      run,
-      schema,
-      spec,
-      (key) => getValue(doc, key),
-      new Set(keys.map((entry) => entry.key)),
-    );
-  });
-  const written = plans
-    .filter((_, i) => results[i]?.written)
-    .map((plan) => plan.path);
-  try {
-    await saveRunState(context, run, written);
-    return undefined;
-  } catch (error) {
-    if (!(error instanceof CliError)) throw error;
-    return error.lines;
-  }
+  guard: Guard,
+  plan: Plan,
+  allowed: ReadonlySet<string>,
+) {
+  const { checks, files } = runChecks(schema, plan);
+  return writeProtected(
+    context,
+    schema,
+    guard.run,
+    { checks, files, replace: allowed },
+    async () => {
+      const results = await applyPlan(plan);
+      const paths = (keep: (file: FilePlan, i: number) => boolean) =>
+        plan.files.filter(keep).map((file) => file.path);
+      return {
+        value: results,
+        done: paths((file, i) => Boolean(results[i]?.ok) && !file.reason),
+        written: paths((_, i) => Boolean(results[i]?.written)),
+      };
+    },
+  );
 }
 
 const replacedLines = (replaced: readonly Replaced[]) =>
@@ -451,7 +444,7 @@ async function applyUnattended(
 
   // A protected value never changes without --replace-protected: a refusal
   // writes nothing.
-  const { refused, replaced } = protectedChanges(schema, guard, plan.files);
+  const { refused } = protectedChanges(schema, guard, plan);
   if (refused.length) {
     if (json) io.stdout(failureJson(refused, plan.files));
     else
@@ -461,15 +454,24 @@ async function applyUnattended(
     return 2;
   }
 
-  const results = await applyPlan(plan);
-  const stateError = await recordRun(
-    context,
-    schema,
-    guard.run,
-    plan.files,
-    results,
-    replaced,
-  );
+  let written: Awaited<ReturnType<typeof writeRun>>;
+  try {
+    written = await writeRun(context, schema, guard, plan, guard.replace);
+  } catch (error) {
+    // Refused under the state's lock, or no lock: nothing was written.
+    if (!(error instanceof CliError) || !error.errors) throw error;
+    if (json) io.stdout(failureJson(error.errors, plan.files));
+    else
+      error.lines.forEach((line, i) =>
+        io.stderr(
+          i && error.errors![0]!.kind === 'file'
+            ? line
+            : `configure-env: ${line}`,
+        ),
+      );
+    return error.code;
+  }
+  const { value: results, replaced, stateError } = written;
   const ok = results.every((result) => result.ok) && !stateError;
   const left = writtenEmpty(schema, plan.files, results, empty);
   const done = replaced.filter((entry) =>
@@ -693,11 +695,7 @@ async function applyInteractive(
     prompts.outro('Nothing was written.');
     return 1;
   }
-  const { refused: blocked, replaced } = protectedChanges(
-    schema,
-    guard,
-    plan.files,
-  );
+  const { refused: blocked, replaced } = protectedChanges(schema, guard, plan);
   if (blocked.length) {
     prompts.log.error(blocked.map(protectedLine).join('\n'));
     prompts.outro('Nothing was written.');
@@ -730,20 +728,23 @@ async function applyInteractive(
 
   const progress = prompts.spinner();
   progress.start('Writing');
-  const results = await applyPlan(plan);
-  const stateError = await recordRun(
-    context,
-    schema,
-    guard.run,
-    plan.files,
-    results,
-    replaced,
-  );
+  let written: Awaited<ReturnType<typeof writeRun>>;
+  try {
+    const confirmed = new Set(replaced.map((entry) => entry.key));
+    written = await writeRun(context, schema, guard, plan, confirmed);
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    progress.error('Not written');
+    prompts.log.error(error.lines.join('\n'));
+    prompts.outro('Nothing was written.');
+    return error.code;
+  }
+  const { value: results, stateError } = written;
   const left = writtenEmpty(schema, plan.files, results, empty);
   const deferredLines = left.keys.length
     ? [deferredLine(schema, left.written, left.keys)]
     : [];
-  const done = replaced.filter((entry) =>
+  const done = written.replaced.filter((entry) =>
     plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
   );
   if (stateError) prompts.log.error(stateError.join('\n'));

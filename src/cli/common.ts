@@ -42,7 +42,7 @@ export class CliError extends Error {
   constructor(
     readonly code: number,
     readonly lines: string[],
-    readonly errors?: KeyProblem[],
+    readonly errors?: (KeyProblem | PlanError)[],
   ) {
     super(lines[0]);
   }

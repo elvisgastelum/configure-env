@@ -7,10 +7,12 @@ import { fileKeys } from '../engine/plan.ts';
 import {
   type State,
   type StateChange,
+  applyChanges,
   loadState,
   matchesFingerprint,
+  mergeState,
   recorded,
-  updateState,
+  withStateLock,
 } from '../engine/state.ts';
 import {
   type EnvSchema,
@@ -43,15 +45,34 @@ export type Verdict =
   | { action: 'allow' | 'unchanged' | 'replace' }
   | { action: 'refuse'; problem: ProtectedProblem };
 
-/** The state of a run: loaded once, written once after the env files. */
+/**
+ * The state of a run, as read at its start: it decides early refusals and
+ * whether the run needs the state at all. The checks that count run again
+ * against the state re-read under its lock.
+ */
 export interface RunState {
   path: string;
   state: State;
-  /**
-   * The run's record and remove intents, applied to the state on disk when
-   * it is written, so a parallel run's entries survive.
-   */
-  changes: StateChange[];
+}
+
+/** A protected key a run replaces. */
+export interface Replaced {
+  file: string;
+  key: string;
+}
+
+/** A protected key of a file the run writes: its value before and after. */
+export interface ProtectedCheck {
+  file: FileSpec;
+  key: string;
+  current: string | undefined;
+  next: string | undefined;
+}
+
+/** A file of the run as it is after the run, for recording its values. */
+export interface RunFile {
+  spec: FileSpec;
+  valueOf: (key: string) => string | undefined;
 }
 
 /** The date a fingerprint was recorded, as YYYY-MM-DD. */
@@ -113,7 +134,7 @@ export async function loadRunState(
     schema,
     'fix or restore it; nothing was written',
   );
-  return state && { path: context.statePath, state, changes: [] };
+  return state && { path: context.statePath, state };
 }
 
 /** The keys of the repeated --replace-protected option, each once and checked. */
@@ -202,48 +223,160 @@ export async function confirmReplacements(
   return true;
 }
 
-/**
- * Records the protected values `file` holds after a run: a replaced one over
- * its old fingerprint (an emptied one is forgotten), any other only when
- * none is recorded, so a value edited by hand is left for check to report.
- */
-export function recordValues(
-  run: RunState | undefined,
+/** The checks of a file's protected keys, from `before` to `after` the run. */
+export const checksOf = (
   schema: EnvSchema,
   file: FileSpec,
-  valueOf: (key: string) => string | undefined,
-  replaced: ReadonlySet<string> = new Set(),
-) {
-  if (!run) return;
-  for (const key of fileKeys(schema, file)) {
-    if (!isProtected(schema, file, key)) continue;
-    const value = valueOf(key);
-    const replace = replaced.has(key);
-    if (!value && !replace) continue;
-    const change: StateChange = value
-      ? { action: 'record', file: file.path, key, value, replace }
-      : { action: 'remove', file: file.path, key };
-    // Decided against the state on disk when it is written, under its lock:
-    // a parallel run may have changed it since this one read it.
-    run.changes.push(change);
+  before: (key: string) => string | undefined,
+  after: (key: string) => string | undefined,
+): ProtectedCheck[] =>
+  fileKeys(schema, file)
+    .filter((key) => isProtected(schema, file, key))
+    .map((key) => ({ file, key, current: before(key), next: after(key) }));
+
+/** The refusals and replacements of the checks against `state`. */
+export function verdictsOf(
+  schema: EnvSchema,
+  state: State,
+  checks: readonly ProtectedCheck[],
+  replace: ReadonlySet<string>,
+): { refused: ProtectedProblem[]; replaced: Replaced[] } {
+  const refused: ProtectedProblem[] = [];
+  const replaced: Replaced[] = [];
+  for (const { file, key, current, next } of checks) {
+    const verdict = protectVerdict(
+      schema,
+      state,
+      file,
+      key,
+      current,
+      next,
+      replace,
+    );
+    if (verdict.action === 'refuse') refused.push(verdict.problem);
+    if (verdict.action === 'replace') replaced.push({ file: file.path, key });
   }
+  return { refused, replaced };
 }
 
 /**
- * Writes the run's changes to the state, after the env files, merged into
- * the state on disk under its lock. A failure exits 1, saying what was
- * written: those files hold values it does not know.
+ * The record and remove intents for the protected values the files hold
+ * after the run: a replaced one over its old fingerprint (an emptied one is
+ * forgotten), any other only where none is recorded, so a value edited by
+ * hand is left for check to report.
  */
-export async function saveRunState(
+function intentsOf(
+  schema: EnvSchema,
+  files: readonly RunFile[],
+  replaced: readonly Replaced[],
+): StateChange[] {
+  const changes: StateChange[] = [];
+  for (const { spec, valueOf } of files) {
+    for (const key of fileKeys(schema, spec)) {
+      if (!isProtected(schema, spec, key)) continue;
+      const value = valueOf(key);
+      const replace = replaced.some(
+        (entry) => entry.file === spec.path && entry.key === key,
+      );
+      if (value)
+        changes.push({
+          action: 'record',
+          file: spec.path,
+          key,
+          value,
+          replace,
+        });
+      else if (replace)
+        changes.push({ action: 'remove', file: spec.path, key });
+    }
+  }
+  return changes;
+}
+
+/** What the write of a guarded run did. */
+export interface Written<T> {
+  value: T;
+  /** The files whose content is now what the run planned. */
+  done: readonly string[];
+  /** The files it wrote. */
+  written: readonly string[];
+}
+
+/**
+ * Writes a run that may touch protected values. A run that has nothing to
+ * settle with the state (no replacement, nothing to record) just writes.
+ * Any other takes the state's lock before writing anything: under it, it
+ * re-reads the state, runs the checks again (a refusal exits 2), writes the
+ * env files, merges its changes into the state and releases the lock. A
+ * lock or state it cannot get exits 1 with nothing written; a state write
+ * that fails after the env files is returned as `stateError`.
+ */
+export async function writeProtected<T>(
   context: Context,
+  schema: EnvSchema,
   run: RunState | undefined,
-  written: readonly string[],
-) {
-  if (!run?.changes.length) return;
+  plan: {
+    checks: readonly ProtectedCheck[];
+    files: readonly RunFile[];
+    replace: ReadonlySet<string>;
+    hints?: readonly string[];
+  },
+  write: () => Promise<Written<T>>,
+): Promise<{ value: T; replaced: Replaced[]; stateError?: string[] }> {
+  const { checks, files, replace, hints = [] } = plan;
+  if (!run) return { value: (await write()).value, replaced: [] };
+  const early = verdictsOf(schema, run.state, checks, replace);
+  if (early.refused.length) throw protectedError(early.refused, ...hints);
+  const snapshot = structuredClone(run.state);
+  if (
+    !early.replaced.length &&
+    !applyChanges(snapshot, intentsOf(schema, files, early.replaced))
+  )
+    return { value: (await write()).value, replaced: [] };
+
+  let writing = false;
   try {
-    await updateState(run.path, run.changes);
+    return await withStateLock(run.path, async () => {
+      const fresh = await loadState(run.path);
+      if (!fresh.ok) throw new Error(fresh.message);
+      const { refused, replaced } = verdictsOf(
+        schema,
+        fresh.state,
+        checks,
+        replace,
+      );
+      if (refused.length) throw protectedError(refused, ...hints);
+      writing = true;
+      const { value, done, written } = await write();
+      const changes = intentsOf(
+        schema,
+        files.filter((file) => done.includes(file.spec.path)),
+        replaced,
+      );
+      try {
+        await mergeState(run.path, changes);
+        return { value, replaced };
+      } catch (error) {
+        return {
+          value,
+          replaced,
+          stateError: stateFailure(context, run, error, written),
+        };
+      }
+    });
   } catch (error) {
-    throw new CliError(1, stateFailure(context, run, error, written));
+    if (error instanceof CliError || writing) throw error;
+    const lines = [
+      `${displayPath(context.io.cwd, run.path)}: not written: ${(error as Error).message}`,
+      'nothing was written',
+    ];
+    throw new CliError(1, lines, [
+      {
+        kind: 'file',
+        path: displayPath(context.io.cwd, run.path),
+        message: lines.join('; '),
+      },
+    ]);
   }
 }
 

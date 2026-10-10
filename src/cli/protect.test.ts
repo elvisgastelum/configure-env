@@ -1,10 +1,11 @@
 // Protected variables: set, unset and apply never change a protected value
 // silently, even after the file that held it was deleted.
 
-import { mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
+import { emptyState, recordFingerprint } from '../engine/state.ts';
 import {
   KEY_A,
   KEY_B,
@@ -42,7 +43,7 @@ const PROTECTED_SCHEMA = {
       path: '.env',
       policy: 'create-only',
       mode: '600',
-      variables: ['SM_MASTER_KEY', 'SM_MASTER_KEY_FILE'],
+      variables: ['SM_MASTER_KEY', 'SM_MASTER_KEY_FILE', 'API_KEY'],
     },
     { path: 'worker.env', policy: 'merge', variables: ['SM_MASTER_KEY'] },
     { path: 'gen.env', policy: 'generate', variables: ['API_KEY', 'PORT'] },
@@ -87,15 +88,16 @@ const wasSet = () =>
   `SM_MASTER_KEY was set on ${today()}; restore it from your backup, or pass --replace-protected SM_MASTER_KEY`;
 
 /**
- * Makes the next state write fail, for root too: a stale lock that is a
- * directory, which a run can neither create nor take over. Loading the
- * state still works, so the env files are written first.
+ * A --state path whose temporary file is past the file name limit: the
+ * state reads and locks, and fails only when it is written, for root too.
  */
-async function blockState() {
-  const lock = path(`${STATE}.lock`);
-  await mkdir(lock, { recursive: true });
-  const old = new Date(Date.now() - 60_000);
-  await utimes(lock, old, old);
+const LONG_STATE = `${'s'.repeat(235)}.json`;
+
+/** The long state, written by hand, recording `value` for `key` in `file`. */
+async function seedLongState(file: string, key: string, value: string) {
+  const state = emptyState();
+  recordFingerprint(state, file, key, value);
+  await writeFile(path(LONG_STATE), JSON.stringify(state));
 }
 
 /** `.env` holding KEY_A, recorded by a set. */
@@ -698,10 +700,11 @@ describe('apply', () => {
   });
 
   it('exits 1 when the state cannot be written, saying what was', async () => {
-    await blockState();
     const r = await cli([
       'apply',
       '--ci',
+      '--state',
+      LONG_STATE,
       '--file',
       'gen.env',
       '--set',
@@ -710,13 +713,15 @@ describe('apply', () => {
     expect(r.code).toBe(1);
     expect(r.out).toEqual(['gen.env: created']);
     expect(r.err[0]).toMatch(
-      /^configure-env: \.configure-env\/state\.json: not written: /,
+      new RegExp(`^configure-env: ${LONG_STATE}: not written: `),
     );
     expect(r.err[1]).toBe(
       'gen.env was written; its protected values are not recorded',
     );
     const set = await cli([
       'set',
+      '--state',
+      LONG_STATE,
       '--file',
       '.env',
       '--create',
@@ -732,24 +737,23 @@ describe('apply', () => {
 
   it('prints the set and unset documents with ok false when the state cannot be written', async () => {
     await seedKey();
-    await blockState();
+    await seedLongState('.env', 'SM_MASTER_KEY', KEY_A);
+    // A run with nothing protected to settle never writes the state.
     const set = await cli([
       'set',
       '--json',
+      '--state',
+      LONG_STATE,
       '--file',
       '.env',
       'SM_MASTER_KEY_FILE=',
     ]);
-    // The found value is checked against the state under its lock, which
-    // cannot be taken: the file is written, the run fails.
-    expect(set.code).toBe(1);
-    expect(JSON.parse(set.out[0]!)).toMatchObject({
-      ok: false,
-      keys: [{ key: 'SM_MASTER_KEY_FILE', status: 'added' }],
-    });
+    expect(set.code).toBe(0);
     const replaced = await cli([
       'set',
       '--json',
+      '--state',
+      LONG_STATE,
       '--file',
       '.env',
       '--replace-protected',
@@ -773,9 +777,11 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: LONG_STATE,
           message: expect.stringMatching(
-            /^\.configure-env\/state\.json: not written: .*; \.env was written; its protected values are not recorded$/,
+            new RegExp(
+              `^${LONG_STATE}: not written: .*; \\.env was written; its protected values are not recorded$`,
+            ),
           ),
         },
       ],
@@ -784,6 +790,8 @@ describe('apply', () => {
     const unset = await cli([
       'unset',
       '--json',
+      '--state',
+      LONG_STATE,
       '--file',
       '.env',
       '--replace-protected',
@@ -799,15 +807,146 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: LONG_STATE,
           message: expect.stringMatching(
-            /^\.configure-env\/state\.json: not written: /,
+            new RegExp(`^${LONG_STATE}: not written: `),
           ),
         },
       ],
     });
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBeUndefined();
     await expectNoValue([set, replaced, unset], KEY_A, KEY_B);
+  });
+
+  it('fails before writing anything while another run holds the lock', async () => {
+    await seedKey();
+    const lock = path(`${STATE}.lock`);
+    await writeFile(lock, '');
+    const held = [
+      `.configure-env/state.json: not written: ${lock}: held by another run; try again`,
+      'nothing was written',
+    ];
+    const set = await cli(
+      ['set', '--create', '--file', 'worker.env', '--stdin', 'SM_MASTER_KEY'],
+      { stdin: KEY_A },
+    );
+    expect(set).toMatchObject({
+      code: 1,
+      out: [],
+      err: [`configure-env: ${held[0]}`, held[1]],
+    });
+    const json = await cli(
+      [
+        'set',
+        '--json',
+        '--create',
+        '--file',
+        'worker.env',
+        '--stdin',
+        'SM_MASTER_KEY',
+      ],
+      { stdin: KEY_A },
+    );
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.out[0]!)).toEqual({
+      command: 'set',
+      ok: false,
+      file: 'worker.env',
+      keys: [],
+      errors: [
+        {
+          kind: 'file',
+          path: '.configure-env/state.json',
+          message: held.join('; '),
+        },
+      ],
+    });
+    expect(await exists('worker.env')).toBe(false);
+    const apply = await cli([
+      'apply',
+      '--ci',
+      '--json',
+      '--file',
+      'gen.env',
+      '--set',
+      'API_KEY=first-value',
+    ]);
+    expect(apply.code).toBe(1);
+    const document = JSON.parse(apply.out[0]!);
+    expect(document).toMatchObject({
+      ok: false,
+      errors: [
+        {
+          kind: 'file',
+          path: '.configure-env/state.json',
+          message: held.join('; '),
+        },
+      ],
+    });
+    expect(
+      document.files.map((file: { written: boolean }) => file.written),
+    ).toEqual([false]);
+    expect(await exists('gen.env')).toBe(false);
+    // A run with nothing protected to settle never takes the lock.
+    const other = await cli(['set', '--file', '.env', 'SM_MASTER_KEY_FILE=']);
+    expect(other.code).toBe(0);
+  }, 15_000);
+
+  it('checks every protected key of one run against the state', async () => {
+    const both = (api: string) => [
+      'set',
+      '--create',
+      '--file',
+      '.env',
+      `SM_MASTER_KEY=${KEY_A}`,
+      `API_KEY=${api}`,
+    ];
+    expect((await cli(both('first-value'))).code).toBe(0);
+    await rm(path('.env'));
+    const r = await cli(both('other-value'));
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        `configure-env: API_KEY was set on ${today()}; restore it from your backup, or pass --replace-protected API_KEY`,
+        'nothing was written to .env',
+      ],
+    });
+    expect(await exists('.env')).toBe(false);
+    expect((await cli(both('first-value'))).code).toBe(0);
+  });
+
+  it('checks the same key in two files of one apply run', async () => {
+    const files = ['--file', '.env', '--file', 'worker.env'];
+    const first = await cli([
+      'apply',
+      '--ci',
+      ...files,
+      '--generate',
+      'SM_MASTER_KEY',
+    ]);
+    expect(first.code).toBe(0);
+    const old = (await valueIn('.env', 'SM_MASTER_KEY'))!;
+    expect(await valueIn('worker.env', 'SM_MASTER_KEY')).toBe(old);
+    await rm(path('.env'));
+    await rm(path('worker.env'));
+    const again = await cli([
+      'apply',
+      '--ci',
+      '--json',
+      ...files,
+      '--generate',
+      'SM_MASTER_KEY',
+    ]);
+    expect(again.code).toBe(2);
+    expect(
+      JSON.parse(again.out[0]!).errors.map((e: { key: string }) => e.key),
+    ).toEqual(['SM_MASTER_KEY', 'SM_MASTER_KEY']);
+    const restored = await cli(['apply', '--ci', ...files], {
+      env: { SM_MASTER_KEY: old },
+    });
+    expect(restored.code).toBe(0);
+    expect((await cli(['validate', ...files])).code).toBe(0);
+    await expectNoValue([first, again, restored], old);
   });
 
   it('takes --state for another place', async () => {

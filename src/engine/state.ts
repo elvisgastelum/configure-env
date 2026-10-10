@@ -6,6 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   type FileHandle,
+  link,
   lstat,
   mkdir,
   open,
@@ -241,6 +242,9 @@ export function applyChanges(
 export const LOCK_WAIT_MS = 2_000;
 export const LOCK_STALE_MS = 30_000;
 
+/** When a takeover guard, held for a moment only, is stale. */
+export const GUARD_STALE_MS = 5_000;
+
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 /**
@@ -248,10 +252,10 @@ const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
  * A lock older than LOCK_STALE_MS is taken over; a fresh one is waited for,
  * then refused.
  */
-async function withLock<T>(
+export async function withStateLock<T>(
   path: string,
   task: () => Promise<T>,
-  waitMs: number,
+  { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
 ): Promise<T> {
   const lock = `${path}.lock`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -276,15 +280,16 @@ async function withLock<T>(
   }
 }
 
-const isStale = (mtimeMs: number) => Date.now() - mtimeMs > LOCK_STALE_MS;
+const isStale = (mtimeMs: number, after = LOCK_STALE_MS) =>
+  Date.now() - mtimeMs > after;
 
 /**
  * Removes a stale lock, a run that died holding it. Takers go one at a time
  * through `<lock>.takeover`, created exclusively, and remove the lock only
  * when it is still stale: a lock another taker removed and created anew is
- * fresh, so two runs never both hold it. A guard is held for a moment
- * only; one left by a run that stopped is never taken over. False when
- * another taker holds the guard.
+ * fresh, so two runs never both hold it. A guard older than
+ * GUARD_STALE_MS was left by a run that stopped, and is recovered. False
+ * when the guard was not this run's to take.
  */
 async function takeOver(lock: string): Promise<boolean> {
   const guard = `${lock}.takeover`;
@@ -293,11 +298,8 @@ async function takeOver(lock: string): Promise<boolean> {
   } catch (error) {
     if (codeOf(error) !== 'EEXIST') throw error;
     const stats = await lstat(guard).catch(() => undefined);
-    if (stats && isStale(stats.mtimeMs))
-      throw new Error(
-        `${guard}: left by a run that stopped; remove it and ${lock}`,
-        { cause: error },
-      );
+    if (stats && isStale(stats.mtimeMs, GUARD_STALE_MS))
+      await recoverGuard(guard, stats, lock);
     return false;
   }
   try {
@@ -316,6 +318,49 @@ async function takeOver(lock: string): Promise<boolean> {
 }
 
 /**
+ * Removes a stale takeover guard: it is renamed to a unique name first, which
+ * only one run can do, then removed only when it is the file seen stale. A
+ * fresh guard renamed by mistake is put back. A guard that cannot be
+ * renamed is left for a person.
+ */
+async function recoverGuard(
+  guard: string,
+  seen: { ino: number; mtimeMs: number },
+  lock: string,
+) {
+  const claimed = `${guard}.${process.pid}.${randomBytes(6).toString('hex')}`;
+  try {
+    await rename(guard, claimed);
+  } catch (error) {
+    if (codeOf(error) === 'ENOENT') return;
+    throw new Error(
+      `${guard}: left by a run that stopped; remove it and ${lock}`,
+      { cause: error },
+    );
+  }
+  const stats = await lstat(claimed).catch(() => undefined);
+  if (stats && (stats.ino !== seen.ino || stats.mtimeMs !== seen.mtimeMs))
+    await link(claimed, guard).catch(() => undefined);
+  await unlink(claimed).catch(() => undefined);
+}
+
+/**
+ * Applies changes to the state on disk; the caller holds its lock. It
+ * re-reads the state, keeps its salt and every entry the changes do not
+ * touch, and writes it only when it changed. True when it wrote it.
+ */
+export async function mergeState(
+  path: string,
+  changes: readonly StateChange[],
+): Promise<boolean> {
+  const result = await loadState(path);
+  if (!result.ok) throw new Error(result.message);
+  if (!applyChanges(result.state, changes)) return false;
+  await writeState(path, result.state);
+  return true;
+}
+
+/**
  * Applies a run's changes to the state on disk, under its lock: it re-reads
  * the state, keeps its salt and every entry the changes do not touch, and
  * writes it only when it changed. Parallel runs so keep each other's
@@ -327,15 +372,5 @@ export async function updateState(
   { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
 ): Promise<boolean> {
   if (!changes.length) return false;
-  return withLock(
-    path,
-    async () => {
-      const result = await loadState(path);
-      if (!result.ok) throw new Error(result.message);
-      if (!applyChanges(result.state, changes)) return false;
-      await writeState(path, result.state);
-      return true;
-    },
-    waitMs,
-  );
+  return withStateLock(path, () => mergeState(path, changes), { waitMs });
 }

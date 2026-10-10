@@ -277,7 +277,7 @@ describe('updateState', () => {
     ]);
   });
 
-  it('never takes over a takeover guard a stopped run left', async () => {
+  it('recovers a takeover guard a stopped run left', async () => {
     const lock = `${statePath()}.lock`;
     await mkdir(join(temp.dirs.root, '.configure-env'));
     const old = new Date(Date.now() - 60_000);
@@ -285,11 +285,28 @@ describe('updateState', () => {
       await writeFile(path, '');
       await utimes(path, old, old);
     }
+    expect(
+      await updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+    ).toBe(true);
+    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
+      'state.json',
+    ]);
+  });
+
+  it('refuses a stale takeover guard it cannot remove', async () => {
+    // The guard is renamed to a unique, longer name before it is removed:
+    // past the file name limit, that rename fails.
+    const state = join(temp.dirs.root, `${'s'.repeat(235)}.json`);
+    const lock = `${state}.lock`;
+    const old = new Date(Date.now() - 60_000);
+    for (const path of [lock, `${lock}.takeover`]) {
+      await writeFile(path, '');
+      await utimes(path, old, old);
+    }
     await expect(
-      updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+      updateState(state, [record('.env', 'KEY', SECRET)]),
     ).rejects.toThrow(
       `${lock}.takeover: left by a run that stopped; remove it and ${lock}`,
     );
-    await expect(stat(statePath())).rejects.toThrow();
   });
 });
