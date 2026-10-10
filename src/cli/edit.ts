@@ -73,7 +73,8 @@ function checkName(key: string) {
 const SET_OPTIONS = {
   prompt: { type: 'string', multiple: true },
   generate: { type: 'string', multiple: true },
-  stdin: { type: 'string' },
+  // Repeatable only so a second one is refused, not silently kept.
+  stdin: { type: 'string', multiple: true },
   create: { type: 'boolean' },
   'allow-unknown': { type: 'boolean' },
   'allow-template': { type: 'boolean' },
@@ -112,7 +113,7 @@ function newEntryLines(
  * What the stdin reader returns. A failure of its own (EIO, say) exits 1
  * with its reason, which never holds the input.
  */
-async function readStdin(read: () => Promise<string>): Promise<string> {
+async function readStdinOrFail(read: () => Promise<string>): Promise<string> {
   try {
     return await read();
   } catch (error) {
@@ -146,7 +147,9 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   const pairs = parsePairs(positionals);
   const promptKeys = (options.prompt ?? []).filter((key) => !pairs.has(key));
   promptKeys.forEach(checkName);
-  const stdinKey = options.stdin;
+  if ((options.stdin?.length ?? 0) > 1)
+    throw usageError('--stdin takes one key; stdin holds one value');
+  const stdinKey = options.stdin?.[0];
   if (stdinKey !== undefined) checkName(stdinKey);
   if (stdinKey !== undefined && options.prompt?.length)
     throw usageError('--stdin and --prompt cannot be used together');
@@ -228,7 +231,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     pairs.set(key, answer);
   }
   if (stdinKey !== undefined) {
-    const value = (await readStdin(io.readStdin!)).replace(/\r?\n$/, '');
+    const value = (await readStdinOrFail(io.readStdin!)).replace(/\r?\n$/, '');
     // An empty pipe is almost always a failed command upstream, whose exit
     // status the shell drops: never write it, even for an optional key.
     if (!value)

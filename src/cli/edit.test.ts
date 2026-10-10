@@ -417,6 +417,18 @@ describe('set --stdin', () => {
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 
+  it('exits 2 for a repeated --stdin, writing nothing', async () => {
+    await seed();
+    const r = await cli(['set', '--stdin', 'TOKEN', '--stdin', 'GREETING'], {
+      stdin: 'abcdefghij',
+    });
+    expect(r).toMatchObject({
+      code: 2,
+      err: ['configure-env: --stdin takes one key; stdin holds one value'],
+    });
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
   it('exits 2 with --prompt, or a key also given another way', async () => {
     await seed();
     const stdin = 'abcdefghij';
