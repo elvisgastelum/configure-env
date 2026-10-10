@@ -21,3 +21,6 @@ coverage/
 .eslintcache
 *.log
 .DS_Store
+
+# Packed tarballs from `npm pack` / `pnpm smoke`
+*.tgz
