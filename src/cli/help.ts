@@ -117,8 +117,9 @@ export const CHECK_HELP = `Usage: configure-env check [options]
 
 Changes nothing. Reports, per file: a missing file, a generated file that
 differs from the schema, the keys a merge file lacks, a mode other than
-the schema's, values that break their variable's rules (secrets masked)
-and lines that are not valid entries. Exits 1 when it finds any.
+the schema's, values that break their variable's rules (secrets masked),
+lines that are not valid entries, and protected values that no longer
+match the ones the state recorded. Exits 1 when it finds any.
 
 Generated files are compared with the --set values and the defaults, so
 the result does not depend on the environment; with --use-env, also with
@@ -152,6 +153,9 @@ example file, the schema starts empty.
 
 In a terminal it shows the inferred types and lets you keep or change
 each one; with --ci (or --json) it writes them as inferred.
+
+Once the schema is written, it adds .configure-env/ (where the protected
+variables' state lives) to .gitignore, creating it when missing.
 
 Options:
   --from <file>  the env file to infer from, inside the root
@@ -299,7 +303,8 @@ Changes nothing. Checks the current values of every schema file (or the
 --file paths): a missing file, lines that are not valid entries, required
 keys that are not set, values that break their variable's rules, and
 broken rules between variables (requiredUnless, conflictsWith,
-distinctFrom). A
+distinctFrom), and protected values that no longer match the ones the
+state recorded. It reads the state, never writes it. A
 key the schema does not list for the file is a warning, an error with
 --strict. Template files hold placeholders, so only their lines and the
 presence of each key are checked. Exits 1 on any error; messages never

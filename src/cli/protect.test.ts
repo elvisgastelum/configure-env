@@ -685,3 +685,92 @@ describe('apply', () => {
     expect(await exists('private/state.json')).toBe(true);
   });
 });
+
+describe('check and validate', () => {
+  const mismatch = () =>
+    `SM_MASTER_KEY no longer matches the value recorded on ${today()}`;
+
+  it('report a value that no longer matches its fingerprint, never writing the state', async () => {
+    await seedKey();
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
+    const before = await read(STATE);
+    const validate = await cli(['validate', '--file', '.env']);
+    expect(validate).toMatchObject({ code: 1, out: [`.env: ${mismatch()}`] });
+    const json = await cli(['validate', '--json', '--file', '.env']);
+    expect(JSON.parse(json.out[0]!).files[0].errors).toEqual([
+      {
+        kind: 'protected',
+        key: 'SM_MASTER_KEY',
+        message: `no longer matches the value recorded on ${today()}`,
+        reason: REASON,
+      },
+    ]);
+    const check = await cli(['check', '--ci', '--file', '.env']);
+    expect(check.code).toBe(1);
+    expect(check.out).toContain(`.env: ${mismatch()}`);
+    const checkJson = await cli(['check', '--ci', '--json', '--file', '.env']);
+    expect(JSON.parse(checkJson.out[0]!).files[0].protected).toEqual([
+      {
+        kind: 'protected',
+        key: 'SM_MASTER_KEY',
+        message: `no longer matches the value recorded on ${today()}`,
+        reason: REASON,
+      },
+    ]);
+    expect(await read(STATE)).toBe(before);
+    await expectNoValue([validate, json, check, checkJson], KEY_A, KEY_B);
+  });
+
+  it('pass a matching value, an emptied one, and a missing state', async () => {
+    await seedKey();
+    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+    expect((await cli(['check', '--ci', '--file', '.env'])).code).toBe(0);
+    await rm(path(STATE));
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
+    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+    expect(await exists(STATE)).toBe(false);
+  });
+
+  it('exit 1 for a state they cannot read', async () => {
+    await mkdir(path('.configure-env'));
+    await writeFile(path(STATE), 'nope');
+    const r = await cli(['validate', '--file', '.env']);
+    expect(r.code).toBe(1);
+    expect(r.err[0]).toBe(
+      `configure-env: invalid state ${path(STATE)}: is not valid JSON`,
+    );
+  });
+});
+
+describe('the comment line', () => {
+  it('follows the requiredUnless line, and unset removes it with the key', async () => {
+    await seedKey();
+    expect(await read('.env')).toBe(
+      `# required unless SM_MASTER_KEY_FILE is set\n# protected: ${REASON}\nSM_MASTER_KEY=${KEY_A}\n`,
+    );
+    await cli([
+      'unset',
+      '--ci',
+      '--file',
+      '.env',
+      '--replace-protected',
+      'SM_MASTER_KEY',
+      'SM_MASTER_KEY',
+    ]);
+    expect(await read('.env')).toBe('');
+  });
+
+  it('is a bare `protected` without a reason, in created files too', async () => {
+    await cli([
+      'apply',
+      '--ci',
+      '--file',
+      'gen.env',
+      '--set',
+      'API_KEY=first-value',
+    ]);
+    expect(await read('gen.env')).toBe(
+      '# protected\nAPI_KEY=first-value\nPORT=8080\n',
+    );
+  });
+});

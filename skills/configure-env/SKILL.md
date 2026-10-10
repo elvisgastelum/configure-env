@@ -25,6 +25,7 @@ Invoke it as `pnpm exec configure-env` (or `npx configure-env`) when the project
 - Never edit an env file by hand, with `sed` or with a heredoc; use `set` and `unset`.
 - Never write real values into a template (`*.example`, `*.sample`, `*.template`); never pass `--allow-template` with a secret. Never stage or commit a non-template env file.
 - Ask before `init --force`, `unset` of a secret, rotating a secret (`unset`, then `--generate`), or `--allow-unknown`.
+- Never pass `--replace-protected` without asking the user; a `protected` exit 2 means restore the value from a backup, not replace it.
 - Mark every credential `"secret": true` in the schema, and give the real env file `"mode": "600"`.
 
 ## Decision Gates

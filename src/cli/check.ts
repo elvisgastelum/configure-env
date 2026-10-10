@@ -13,6 +13,7 @@ import {
 import { driftLines } from './format.ts';
 import { CHECK_HELP } from './help.ts';
 import type { Io } from './io.ts';
+import { readState } from './protect.ts';
 
 const OPTIONS = {
   set: { type: 'string', multiple: true },
@@ -37,11 +38,13 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
       if (given !== undefined) values[key] = given;
     }
 
+  const state = await readState(context, schema);
   const report = await checkDrift({
     schema,
     root: context.root,
     values,
     files: context.files,
+    ...(state ? { state } : {}),
   });
   const code = report.ok ? 0 : 1;
   if (context.json) {

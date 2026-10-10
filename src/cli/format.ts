@@ -4,6 +4,7 @@ import type { ApplyResult } from '../engine/apply.ts';
 import { type FileDrift, formatMode } from '../engine/check.ts';
 import type { FilePlan } from '../engine/plan.ts';
 import { ruleKeys } from '../schema/values.ts';
+import { protectedLine } from './protect.ts';
 
 /** What a run did to a file: `created`, `added keys: A B`, ... */
 export function applyStatus(file: FilePlan, result?: ApplyResult): string {
@@ -83,7 +84,10 @@ const DRIFT_STATUS: Record<FileDrift['status'], (file: FileDrift) => string> = {
   refused: (file) => `refused (${file.error})`,
 };
 
-/** For check: the file's state, its mode, then its invalid values, broken rules and lines. */
+/**
+ * For check: the file's state, its mode, then its invalid values, broken
+ * rules, lines and protected values that no longer match.
+ */
 export function driftLines(file: FileDrift): string[] {
   return [
     `${file.path}: ${DRIFT_STATUS[file.status](file)}`,
@@ -102,6 +106,9 @@ export function driftLines(file: FileDrift): string[] {
     ),
     ...file.invalidLines.map(
       (line) => `${file.path}: line ${line} is not a valid entry`,
+    ),
+    ...file.protected.map(
+      (mismatch) => `${file.path}: ${protectedLine(mismatch)}`,
     ),
   ];
 }

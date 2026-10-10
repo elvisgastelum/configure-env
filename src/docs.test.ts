@@ -10,6 +10,8 @@ import {
   MIN_GENERATED_LENGTH,
 } from './cli/generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
+import { STATE_IGNORE } from './cli/init.ts';
+import { DEFAULT_STATE_PATH, SALT_BYTES } from './engine/state.ts';
 
 const doc = (path: string) =>
   readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -33,6 +35,16 @@ describe('the docs', () => {
     );
     expect(readme).toContain(`input past ${KIB} KiB`);
     expect(readme).toContain(`nothing new for ${SECONDS} seconds`);
+  });
+
+  it('README states where the protected state lives and its salt', () => {
+    const readme = doc('README.md');
+    expect(readme).toContain(`\`${DEFAULT_STATE_PATH}\` under the root`);
+    expect(readme).toContain(`base64 of ${SALT_BYTES} random bytes`);
+    expect(readme).toContain(`adds \`${STATE_IGNORE}\` to \`.gitignore\``);
+    expect(doc('skills/configure-env/references/commands.md')).toContain(
+      `\`${DEFAULT_STATE_PATH}\`, mode 600`,
+    );
   });
 
   it('the command reference states them too', () => {

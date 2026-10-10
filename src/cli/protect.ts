@@ -84,23 +84,34 @@ export const isProtected = (schema: EnvSchema, file: FileSpec, key: string) =>
 
 /**
  * Reads the state when the schema protects a variable; undefined when it
- * protects none. A state that cannot be read exits 1, writing nothing.
+ * protects none. A state that cannot be read exits 1 with `hints`.
  */
-export async function loadRunState(
+export async function readState(
   context: Context,
   schema: EnvSchema,
-): Promise<RunState | undefined> {
+  ...hints: string[]
+): Promise<State | undefined> {
   const any = Object.values(schema.variables).some(
     (spec) => spec.protected !== undefined,
   );
   if (!any) return undefined;
   const result = await loadState(context.statePath);
   if (!result.ok)
-    throw new CliError(1, [
-      `invalid state ${result.message}`,
-      'fix or restore it; nothing was written',
-    ]);
-  return { path: context.statePath, state: result.state, changed: false };
+    throw new CliError(1, [`invalid state ${result.message}`, ...hints]);
+  return result.state;
+}
+
+/** The state of a write command; one that cannot be read writes nothing. */
+export async function loadRunState(
+  context: Context,
+  schema: EnvSchema,
+): Promise<RunState | undefined> {
+  const state = await readState(
+    context,
+    schema,
+    'fix or restore it; nothing was written',
+  );
+  return state && { path: context.statePath, state, changed: false };
 }
 
 /** The keys of the repeated --replace-protected option, each once and checked. */

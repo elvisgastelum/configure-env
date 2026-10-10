@@ -7,6 +7,7 @@ import {
   type FilePolicy,
   type FileSpec,
   isTemplate,
+  protectedReason,
   ruleNames,
 } from '../schema/definition.ts';
 import { formatValue, validateValue } from '../schema/values.ts';
@@ -84,7 +85,8 @@ export const commentLines = (text: string) =>
 /**
  * The comment written above a key in the file: the file's or the variable's
  * own, then `required unless X is set` for a `requiredUnless` that names
- * variables the file lists.
+ * variables the file lists, then `protected: <reason>` (or `protected`) for
+ * a protected variable.
  */
 export function entryComment(
   schema: EnvSchema,
@@ -100,7 +102,15 @@ export function entryComment(
   const rule = alternatives.length
     ? `required unless ${alternatives.join(' or ')} is set`
     : undefined;
-  return own && rule ? `${own}\n${rule}` : (own ?? rule);
+  const reason = spec && protectedReason(spec);
+  const guard =
+    spec?.protected === undefined
+      ? undefined
+      : reason
+        ? `protected: ${reason}`
+        : 'protected';
+  const lines = [own, rule, guard].filter(Boolean);
+  return lines.length ? lines.join('\n') : undefined;
 }
 
 /**

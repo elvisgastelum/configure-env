@@ -1,11 +1,13 @@
 // Checks the env files against the schema without changing them: content
-// drift by policy, and current values that break their variable's rules.
+// drift by policy, current values that break their variable's rules, and
+// protected values that no longer match the state.
 
 import {
   type EnvSchema,
   type FilePolicy,
   type FileSpec,
   isTemplate,
+  protectedReason,
 } from '../schema/definition.ts';
 import {
   type RuleProblem,
@@ -26,6 +28,7 @@ import {
   fileKeys,
   planChanges,
 } from './plan.ts';
+import { type State, matchesFingerprint, recorded } from './state.ts';
 
 export type DriftStatus =
   'current' | 'missing' | 'differs' | 'missing-keys' | 'refused';
@@ -38,6 +41,17 @@ export interface InvalidValue {
   key: string;
   message: string;
   shown: string;
+}
+
+/**
+ * A protected value that no longer matches the one the state recorded for
+ * it. Never holds a value; `reason` is the schema's, when it gives one.
+ */
+export interface ProtectedMismatch {
+  kind: 'protected';
+  key: string;
+  message: string;
+  reason?: string;
 }
 
 /** Permissions as three octal digits, like `600`. */
@@ -56,6 +70,8 @@ export interface FileDrift {
   rules: RuleProblem[];
   /** The 1-based numbers of the lines that are not valid entries. */
   invalidLines: number[];
+  /** The protected values that no longer match the state. */
+  protected: ProtectedMismatch[];
   /** Set when the file's mode differs from the schema's `mode`. */
   mode?: { actual: string; expected: string };
   /** Why the path was refused. */
@@ -77,6 +93,8 @@ export interface CheckOptions {
   /** Values a generated file is compared with; defaults otherwise. */
   values?: Readonly<Record<string, string>>;
   files?: readonly string[];
+  /** The protected variables' state; no mismatch is reported without it. */
+  state?: State;
 }
 
 /** Validates each of the file's variables as the file holds it. */
@@ -123,6 +141,37 @@ export function fileRules(
   );
 }
 
+/**
+ * The protected values the file holds that differ from the ones the state
+ * recorded for them. An empty or missing value, or one never recorded, is
+ * not a mismatch; a template holds placeholders, so it has none.
+ */
+export function protectedMismatches(
+  schema: EnvSchema,
+  state: State | undefined,
+  file: FileSpec,
+  doc: DotenvDocument,
+): ProtectedMismatch[] {
+  if (!state || isTemplate(file)) return [];
+  const mismatches: ProtectedMismatch[] = [];
+  for (const key of fileKeys(schema, file)) {
+    const spec = schema.variables[key]!;
+    if (spec.protected === undefined) continue;
+    const value = getValue(doc, key);
+    const entry = recorded(state, file.path, key);
+    if (!value || !entry || matchesFingerprint(state, file.path, key, value))
+      continue;
+    const reason = protectedReason(spec);
+    mismatches.push({
+      kind: 'protected',
+      key,
+      message: `no longer matches the value recorded on ${entry.recordedAt.slice(0, 10)}`,
+      ...(reason ? { reason } : {}),
+    });
+  }
+  return mismatches;
+}
+
 function statusOf(plan: FilePlan): Pick<FileDrift, 'status' | 'drift'> {
   if (plan.reason === 'refused') return { status: 'refused', drift: true };
   if (plan.previous === undefined)
@@ -140,6 +189,7 @@ export async function checkDrift({
   root,
   values = {},
   files,
+  state,
 }: CheckOptions): Promise<DriftReport> {
   const plan = await planChanges({ schema, root, values, files });
   const report = plan.files.map((filePlan): FileDrift => {
@@ -172,6 +222,10 @@ export async function checkDrift({
           : fileRules(schema, spec, parseDotenv(previous)),
       invalidLines:
         previous === undefined ? [] : invalidLineNumbers(parseDotenv(previous)),
+      protected:
+        previous === undefined
+          ? []
+          : protectedMismatches(schema, state, spec, parseDotenv(previous)),
       ...(mode ? { mode } : {}),
       ...(filePlan.error ? { error: filePlan.error } : {}),
     };
@@ -182,7 +236,10 @@ export async function checkDrift({
     !plan.errors.length &&
     report.every(
       (file) =>
-        !file.invalid.length && !file.rules.length && !file.invalidLines.length,
+        !file.invalid.length &&
+        !file.rules.length &&
+        !file.invalidLines.length &&
+        !file.protected.length,
     );
   return { files: report, drift, ok, errors: plan.errors };
 }

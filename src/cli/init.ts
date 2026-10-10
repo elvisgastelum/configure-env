@@ -2,7 +2,7 @@
 // example env file when there is one.
 
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import {
   SCHEMA_ID,
   SCHEMA_VERSION,
@@ -29,6 +29,46 @@ const OPTIONS = {
   from: { type: 'string' },
   force: { type: 'boolean' },
 } as const;
+
+/** The .gitignore line that keeps the protected variables' state out of git. */
+export const STATE_IGNORE = '.configure-env/';
+
+/** Lines that already ignore the state directory. */
+const IGNORES_STATE = new Set([
+  '.configure-env',
+  '.configure-env/',
+  '/.configure-env',
+  '/.configure-env/',
+]);
+
+type IgnoreStatus = 'created' | 'added' | 'present';
+
+/**
+ * Adds STATE_IGNORE to the root's .gitignore unless a line already ignores
+ * the directory; creates the file when it is missing.
+ */
+async function ignoreState(root: string): Promise<IgnoreStatus> {
+  const path = join(root, '.gitignore');
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    await writeFile(path, `${STATE_IGNORE}\n`, { flag: 'wx' });
+    return 'created';
+  }
+  if (text.split(/\r?\n/).some((line) => IGNORES_STATE.has(line.trim())))
+    return 'present';
+  const separator = text && !text.endsWith('\n') ? '\n' : '';
+  await writeFile(path, `${text}${separator}${STATE_IGNORE}\n`);
+  return 'added';
+}
+
+const IGNORE_LINES: Record<IgnoreStatus, string[]> = {
+  created: [`Created .gitignore with ${STATE_IGNORE}`],
+  added: [`Added ${STATE_IGNORE} to .gitignore`],
+  present: [],
+};
 
 /** The example file `init` reads when --from is not given and it exists. */
 export const DEFAULT_FROM = '.env.example';
@@ -161,8 +201,23 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     ]);
   }
 
+  // Only once the schema is written: a refused init changes nothing.
+  let ignored: IgnoreStatus;
+  try {
+    ignored = await ignoreState(root);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    throw new CliError(1, [
+      `cannot update .gitignore: ${code ?? (error as Error).message}`,
+      `${shownPath} was written; add ${STATE_IGNORE} to .gitignore yourself`,
+    ]);
+  }
+
   const count = Object.keys(variables).length;
-  const summary = `Wrote ${shownPath}: ${count} variable${count === 1 ? '' : 's'}${from ? ` from ${from}` : ''}`;
+  const summary = [
+    `Wrote ${shownPath}: ${count} variable${count === 1 ? '' : 's'}${from ? ` from ${from}` : ''}`,
+    ...IGNORE_LINES[ignored],
+  ];
   if (context.json)
     io.stdout(
       JSON.stringify({
@@ -171,9 +226,10 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
         schema: schemaPath,
         from: from ?? null,
         variables: Object.keys(variables),
+        gitignore: ignored,
       }),
     );
-  else if (interactive) prompts.outro(summary);
-  else io.stdout(summary);
+  else if (interactive) prompts.outro(summary.join('\n'));
+  else summary.forEach((line) => io.stdout(line));
   return 0;
 }

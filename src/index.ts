@@ -60,13 +60,14 @@ export type {
 export { applyPlan } from './engine/apply.ts';
 export type { ApplyFs, ApplyOptions, ApplyResult } from './engine/apply.ts';
 
-export { checkDrift, fileRules } from './engine/check.ts';
+export { checkDrift, fileRules, protectedMismatches } from './engine/check.ts';
 export type {
   CheckOptions,
   DriftReport,
   DriftStatus,
   FileDrift,
   InvalidValue,
+  ProtectedMismatch,
 } from './engine/check.ts';
 
 export {

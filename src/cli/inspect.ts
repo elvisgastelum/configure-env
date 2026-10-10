@@ -7,7 +7,8 @@ import {
   invalidLineNumbers,
   keysOf,
 } from '../engine/dotenv.ts';
-import { fileRules } from '../engine/check.ts';
+import { fileRules, protectedMismatches } from '../engine/check.ts';
+import type { State } from '../engine/state.ts';
 import { fileKeys } from '../engine/plan.ts';
 import {
   type EnvSchema,
@@ -28,6 +29,7 @@ import {
 } from './common.ts';
 import { LIST_HELP, VALIDATE_HELP } from './help.ts';
 import type { Io } from './io.ts';
+import { protectedLine, readState } from './protect.ts';
 import {
   type EnvFile,
   UNKNOWN_SPEC,
@@ -201,14 +203,17 @@ export async function listCommand(args: string[], io: Io): Promise<number> {
 
 /**
  * One problem: at a key or at a line. A broken rule between variables that
- * is reported under more than one key lists them in `keys`. Never holds a
- * value.
+ * is reported under more than one key lists them in `keys`; a protected
+ * value that no longer matches the state has kind `protected`. Never holds
+ * a value.
  */
 interface Problem {
+  kind?: 'protected';
   key?: string;
   keys?: string[];
   line?: number;
   message: string;
+  reason?: string;
 }
 
 interface FileReport {
@@ -226,6 +231,7 @@ function validateFile(
   schema: EnvSchema,
   file: EnvFile,
   strict: boolean,
+  state: State | undefined,
 ): FileReport {
   const { spec, doc } = file;
   const template = isTemplate(spec);
@@ -253,6 +259,7 @@ function validateFile(
         message: problem.message,
       });
     }
+    errors.push(...protectedMismatches(schema, state, spec, doc));
     for (const key of unknownKeys(schema, spec, doc))
       (strict ? errors : warnings).push({ key, message: UNKNOWN_MESSAGE });
   }
@@ -266,12 +273,14 @@ function validateFile(
   };
 }
 
-const problemText = ({ key, keys, line, message }: Problem) =>
+const problemText = ({ kind, key, keys, line, message }: Problem) =>
   line !== undefined
     ? `line ${line} ${message}`
-    : key
-      ? `${keys?.join(', ') ?? key}: ${message}`
-      : message;
+    : kind === 'protected'
+      ? protectedLine({ key: key!, message })
+      : key
+        ? `${keys?.join(', ') ?? key}: ${message}`
+        : message;
 
 const VALIDATE_OPTIONS = { strict: { type: 'boolean' } } as const;
 
@@ -283,6 +292,8 @@ export async function validateCommand(args: string[], io: Io): Promise<number> {
   }
   const context = await contextOf(io, options);
   const schema = await loadContextSchema(context);
+  // Read, never written: validate changes nothing.
+  const state = await readState(context, schema);
   const reports: FileReport[] = [];
   for (const spec of selectedFiles(schema, context))
     reports.push(
@@ -290,6 +301,7 @@ export async function validateCommand(args: string[], io: Io): Promise<number> {
         schema,
         await readEnvFile(context, spec),
         Boolean(options.strict),
+        state,
       ),
     );
   const ok = reports.every((report) => report.ok);

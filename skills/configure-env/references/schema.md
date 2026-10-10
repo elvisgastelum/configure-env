@@ -20,7 +20,7 @@ Every object is strict: an unknown key is an error. Top level: `$schema`, `versi
 
 ## Variables
 
-Fields: `type` (required), `description`, `group`, `required`, `allowEmpty`, `default`, `example`, `secret`, `comment`, `requiredUnless`, `conflictsWith`, `distinctFrom`. `default` and `example` must pass the variable's own rules and use its JSON type (a number for `port`).
+Fields: `type` (required), `description`, `group`, `required`, `allowEmpty`, `default`, `example`, `secret`, `comment`, `requiredUnless`, `conflictsWith`, `distinctFrom`, `protected`. `default` and `example` must pass the variable's own rules and use its JSON type (a number for `port`).
 
 | Type | Options |
 | --- | --- |
@@ -53,6 +53,14 @@ A master key given directly or as a file, never both, and a previous key that mu
 ```
 
 `apply --ci --generate SM_MASTER_KEY` writes what `openssl rand -base64 32` would.
+
+## Protected variables
+
+`"protected": true` or `"protected": { "reason": "it encrypts the vault" }` marks a value that must never change once a file holds it: a master key, a password baked into a volume. It needs `secret: true` (a schema error otherwise) and has no effect on templates. `set`, `unset` and `apply` refuse to change or remove it (exit 2) without `--replace-protected KEY`, and a value recorded in `.configure-env/state.json` cannot be replaced by a new one after the file lost it. Generated entries get the comment line `protected: <reason>` (or `protected`). See `commands.md`.
+
+```json
+"SM_MASTER_KEY": { "type": "string", "secret": true, "encoding": "base64", "bytes": 32, "protected": { "reason": "it encrypts the vault" } }
+```
 
 ## Files
 

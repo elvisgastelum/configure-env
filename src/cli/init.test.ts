@@ -82,6 +82,7 @@ describe('init', () => {
     expect(r).toMatchObject({ code: 0, err: [] });
     expect(r.out).toEqual([
       'Wrote env.schema.json: 9 variables from example.env',
+      'Created .gitignore with .configure-env/',
     ]);
     const text = await readFile(join(root(), 'env.schema.json'), 'utf8');
     expect(parseSchemaText(text).ok).toBe(true);
@@ -144,7 +145,29 @@ describe('init', () => {
   it('writes the schema to --schema', async () => {
     const r = await cli(['init', '--ci', '--schema', 'config.schema.json']);
     expect(r.code).toBe(0);
-    expect(await readdir(root())).toEqual(['config.schema.json']);
+    expect((await readdir(root())).sort()).toEqual([
+      '.gitignore',
+      'config.schema.json',
+    ]);
+  });
+
+  it('adds .configure-env/ to .gitignore once, keeping its lines', async () => {
+    const gitignore = join(root(), '.gitignore');
+    await writeFile(gitignore, 'node_modules/\n.env');
+    const r = await cli(['init', '--ci']);
+    expect(r.out[1]).toBe('Added .configure-env/ to .gitignore');
+    expect(await readFile(gitignore, 'utf8')).toBe(
+      'node_modules/\n.env\n.configure-env/\n',
+    );
+    const again = await cli(['init', '--ci', '--force']);
+    expect(again.out).toHaveLength(1);
+    expect(await readFile(gitignore, 'utf8')).toBe(
+      'node_modules/\n.env\n.configure-env/\n',
+    );
+    // A schema that is not written leaves .gitignore alone.
+    await writeFile(gitignore, 'node_modules/\n');
+    expect((await cli(['init', '--ci'])).code).toBe(2);
+    expect(await readFile(gitignore, 'utf8')).toBe('node_modules/\n');
   });
 
   it('exits 2 for a --from that is missing or outside the root', async () => {
@@ -165,6 +188,7 @@ describe('init', () => {
       schema: join(root(), 'env.schema.json'),
       from: 'example.env',
       variables: ['A', 'B'],
+      gitignore: 'created',
     });
   });
 
