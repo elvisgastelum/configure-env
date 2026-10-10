@@ -409,17 +409,24 @@ async function applyInteractive(
     return failure;
   }
 
-  const answers: Record<string, string> = {};
   const needed = neededKeys(schema, selected);
+  // A deferred key is never asked: it resolves as in an unattended run, to
+  // its environment variable, else its default, else empty.
+  const { values: resolved, empty } = resolveValues(
+    schema,
+    needed.filter((key) => deferred.includes(key)),
+    givenValues,
+    io.env,
+    deferred,
+  );
+  const answers: Record<string, string> = {};
   for (const [group, keys] of byGroup(schema, needed)) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
       // A --set or generated value is the answer already.
       if (givenValues[key] !== undefined) continue;
-      // A deferred key takes only its environment variable, else its default.
       if (deferred.includes(key)) {
-        const given = givenValue(key, {}, io.env);
-        if (given !== undefined) answers[key] = given;
+        if (resolved[key] !== undefined) answers[key] = resolved[key];
         continue;
       }
       const spec = schema.variables[key]!;
@@ -462,14 +469,6 @@ async function applyInteractive(
   const progress = prompts.spinner();
   progress.start('Writing');
   const results = await applyPlan(plan);
-  // Every other needed key has an answer: only deferred ones can be empty.
-  const { empty } = resolveValues(
-    schema,
-    needed,
-    { ...givenValues, ...answers },
-    {},
-    deferred,
-  );
   const left = writtenEmpty(schema, plan.files, results, empty);
   const deferredLines = left.keys.length
     ? [deferredLine(schema, left.written, left.keys)]

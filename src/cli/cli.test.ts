@@ -789,6 +789,19 @@ describe('apply --defer', () => {
     expect(logs.join('\n')).toContain('deferred: API_TOKEN');
   });
 
+  it('takes its env value in the terminal, and is then not reported', async () => {
+    await useDeferSchema();
+    const { prompts, calls, logs } = scriptedPrompts();
+    const r = await cli(
+      [...SETUP.filter((a) => a !== '--ci'), '--defer', 'API_TOKEN'],
+      { isTTY: true, prompts, env: { API_TOKEN: 'from-env' } },
+    );
+    expect(r.code).toBe(0);
+    expect(calls.filter((c) => c.message.includes('API_TOKEN'))).toEqual([]);
+    expect(await read('.env')).toMatch(/^API_TOKEN=from-env$/m);
+    expect(logs.join('\n')).not.toContain('deferred');
+  });
+
   it('exits 2 for a key that is not required', async () => {
     await useDeferSchema();
     const r = await cli([...SETUP, '--defer', 'PORT']);

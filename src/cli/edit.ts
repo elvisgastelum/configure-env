@@ -163,7 +163,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   if (promptKeys.length && (context.ci || context.json || !io.isTTY))
     throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
   if (stdinKey !== undefined && !io.readStdin)
-    throw usageError('--stdin needs a stdin reader; this Io has none');
+    throw usageError('--stdin needs readStdin in the io passed to main()');
   if (stdinKey !== undefined && io.stdinIsTTY)
     throw usageError(
       '--stdin reads the value from a pipe; stdin is a terminal',

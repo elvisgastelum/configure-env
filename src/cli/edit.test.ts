@@ -375,7 +375,9 @@ describe('set --stdin', () => {
     const none = await cli(['set', '--stdin', 'TOKEN']);
     expect(none).toMatchObject({
       code: 2,
-      err: ['configure-env: --stdin needs a stdin reader; this Io has none'],
+      err: [
+        'configure-env: --stdin needs readStdin in the io passed to main()',
+      ],
     });
     const tty = await cli(['set', '--stdin', 'TOKEN'], {
       stdin: 'abcdefghij',
