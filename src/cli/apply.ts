@@ -1,6 +1,6 @@
 // `configure-env apply`: writes the env files, in the TUI or unattended.
 
-import { applyPlan } from '../engine/apply.ts';
+import { type ApplyResult, applyPlan } from '../engine/apply.ts';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import {
   type FilePlan,
@@ -118,19 +118,20 @@ function deferKeys(
   return unique;
 }
 
-/** The deferred keys that end up with no value: no --set, env or default. */
-const leftEmpty = (
+/**
+ * The keys left empty that the written files hold, and those files: a file
+ * that failed to write leaves nothing for a person to set.
+ */
+function writtenEmpty(
   schema: EnvSchema,
-  keys: readonly string[],
-  deferred: readonly string[],
-  values: Readonly<Record<string, string>>,
-) =>
-  keys.filter(
-    (key) =>
-      deferred.includes(key) &&
-      values[key] === undefined &&
-      schema.variables[key]!.default === undefined,
-  );
+  plans: readonly FilePlan[],
+  results: readonly ApplyResult[],
+  empty: readonly string[],
+) {
+  const written = plans.filter((_, i) => results[i]?.ok);
+  const needed = neededKeys(schema, written);
+  return { written, keys: empty.filter((key) => needed.includes(key)) };
+}
 
 /**
  * The report line for keys left for a person to set: one `set` command per
@@ -233,7 +234,7 @@ async function applyUnattended(
   const first = await planChanges({ schema, root, values: {}, files });
   const givenValues = withGenerated(schema, first.files, sets, generated);
   const keys = neededKeys(schema, first.files);
-  const { values, errors } = resolveValues(
+  const { values, errors, empty } = resolveValues(
     schema,
     keys,
     givenValues,
@@ -258,7 +259,7 @@ async function applyUnattended(
 
   const results = await applyPlan(plan);
   const ok = results.every((result) => result.ok);
-  const empty = leftEmpty(schema, keys, deferred, values);
+  const left = writtenEmpty(schema, plan.files, results, empty);
   if (json)
     io.stdout(
       JSON.stringify({
@@ -266,14 +267,15 @@ async function applyUnattended(
         ok,
         errors: [],
         files: plan.files.map((file, i) => applyJson(file, results[i])),
-        deferred: empty,
+        deferred: left.keys,
       }),
     );
   else {
     plan.files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
-    if (empty.length) io.stdout(deferredLine(schema, plan.files, empty));
+    if (left.keys.length)
+      io.stdout(deferredLine(schema, left.written, left.keys));
   }
   return ok ? 0 : 1;
 }
@@ -470,10 +472,14 @@ async function applyInteractive(
     return 1;
   }
   progress.stop('Written');
-  const empty = leftEmpty(schema, needed, deferred, {
-    ...givenValues,
-    ...answers,
-  });
+  // Every other needed key has an answer: only deferred ones can be empty.
+  const { empty } = resolveValues(
+    schema,
+    needed,
+    { ...givenValues, ...answers },
+    {},
+    deferred,
+  );
   prompts.outro(
     [
       ...plan.files.map(

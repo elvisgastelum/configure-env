@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   chmod,
+  mkdir,
   readFile,
   readdir,
   rm,
@@ -432,6 +433,26 @@ describe('apply --generate', () => {
     expect(logs.join('\n')).not.toContain(kept);
   });
 
+  it('takes no held value from a refused file in the terminal', async () => {
+    await useSecretSchema();
+    const kept = 'a'.repeat(32);
+    await writeFile(join(root(), 'merge.env'), `SECRET=${kept}\n`);
+    // A symlinked file is refused, so the value behind it is never read.
+    await writeFile(join(root(), 'elsewhere'), `SECRET=${'b'.repeat(32)}\n`);
+    await symlink(join(root(), 'elsewhere'), join(root(), 'local.env'));
+    const { prompts, logs } = scriptedPrompts({
+      'Which files': ['merge.env', 'local.env'],
+    });
+    const r = await cli(['apply', '--generate', 'SECRET', ...FILES], {
+      isTTY: true,
+      prompts,
+    });
+    expect(r.code).toBe(1);
+    expect(logs.join('\n')).toContain('warn: local.env: refused');
+    expect(logs.join('\n')).not.toContain('different values');
+    expect(await secretIn('merge.env')).toBe(kept);
+  });
+
   it('exits 2 when files of the run hold different values, naming no value', async () => {
     await useSecretSchema();
     const one = 'a'.repeat(32);
@@ -789,6 +810,44 @@ describe('apply --defer', () => {
       deferred: [],
     });
     expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('lists only the keys of files it wrote when a write fails', async () => {
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        version: 1,
+        variables: {
+          API_TOKEN: { type: 'string', secret: true, required: true },
+          DB_TOKEN: { type: 'string', secret: true, required: true },
+        },
+        files: [
+          { path: '.env', policy: 'create-only', variables: ['API_TOKEN'] },
+          { path: 'ro/.env', policy: 'create-only', variables: ['DB_TOKEN'] },
+        ],
+      }),
+    );
+    // A directory the run cannot create a file in: ro/.env fails to write.
+    await mkdir(join(root(), 'ro'), { mode: 0o555 });
+    try {
+      const args = ['apply', '--defer', 'API_TOKEN', '--defer', 'DB_TOKEN'];
+      const r = await cli([...args, '--ci']);
+      expect(r.code).toBe(1);
+      expect(r.out[0]).toBe('.env: created');
+      expect(r.out[1]).toMatch(/^ro\/\.env: failed \(/);
+      expect(r.out.slice(2)).toEqual([
+        'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
+      ]);
+      await rm(join(root(), '.env'));
+      const json = await cli([...args, '--json']);
+      expect(json.code).toBe(1);
+      expect(JSON.parse(json.out.join(''))).toMatchObject({
+        ok: false,
+        deferred: ['API_TOKEN'],
+      });
+    } finally {
+      await chmod(join(root(), 'ro'), 0o755);
+    }
   });
 
   describe('with two real files', () => {
