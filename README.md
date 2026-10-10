@@ -448,7 +448,11 @@ Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
 | `pnpm build`           | compile `src/` to `dist/` (JavaScript, declarations and source maps) |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
+| `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
+| `pnpm unlink:local`    | remove that global link                                              |
 | `pnpm changeset`       | describe a change for the next release                               |
+
+The global link points at this checkout's `dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
 CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`.
 
