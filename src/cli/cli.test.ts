@@ -505,6 +505,84 @@ describe('apply --generate', () => {
     expect(await readdir(root())).toEqual(['env.schema.json']);
   });
 
+  it('prints the failure JSON when --generate cannot finish, keeping the exit code', async () => {
+    await useSecretSchema({ pattern: '^[0-9]+$' });
+    const none = await cli([
+      'apply',
+      '--json',
+      '--generate',
+      'SECRET',
+      ...FILES,
+    ]);
+    expect(none).toMatchObject({ code: 1, err: [] });
+    expect(JSON.parse(none.out.join(''))).toEqual({
+      command: 'apply',
+      ok: false,
+      errors: [
+        {
+          kind: 'value',
+          key: 'SECRET',
+          message:
+            'cannot generate a value that passes its rules; set it with --prompt or --stdin',
+        },
+      ],
+      files: [],
+      deferred: [],
+    });
+    await useSecretSchema();
+    await writeFile(join(root(), 'merge.env'), `SECRET=${'a'.repeat(32)}\n`);
+    await writeFile(join(root(), 'local.env'), `SECRET=${'b'.repeat(32)}\n`);
+    const differ = await cli([
+      'apply',
+      '--json',
+      '--generate',
+      'SECRET',
+      ...FILES,
+    ]);
+    expect(differ).toMatchObject({ code: 2, err: [] });
+    expect(JSON.parse(differ.out.join('')).errors).toEqual([
+      {
+        kind: 'value',
+        key: 'SECRET',
+        message: '--generate found different values in merge.env, local.env',
+      },
+    ]);
+    expect(differ.out.join('')).not.toMatch(/aaaa|bbbb/);
+  });
+
+  it('prints the failure JSON for a key the options misuse', async () => {
+    await useSecretSchema();
+    const cases: [string[], string, string][] = [
+      [
+        ['--generate', 'PORT'],
+        'PORT',
+        '--generate takes a secret string variable',
+      ],
+      [
+        ['--set', 'SECRET=x', '--generate', 'SECRET'],
+        'SECRET',
+        '--generate takes a key given no other way',
+      ],
+      [['--defer', 'NOPE'], 'NOPE', 'is not declared in the schema'],
+      [
+        ['--generate', 'SECRET', '--file', 'gen.env'],
+        'SECRET',
+        '--generate would rotate it on every run of gen.env, a generate file',
+      ],
+    ];
+    for (const [args, key, message] of cases) {
+      const r = await cli(['apply', '--json', ...args]);
+      expect(r).toMatchObject({ code: 2, err: [] });
+      expect(JSON.parse(r.out.join(''))).toEqual({
+        command: 'apply',
+        ok: false,
+        errors: [{ kind: 'value', key, message }],
+        files: [],
+        deferred: [],
+      });
+    }
+  });
+
   it('exits 1 and writes nothing when no value passes the rules', async () => {
     await useSecretSchema({ pattern: '^[0-9]+$' });
     const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
@@ -662,6 +740,28 @@ describe('apply --defer', () => {
     expect(calls.filter((c) => c.message.includes('API_TOKEN'))).toEqual([]);
     expect(await read('.env')).toMatch(/^API_TOKEN=$/m);
     expect(logs.join('\n')).toContain('deferred: API_TOKEN');
+  });
+
+  it('exits 2 for a key that is not required', async () => {
+    await useDeferSchema();
+    const r = await cli([...SETUP, '--defer', 'PORT']);
+    expect(r).toMatchObject({
+      code: 2,
+      err: ['configure-env: PORT: --defer takes a required variable'],
+    });
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('lists no deferred key when the run fails and writes nothing', async () => {
+    await useDeferSchema();
+    const r = await cli(['apply', '--json', '--defer', 'API_TOKEN']);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.out.join(''))).toMatchObject({
+      ok: false,
+      errors: [{ kind: 'value', key: 'SESSION_SECRET' }],
+      deferred: [],
+    });
+    expect(await readdir(root())).toEqual(['env.schema.json']);
   });
 
   describe('with two real files', () => {

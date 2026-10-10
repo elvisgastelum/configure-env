@@ -5,6 +5,7 @@ import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import {
   type FilePlan,
   type Plan,
+  type PlanError,
   fileKeys,
   planChanges,
 } from '../engine/plan.ts';
@@ -15,12 +16,14 @@ import {
 } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
+  CliError,
   displayPath,
   type Context,
   contextOf,
   describeError,
   givenTwice,
   givenValue,
+  keyError,
   loadContextSchema,
   NO_TERMINAL,
   neededKeys,
@@ -49,6 +52,38 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
   }
   const context = await contextOf(io, options);
   const schema = await loadContextSchema(context);
+  try {
+    return await applyWith(context, schema, options);
+  } catch (error) {
+    // A failure about a key is a failed run: --json prints it as one, with
+    // the same exit code. Nothing was written.
+    if (!context.json || !(error instanceof CliError) || !error.errors)
+      throw error;
+    io.stdout(failureJson(error.errors, []));
+    return error.code;
+  }
+}
+
+/** The JSON document of a run that failed and wrote nothing. */
+const failureJson = (
+  errors: readonly PlanError[],
+  files: readonly FilePlan[],
+) =>
+  JSON.stringify({
+    command: 'apply',
+    ok: false,
+    errors,
+    files: files.map((file) => applyJson(file)),
+    // Nothing was written, so no key was left empty.
+    deferred: [],
+  });
+
+async function applyWith(
+  context: Context,
+  schema: EnvSchema,
+  options: ReturnType<typeof parseCommand<typeof OPTIONS>>,
+): Promise<number> {
+  const { io } = context;
   const sets = parseSets(options.set);
   const generated = generateKeys(options.generate, (key) =>
     Object.hasOwn(schema.variables, key) ? schema.variables[key] : undefined,
@@ -77,8 +112,10 @@ function deferKeys(
   const unique = [...new Set(keys)];
   for (const key of unique) {
     if (!Object.hasOwn(schema.variables, key))
-      throw usageError(`${key}: is not declared in the schema`);
+      throw keyError(2, key, 'is not declared in the schema');
     if (given.includes(key)) throw givenTwice('--defer', key);
+    if (!schema.variables[key]!.required)
+      throw keyError(2, key, '--defer takes a required variable');
   }
   return unique;
 }
@@ -133,10 +170,15 @@ function checkGenerated(
     const written = fileKeys(schema, file).filter(
       (key) => keys.includes(key) && file.values?.[key] === undefined,
     );
+    const message = `--generate would rotate it on every run of ${file.path}, a generate file`;
     if (written.length)
-      throw usageError(
-        `${written.join(', ')}: --generate would rotate it on every run of ${file.path}, a generate file`,
-        'pass --file to leave that file out of the run',
+      throw new CliError(
+        2,
+        [
+          `${written.join(', ')}: ${message}`,
+          'pass --file to leave that file out of the run',
+        ],
+        written.map((key) => ({ kind: 'value', key, message })),
       );
   }
 }
@@ -166,8 +208,10 @@ function withGenerated(
     }
     const distinct = [...new Set(held.values())];
     if (distinct.length > 1)
-      throw usageError(
-        `${key}: --generate found different values in ${[...held.keys()].join(', ')}`,
+      throw keyError(
+        2,
+        key,
+        `--generate found different values in ${[...held.keys()].join(', ')}`,
         'set the same value in each, or pass --file to leave one out of the run',
       );
     values[key] = distinct[0] ?? generateValue(key, schema.variables[key]!);
@@ -199,19 +243,9 @@ async function applyUnattended(
   );
   const plan = await planChanges({ schema, root, values, files });
   errors.push(...plan.errors);
-  const empty = leftEmpty(schema, keys, deferred, values);
 
   if (errors.length) {
-    if (json)
-      io.stdout(
-        JSON.stringify({
-          command: 'apply',
-          ok: false,
-          errors,
-          files: plan.files.map((file) => applyJson(file)),
-          deferred: empty,
-        }),
-      );
+    if (json) io.stdout(failureJson(errors, plan.files));
     else {
       errors.forEach((error) =>
         io.stderr(`configure-env: ${describeError(error)}`),
@@ -225,6 +259,7 @@ async function applyUnattended(
 
   const results = await applyPlan(plan);
   const ok = results.every((result) => result.ok);
+  const empty = leftEmpty(schema, keys, deferred, values);
   if (json)
     io.stdout(
       JSON.stringify({

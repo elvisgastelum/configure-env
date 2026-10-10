@@ -2,8 +2,10 @@
 
 import { chmod, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { CliError } from './common.ts';
+import { readStream } from './stdin.ts';
 import {
   CLI_SCHEMA,
   run,
@@ -417,11 +419,22 @@ describe('set --stdin', () => {
 
   it('exits with the code of a failed read and writes nothing', async () => {
     await seed();
+    // The errors readStream itself rejects with, so no message is copied.
+    const failed = (limits: Parameters<typeof readStream>[1], input = '') => {
+      const stream = new PassThrough();
+      const read = readStream(stream, limits);
+      if (input) stream.write(input);
+      return read.then(
+        () => new Error('read did not fail'),
+        (error: unknown) => error as CliError,
+      );
+    };
     const failures = [
-      new CliError(1, ['--stdin takes at most 65536 bytes']),
-      new CliError(2, ['--stdin got no input in 60s; pipe the value in']),
+      await failed({ maxBytes: 1 }, 'ab'),
+      await failed({ idleMs: 1 }),
     ];
-    for (const stdin of failures) {
+    expect(failures.map((error) => (error as CliError).code)).toEqual([1, 2]);
+    for (const stdin of failures as CliError[]) {
       const r = await cli(['set', '--stdin', 'TOKEN'], { stdin });
       expect(r).toMatchObject({
         code: stdin.code,

@@ -4,7 +4,7 @@
 import { randomBytes } from 'node:crypto';
 import type { VariableSpec } from '../schema/definition.ts';
 import { validateValue } from '../schema/values.ts';
-import { CliError, usageError } from './common.ts';
+import { keyError } from './common.ts';
 
 /** The length of a generated value, unless minLength or maxLength says otherwise. */
 export const GENERATED_LENGTH = 48;
@@ -15,7 +15,7 @@ const ATTEMPTS = 10;
 /** Throws the usage error unless the variable is a secret string. */
 export function checkGeneratable(key: string, spec: VariableSpec | undefined) {
   if (spec?.type !== 'string' || !spec.secret)
-    throw usageError(`${key}: --generate takes a secret string variable`);
+    throw keyError(2, key, '--generate takes a secret string variable');
 }
 
 /** The keys of the repeated --generate option, each once and checked. */
@@ -44,7 +44,9 @@ export function generateValue(key: string, spec: VariableSpec): string {
       .slice(0, length);
     if (value && validateValue(spec, value).ok) return value;
   }
-  throw new CliError(1, [
-    `${key}: cannot generate a value that passes its rules; set it with --prompt or --stdin`,
-  ]);
+  throw keyError(
+    1,
+    key,
+    'cannot generate a value that passes its rules; set it with --prompt or --stdin',
+  );
 }

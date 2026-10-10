@@ -70,12 +70,14 @@ environment or prompted values, so no secret reaches a committed file. No
 prompt is shown for a variable only template files need.
 
 --generate KEY puts a random value in place of a secret string variable,
-one per run, never printed. It lands only where a file lacks the key, so
-it cannot take a key that a chosen generate file writes.
+one per run, never printed; a value the run's files already hold is used
+instead. It lands only where a file lacks the key, so it cannot take a key
+that a chosen generate file writes.
 
 --defer KEY leaves a required variable for a person: with no value, it is
 written empty instead of failing the run, not prompted for, and reported,
-so it can be set later with set --prompt KEY or set --stdin KEY.
+so it can be set later with set --prompt KEY or set --stdin KEY. An
+optional variable exits 2.
 
 Options:
   --set KEY=VALUE  a value; repeat for more

@@ -12,15 +12,32 @@ import { validateValue } from '../schema/values.ts';
 import type { Io, Prompts } from './io.ts';
 import { clackPrompts } from './prompts.ts';
 
-/** A failure that ends the command with `code` after printing `lines`. */
+/**
+ * A failure that ends the command with `code` after printing `lines`.
+ * `errors` holds it as plan errors when it is about a key, for `--json`.
+ */
 export class CliError extends Error {
   constructor(
     readonly code: number,
     readonly lines: string[],
+    readonly errors?: PlanError[],
   ) {
     super(lines[0]);
   }
 }
+
+/** A failure about one key, never holding its value; `hints` follow it. */
+export const keyError = (
+  code: number,
+  key: string,
+  message: string,
+  ...hints: string[]
+) =>
+  new CliError(
+    code,
+    [`${key}: ${message}`, ...hints],
+    [{ kind: 'value', key, message }],
+  );
 
 export const NO_TERMINAL =
   'no terminal for the interactive mode; pass --ci (or set CI=true) to run unattended';
@@ -30,7 +47,7 @@ export const usageError = (...lines: string[]) => new CliError(2, lines);
 
 /** The usage error for a key that `option` takes but that is given another way too. */
 export const givenTwice = (option: string, key: string) =>
-  usageError(`${key}: ${option} takes a key given no other way`);
+  keyError(2, key, `${option} takes a key given no other way`);
 
 export const GLOBAL_OPTIONS = {
   schema: { type: 'string' },
@@ -211,23 +228,24 @@ export const givenValue = (
 ): string | undefined => sets[key] ?? (env[key] || undefined);
 
 /**
- * The values to plan with: every --set pair, and each needed key's
- * environment variable. A needed required key with no value and no default
- * is an error, unless it is `deferred`: it is written empty.
+ * The values to plan with: every `given` value (the --set pairs and the
+ * --generate values), then each needed key's environment variable; the
+ * planner falls back to the default. A needed required key with none of
+ * them is an error, unless it is `deferred`: it is written empty.
  */
 export function resolveValues(
   schema: EnvSchema,
   keys: readonly string[],
-  sets: Readonly<Record<string, string>>,
+  given: Readonly<Record<string, string>>,
   env: Io['env'],
   deferred: readonly string[] = [],
 ): { values: Record<string, string>; errors: PlanError[] } {
-  const values: Record<string, string> = { ...sets };
+  const values: Record<string, string> = { ...given };
   const errors: PlanError[] = [];
   for (const key of keys) {
-    const given = givenValue(key, sets, env);
-    if (given !== undefined) {
-      values[key] = given;
+    const value = givenValue(key, given, env);
+    if (value !== undefined) {
+      values[key] = value;
       continue;
     }
     const spec = schema.variables[key]!;
