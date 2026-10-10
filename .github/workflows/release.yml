@@ -30,6 +30,8 @@ concurrency:
 
 jobs:
   release:
+    # Publishing only ever happens from main, whatever ref the run was started on.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,7 +44,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          cache: pnpm
+          # No dependency cache here: a cache written by another workflow must
+          # not feed a job that holds publish credentials.
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
@@ -61,6 +64,10 @@ jobs:
           commit-message: 'chore: release'
           pr-title: 'chore: release'
         env:
+          # The checkout keeps no credentials, so the action pushes the
+          # version branch and opens its pull request with this token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only this step sees the npm token. Provenance comes from
+          # publishConfig.provenance in package.json.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
