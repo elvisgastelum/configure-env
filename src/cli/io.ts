@@ -65,4 +65,8 @@ export interface Io {
   cwd: string;
   /** The TUI prompts; @clack/prompts when absent. */
   prompts?: Prompts;
+  /** Whether stdin is a terminal; `set --stdin` refuses one. */
+  stdinIsTTY?: boolean;
+  /** Reads the whole of stdin; `set --stdin` needs it. */
+  readStdin?: () => Promise<string>;
 }

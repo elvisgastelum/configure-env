@@ -30,6 +30,7 @@ import {
   parseCommandArgs,
   usageError,
 } from './common.ts';
+import { generateKeys, generateValue } from './generate.ts';
 import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
@@ -69,6 +70,8 @@ function checkName(key: string) {
 
 const SET_OPTIONS = {
   prompt: { type: 'string', multiple: true },
+  generate: { type: 'string', multiple: true },
+  stdin: { type: 'string' },
   create: { type: 'boolean' },
   'allow-unknown': { type: 'boolean' },
   'allow-template': { type: 'boolean' },
@@ -118,19 +121,46 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   const pairs = parsePairs(positionals);
   const promptKeys = (options.prompt ?? []).filter((key) => !pairs.has(key));
   promptKeys.forEach(checkName);
-  if (!pairs.size && !promptKeys.length)
-    throw usageError('set takes KEY=VALUE pairs or --prompt KEY');
+  const stdinKey = options.stdin;
+  if (stdinKey !== undefined) checkName(stdinKey);
+  if (stdinKey !== undefined && options.prompt?.length)
+    throw usageError('--stdin and --prompt cannot be used together');
+  for (const key of options.generate ?? []) {
+    checkName(key);
+    if (pairs.has(key) || options.prompt?.includes(key) || key === stdinKey)
+      throw usageError(`${key}: --generate takes a key given no other way`);
+  }
+  if (stdinKey !== undefined && pairs.has(stdinKey))
+    throw usageError(`${stdinKey}: --stdin takes a key given no other way`);
+  if (
+    !pairs.size &&
+    !promptKeys.length &&
+    !options.generate?.length &&
+    stdinKey === undefined
+  )
+    throw usageError(
+      'set takes KEY=VALUE pairs, --prompt KEY, --generate KEY or --stdin KEY',
+    );
   const { context, schema, spec } = await start(io, options, {
     guard: true,
     allowTemplate: Boolean(options['allow-template']),
   });
   if (promptKeys.length && (context.ci || context.json || !io.isTTY))
     throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
+  if (stdinKey !== undefined && (!io.readStdin || io.stdinIsTTY))
+    throw usageError(
+      '--stdin reads the value from a pipe; stdin is a terminal',
+    );
+  const generated = generateKeys(options.generate, (key) =>
+    specFor(schema, spec, key),
+  );
 
   const allowUnknown = Boolean(options['allow-unknown']);
-  const unknown = [...pairs.keys(), ...promptKeys].filter(
-    (key) => !specFor(schema, spec, key),
-  );
+  const unknown = [
+    ...pairs.keys(),
+    ...promptKeys,
+    ...(stdinKey === undefined ? [] : [stdinKey]),
+  ].filter((key) => !specFor(schema, spec, key));
   if (unknown.length && !allowUnknown)
     throw new CliError(
       1,
@@ -164,6 +194,16 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     }
     pairs.set(key, answer);
   }
+  if (stdinKey !== undefined)
+    pairs.set(stdinKey, (await io.readStdin!()).replace(/\r?\n$/, ''));
+
+  // A generated value never replaces one that is set: no rotation by accident.
+  const kept = new Set<string>();
+  for (const key of generated) {
+    const current = getValue(file.doc, key);
+    if (current) kept.add(key);
+    pairs.set(key, current || generateValue(key, specFor(schema, spec, key)!));
+  }
 
   // Validate everything before touching the file: one bad value writes nothing.
   const written = new Map<
@@ -173,6 +213,10 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   const errors: string[] = [];
   for (const [key, raw] of pairs) {
     const variable = specFor(schema, spec, key);
+    if (variable && kept.has(key)) {
+      written.set(key, { spec: variable, text: raw, plain: raw });
+      continue;
+    }
     if (!variable) {
       const text = formatValue(UNKNOWN_SPEC, raw);
       written.set(key, { spec: UNKNOWN_SPEC, text, plain: raw });

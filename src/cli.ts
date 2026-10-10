@@ -30,6 +30,12 @@ if (isEntryPoint()) {
     // A pnpm script runs in the package directory and sets INIT_CWD to where
     // the command was typed; run directly, the process cwd is that place.
     cwd: process.env.INIT_CWD || process.cwd(),
+    stdinIsTTY: Boolean(process.stdin.isTTY),
+    readStdin: async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+      return Buffer.concat(chunks).toString('utf8');
+    },
   }).then(
     (code) => {
       process.exitCode = code;

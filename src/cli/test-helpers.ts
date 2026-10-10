@@ -153,7 +153,17 @@ export async function run(
     env = {},
     isTTY = false,
     prompts,
-  }: { cwd: string; env?: Io['env']; isTTY?: boolean; prompts?: Prompts },
+    stdin,
+    stdinIsTTY = stdin === undefined ? isTTY : false,
+  }: {
+    cwd: string;
+    env?: Io['env'];
+    isTTY?: boolean;
+    prompts?: Prompts;
+    /** What stdin holds; no stdin reader when absent. */
+    stdin?: string;
+    stdinIsTTY?: boolean;
+  },
 ): Promise<Run> {
   const result: Run = { code: -1, out: [], err: [] };
   result.code = await main(argv, {
@@ -163,6 +173,8 @@ export async function run(
     isTTY,
     cwd,
     prompts,
+    stdinIsTTY,
+    ...(stdin === undefined ? {} : { readStdin: async () => stdin }),
   });
   return result;
 }

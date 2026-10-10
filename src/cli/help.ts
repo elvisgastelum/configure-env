@@ -67,14 +67,20 @@ Template files (template: true, or a path ending in .example, .sample or
 environment or prompted values, so no secret reaches a committed file. No
 prompt is shown for a variable only template files need.
 
+--generate KEY puts a random value in place of a secret string variable,
+one per run, never printed. It lands only where a file lacks the key, so
+it cannot take a key that a chosen generate file writes.
+
 Options:
   --set KEY=VALUE  a value; repeat for more
+  --generate KEY   a random value for a secret string; repeat for more
 
 ${GLOBAL}
 
 Examples:
   configure-env apply
   configure-env apply --ci --set WEB_PORT=9090
+  configure-env apply --ci --generate SESSION_SECRET
   configure-env apply --ci --file .env --json
 
 ${EXIT_CODES}`;
@@ -145,12 +151,21 @@ inline comment; a missing key is appended with its schema comment. Every
 other line stays byte for byte, and the file keeps its mode. Each key is
 reported as updated, added or unchanged, secrets masked.
 
+--generate KEY writes a random value for a secret string variable (48
+characters of [A-Za-z0-9_-], within minLength and maxLength); a key that
+already has a value keeps it. --stdin KEY reads one value from stdin, one
+trailing newline stripped, so a secret never goes through argv.
+
 ${FILE_CHOICE} A template file is
 edited only with --allow-template.
 
 Options:
   --prompt KEY      ask for the value in the terminal (hidden for a
                     secret); repeat for more
+  --generate KEY    a random value for a secret string, unless it is set;
+                    repeat for more
+  --stdin KEY       read the value from stdin, which must not be a
+                    terminal
   --create          create the file when it does not exist, with the
                     schema's mode
   --allow-unknown   set a key that is not one of the file's variables
@@ -162,6 +177,8 @@ Examples:
   configure-env set WEB_PORT=9090
   configure-env set --file .env API_TOKEN=abc123 MODE=prod
   configure-env set --prompt API_TOKEN
+  configure-env set --generate SESSION_SECRET
+  op read op://dev/api/token | configure-env set --stdin API_TOKEN
   configure-env set --create --file .env WEB_HOST=10.0.0.5
 
 ${EXIT_CODES}`;

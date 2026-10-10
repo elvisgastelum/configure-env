@@ -1,8 +1,17 @@
 // `configure-env apply`: writes the env files, in the TUI or unattended.
 
 import { applyPlan } from '../engine/apply.ts';
-import { type FilePlan, type Plan, planChanges } from '../engine/plan.ts';
-import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
+import {
+  type FilePlan,
+  type Plan,
+  fileKeys,
+  planChanges,
+} from '../engine/plan.ts';
+import {
+  type EnvSchema,
+  type VariableSpec,
+  isTemplate,
+} from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
   displayPath,
@@ -20,10 +29,14 @@ import {
   usageError,
 } from './common.ts';
 import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
+import { generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
 
-const OPTIONS = { set: { type: 'string', multiple: true } } as const;
+const OPTIONS = {
+  set: { type: 'string', multiple: true },
+  generate: { type: 'string', multiple: true },
+} as const;
 
 export async function applyCommand(args: string[], io: Io): Promise<number> {
   const options = parseCommand(args, OPTIONS);
@@ -34,10 +47,59 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
   const context = await contextOf(io, options);
   const schema = await loadContextSchema(context);
   const sets = parseSets(options.set);
-  if (context.ci || context.json) return applyUnattended(context, schema, sets);
+  const generated = generateKeys(options.generate, (key) =>
+    Object.hasOwn(schema.variables, key) ? schema.variables[key] : undefined,
+  );
+  for (const key of generated) {
+    if (sets[key] !== undefined)
+      throw usageError(`${key}: --generate takes a key given no other way`);
+  }
+  if (context.ci || context.json) {
+    checkGenerated(schema, context.files, generated);
+    return applyUnattended(
+      context,
+      schema,
+      withGenerated(schema, sets, generated),
+    );
+  }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
-  return applyInteractive(context, schema, sets);
+  return applyInteractive(context, schema, sets, generated);
 }
+
+/**
+ * Refuses a generated key that a chosen generate file writes: it would get
+ * a new value on every run. Merge and create-only files never change a value.
+ */
+function checkGenerated(
+  schema: EnvSchema,
+  paths: readonly string[] | undefined,
+  keys: readonly string[],
+) {
+  for (const file of schema.files) {
+    if (paths && !paths.includes(file.path)) continue;
+    if (file.policy !== 'generate' || isTemplate(file)) continue;
+    const written = fileKeys(schema, file).filter(
+      (key) => keys.includes(key) && file.values?.[key] === undefined,
+    );
+    if (written.length)
+      throw usageError(
+        `${written.join(', ')}: --generate would rotate it on every run of ${file.path}, a generate file`,
+        'pass --file to leave that file out of the run',
+      );
+  }
+}
+
+/** The --set values plus one generated value per --generate key. */
+const withGenerated = (
+  schema: EnvSchema,
+  sets: Readonly<Record<string, string>>,
+  keys: readonly string[],
+) => ({
+  ...sets,
+  ...Object.fromEntries(
+    keys.map((key) => [key, generateValue(key, schema.variables[key]!)]),
+  ),
+});
 
 const toWrite = (plan: Plan) =>
   plan.files.some(
@@ -176,7 +238,8 @@ function previewLines(
 async function applyInteractive(
   { io, prompts, root, files, schemaPath }: Context,
   schema: EnvSchema,
-  sets: Record<string, string>,
+  given: Record<string, string>,
+  generated: readonly string[],
 ): Promise<number> {
   prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
 
@@ -194,6 +257,8 @@ async function applyInteractive(
     required: true,
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
+  checkGenerated(schema, picked, generated);
+  const sets = withGenerated(schema, given, generated);
 
   let refused = false;
   const selected: FilePlan[] = [];

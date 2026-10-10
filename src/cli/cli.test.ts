@@ -336,6 +336,148 @@ describe('apply in the terminal', () => {
   });
 });
 
+describe('apply --generate', () => {
+  /** A required secret over a merge, a create-only and a generate file. */
+  const useSecretSchema = (secret: Record<string, unknown> = {}) =>
+    writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        version: 1,
+        variables: {
+          SECRET: {
+            type: 'string',
+            secret: true,
+            required: true,
+            minLength: 32,
+            ...secret,
+          },
+          PORT: { type: 'port', default: 8080 },
+        },
+        files: [
+          { path: 'merge.env', policy: 'merge', variables: '*' },
+          { path: 'local.env', policy: 'create-only', variables: '*' },
+          { path: 'gen.env', policy: 'generate', variables: '*' },
+          { path: 'gen.env.example', policy: 'generate', variables: '*' },
+        ],
+      }),
+    );
+  const secretIn = async (path: string) =>
+    /^SECRET=(.*)$/m.exec(await read(path))?.[1];
+  const FILES = ['--file', 'merge.env', '--file', 'local.env'];
+
+  it('writes one random value to every file that lacks it, never printing it', async () => {
+    await useSecretSchema();
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    const value = (await secretIn('merge.env'))!;
+    expect(value).toMatch(/^[A-Za-z0-9_-]{48}$/);
+    expect(await secretIn('local.env')).toBe(value);
+    expect(r.out.join('\n')).not.toContain(value);
+    const again = await cli([
+      'apply',
+      '--ci',
+      '--generate',
+      'SECRET',
+      ...FILES,
+    ]);
+    expect(again.out).toEqual([
+      'merge.env: unchanged',
+      'local.env: skipped (exists)',
+    ]);
+    expect(await secretIn('merge.env')).toBe(value);
+  });
+
+  it('keeps an existing value, and prints no value in JSON', async () => {
+    await useSecretSchema();
+    const kept = 'k'.repeat(32);
+    await writeFile(join(root(), 'merge.env'), `SECRET=${kept}\n`);
+    const r = await cli(['apply', '--json', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(0);
+    expect(await secretIn('merge.env')).toBe(kept);
+    const value = (await secretIn('local.env'))!;
+    expect(value).not.toBe(kept);
+    expect(JSON.parse(r.out.join('')).ok).toBe(true);
+    expect([...r.out, ...r.err].join('\n')).not.toContain(value);
+  });
+
+  it('takes a secret that a generate file sets through values', async () => {
+    const r = await cli(['apply', '--ci', '--generate', 'TOKEN']);
+    expect(r.code).toBe(0);
+    expect(await read('config/app.env')).toContain('TOKEN=<token>\n');
+    expect(await read('local.env')).toMatch(/^TOKEN=[A-Za-z0-9_-]{48}$/m);
+  });
+
+  it('exits 2 when a chosen generate file would rewrite it on every run', async () => {
+    await useSecretSchema();
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET']);
+    expect(r.code).toBe(2);
+    expect(r.err.join('\n')).toContain('gen.env');
+    expect(r.err.join('\n')).not.toContain('gen.env.example');
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+    const template = await cli([
+      'apply',
+      '--ci',
+      '--generate',
+      'SECRET',
+      '--file',
+      'gen.env.example',
+    ]);
+    expect(template.code).toBe(0);
+  });
+
+  it('exits 2 for a non-secret, undeclared or --set key', async () => {
+    await useSecretSchema();
+    const port = await cli(['apply', '--ci', '--generate', 'PORT', ...FILES]);
+    expect(port.code).toBe(2);
+    expect(port.err).toEqual([
+      'configure-env: PORT: --generate takes a secret string variable',
+    ]);
+    expect(
+      (await cli(['apply', '--ci', '--generate', 'NOPE', ...FILES])).code,
+    ).toBe(2);
+    const both = await cli([
+      'apply',
+      '--ci',
+      '--set',
+      `SECRET=${'s'.repeat(32)}`,
+      '--generate',
+      'SECRET',
+      ...FILES,
+    ]);
+    expect(both.code).toBe(2);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('exits 1 and writes nothing when no value passes the rules', async () => {
+    await useSecretSchema({ pattern: '^[0-9]+$' });
+    const r = await cli(['apply', '--ci', '--generate', 'SECRET', ...FILES]);
+    expect(r.code).toBe(1);
+    expect(r.err.join('\n')).toContain(
+      'SECRET: cannot generate a value that passes its rules',
+    );
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('is not prompted for in the terminal, and refuses a picked generate file', async () => {
+    await useSecretSchema();
+    const { prompts, calls } = scriptedPrompts();
+    const r = await cli(['apply', '--generate', 'SECRET', ...FILES], {
+      isTTY: true,
+      prompts,
+    });
+    expect(r.code).toBe(0);
+    expect(calls.filter((c) => c.message.includes('SECRET'))).toEqual([]);
+    expect(await secretIn('local.env')).toMatch(/^[A-Za-z0-9_-]{48}$/);
+    const picked = scriptedPrompts({ 'Which files': ['gen.env'] });
+    const refused = await cli(['apply', '--generate', 'SECRET'], {
+      isTTY: true,
+      prompts: picked.prompts,
+    });
+    expect(refused.code).toBe(2);
+    expect(await exists('gen.env')).toBe(false);
+  });
+});
+
 describe('check', () => {
   const applied = () => cli(['apply', '--ci', ...TOKEN]);
 

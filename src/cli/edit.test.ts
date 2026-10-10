@@ -197,6 +197,157 @@ describe('set', () => {
   });
 });
 
+/** Replaces the schema with EDIT_SCHEMA, its TOKEN changed by `token`. */
+const tokenSchema = (token: Record<string, unknown>) =>
+  writeFile(
+    path('env.schema.json'),
+    JSON.stringify({
+      ...EDIT_SCHEMA,
+      variables: { ...EDIT_SCHEMA.variables, TOKEN: token },
+    }),
+  );
+
+/** The TOKEN value the file holds. */
+const tokenIn = async (name: string) =>
+  /^TOKEN=(.*)$/m.exec(await read(name))?.[1];
+
+describe('set --generate', () => {
+  it('writes a random secret that passes its rules, never printing it', async () => {
+    await seed('PORT=1\n');
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r.code).toBe(0);
+    const value = (await tokenIn('app.env'))!;
+    expect(value).toMatch(/^[A-Za-z0-9_-]{48}$/);
+    expect(r.out).toEqual([`TOKEN: added (••••${value.slice(-2)})`]);
+    expect([...r.out, ...r.err].join('\n')).not.toContain(value);
+  });
+
+  it('creates the file with --create and masks the value in JSON', async () => {
+    const r = await cli(['set', '--create', '--json', '--generate', 'TOKEN']);
+    expect(r.code).toBe(0);
+    const value = (await tokenIn('app.env'))!;
+    expect(JSON.parse(r.out.join(''))).toEqual({
+      command: 'set',
+      ok: true,
+      file: 'app.env',
+      keys: [
+        { key: 'TOKEN', status: 'added', masked: `••••${value.slice(-2)}` },
+      ],
+    });
+    expect([...r.out, ...r.err].join('\n')).not.toContain(value);
+    expect(await modeOf('app.env')).toBe(0o600);
+  });
+
+  it('keeps a value that is set, and fills an empty one', async () => {
+    await seed('TOKEN=abcdefghij\n');
+    const kept = await cli(['set', '--generate', 'TOKEN']);
+    expect(kept).toMatchObject({ code: 0, out: ['TOKEN: unchanged (••••ij)'] });
+    expect(await read('app.env')).toBe('TOKEN=abcdefghij\n');
+    await seed('TOKEN=\n');
+    const filled = await cli(['set', '--generate', 'TOKEN']);
+    expect(filled.out[0]).toMatch(/^TOKEN: updated/);
+    expect(await tokenIn('app.env')).toMatch(/^[A-Za-z0-9_-]{48}$/);
+  });
+
+  it('raises the length to minLength and lowers it to maxLength', async () => {
+    await seed('PORT=1\n');
+    await tokenSchema({ type: 'string', secret: true, minLength: 64 });
+    await cli(['set', '--generate', 'TOKEN']);
+    expect(await tokenIn('app.env')).toHaveLength(64);
+    await seed('PORT=1\n');
+    await tokenSchema({ type: 'string', secret: true, maxLength: 20 });
+    await cli(['set', '--generate', 'TOKEN']);
+    expect(await tokenIn('app.env')).toHaveLength(20);
+  });
+
+  it('exits 1 and writes nothing when no value passes the rules', async () => {
+    await seed();
+    await tokenSchema({ type: 'string', secret: true, pattern: '^[0-9]+$' });
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: TOKEN: cannot generate a value that passes its rules; set it with --prompt or --stdin',
+    ]);
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('exits 2 for a variable that is not a secret string', async () => {
+    await seed();
+    const plain = await cli(['set', '--generate', 'GREETING']);
+    expect(plain.code).toBe(2);
+    expect(plain.err).toEqual([
+      'configure-env: GREETING: --generate takes a secret string variable',
+    ]);
+    await tokenSchema({ type: 'integer', secret: true });
+    expect((await cli(['set', '--generate', 'TOKEN'])).code).toBe(2);
+    expect(
+      (await cli(['set', '--generate', 'EXTRA', '--allow-unknown'])).code,
+    ).toBe(2);
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('exits 2 for a key also given as KEY=VALUE or --prompt', async () => {
+    await seed();
+    const pair = await cli(['set', 'TOKEN=abcdefghij', '--generate', 'TOKEN']);
+    expect(pair.code).toBe(2);
+    expect(pair.err.join('\n')).not.toContain('abcdefghij');
+    const { prompts } = scriptedPrompts();
+    const prompt = await cli(
+      ['set', '--prompt', 'TOKEN', '--generate', 'TOKEN'],
+      { isTTY: true, prompts },
+    );
+    expect(prompt.code).toBe(2);
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+});
+
+describe('set --stdin', () => {
+  it('reads the value from stdin, stripping one trailing newline', async () => {
+    await seed('PORT=1\n');
+    const r = await cli(['set', '--stdin', 'TOKEN'], {
+      stdin: 'abcdefghij\r\n',
+    });
+    expect(r).toMatchObject({ code: 0, out: ['TOKEN: added (••••ij)'] });
+    expect(await tokenIn('app.env')).toBe('abcdefghij');
+    await cli(['set', '--stdin', 'GREETING'], { stdin: 'hi\n\n' });
+    expect(await read('app.env')).toContain('GREETING="hi\\n"\n');
+  });
+
+  it('exits 2 when stdin is a terminal or cannot be read', async () => {
+    await seed();
+    expect((await cli(['set', '--stdin', 'TOKEN'])).code).toBe(2);
+    const tty = await cli(['set', '--stdin', 'TOKEN'], {
+      stdin: 'abcdefghij',
+      stdinIsTTY: true,
+    });
+    expect(tty.code).toBe(2);
+    expect(tty.err.join('\n')).toContain('--stdin');
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('exits 2 with --prompt, or a key also given another way', async () => {
+    await seed();
+    const stdin = 'abcdefghij';
+    const given = [
+      ['TOKEN=abcdefghij', '--stdin', 'TOKEN'],
+      ['--generate', 'TOKEN', '--stdin', 'TOKEN'],
+      ['--prompt', 'PORT', '--stdin', 'TOKEN'],
+    ];
+    for (const args of given)
+      expect((await cli(['set', ...args], { stdin })).code).toBe(2);
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+
+  it('writes nothing for an invalid value, never echoing it', async () => {
+    await seed();
+    const r = await cli(['set', '--stdin', 'TOKEN'], { stdin: 'short\n' });
+    expect(r.code).toBe(1);
+    expect(r.err.join('\n')).toContain('TOKEN: must be at least 8 characters');
+    expect([...r.out, ...r.err].join('\n')).not.toContain('short');
+    expect(await read('app.env')).toBe(ORIGINAL);
+  });
+});
+
 describe('the --file choice', () => {
   it('is required when the schema has more than one non-template file', async () => {
     await writeFile(path('env.schema.json'), JSON.stringify(CLI_SCHEMA));

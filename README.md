@@ -216,9 +216,12 @@ config/app.env: created
 
 Other states are `updated`, `unchanged`, `skipped (refused: <reason>)` and `failed (<reason>)`. Without a terminal and without `--ci` it exits 2.
 
+`--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A value that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
+
 ```sh
 configure-env apply
 configure-env apply --ci --set WEB_PORT=9090
+configure-env apply --ci --generate SESSION_SECRET
 WEB_HOST=10.0.0.5 configure-env apply --ci --file .env
 configure-env apply --ci --json
 ```
@@ -266,10 +269,19 @@ WEB_PORT: updated (9090)
 API_TOKEN: added (••••23)
 ```
 
+Two options keep a secret out of argv and out of the output, for runs without a terminal such as an agent's:
+
+- `--generate KEY` (repeatable) writes a random value for a secret string variable, as `apply --generate` makes it. A key that already has a non-empty value keeps it and is reported `unchanged`: it never rotates a secret, so `unset` the key first to replace it. It works with `--create`.
+- `--stdin KEY` reads one value from stdin and strips one trailing newline (`\n` or `\r\n`), so a secret manager can pipe it in. It exits 2 when stdin is a terminal, and with `--prompt`.
+
+A key given two ways (`KEY=VALUE`, `--prompt`, `--generate`, `--stdin`) is a usage error, except that a `KEY=VALUE` wins over `--prompt`.
+
 ```sh
 configure-env set WEB_PORT=9090
 configure-env set --file .env API_TOKEN=abc123 MODE=prod
 configure-env set --prompt API_TOKEN
+configure-env set --generate SESSION_SECRET
+op read op://dev/api/token | configure-env set --stdin API_TOKEN
 configure-env set --create --file .env WEB_HOST=10.0.0.5
 ```
 
