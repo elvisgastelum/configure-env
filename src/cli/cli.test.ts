@@ -1223,6 +1223,14 @@ describe('apply rules between variables', () => {
     });
   });
 
+  /** SM_MASTER_KEY is canonical base64 of 32 bytes: decoding is lenient, so re-encode. */
+  const expectMasterKey = async () => {
+    const key = (await keyIn('SM_MASTER_KEY'))!;
+    const bytes = Buffer.from(key, 'base64');
+    expect(bytes).toHaveLength(32);
+    expect(bytes.toString('base64')).toBe(key);
+  };
+
   /** RULES_SCHEMA with its files replaced. */
   const useRuleFiles = (files: unknown[]) =>
     writeFile(
@@ -1240,9 +1248,7 @@ describe('apply rules between variables', () => {
     });
     expect(r).toMatchObject({ code: 0, err: [] });
     expect(await keyIn('SM_MASTER_KEY_FILE')).toBe('');
-    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
-      32,
-    );
+    await expectMasterKey();
   });
 
   it('generates nothing into an existing create-only file, whatever its partner', async () => {
@@ -1281,9 +1287,7 @@ describe('apply rules between variables', () => {
     const empty = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
     expect(empty).toMatchObject({ code: 0, err: [] });
     expect(await keyIn('SM_MASTER_KEY_FILE')).toBe('');
-    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
-      32,
-    );
+    await expectMasterKey();
   });
 
   it('refuses a generate file before its partner counts, as it would rotate the key', async () => {
@@ -1324,9 +1328,7 @@ describe('apply rules between variables', () => {
       env: { SM_MASTER_KEY_FILE: '/run/key' },
     });
     expect(r).toMatchObject({ code: 0, err: [] });
-    expect(Buffer.from((await keyIn('SM_MASTER_KEY'))!, 'base64')).toHaveLength(
-      32,
-    );
+    await expectMasterKey();
   });
 
   it('exits 2 for --generate of a key whose partner has only a default, in a file holding both', async () => {
