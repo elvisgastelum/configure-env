@@ -1,8 +1,8 @@
 // `configure-env check`: reports drift and invalid values; writes nothing.
 
-import { relative } from 'node:path';
 import { checkDrift } from '../engine/check.ts';
 import {
+  displayPath,
   contextOf,
   describeError,
   givenValue,
@@ -48,9 +48,7 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
   const errors = report.errors.map(describeError);
   if (!context.ci && io.isTTY) {
     const { prompts, schemaPath } = context;
-    prompts.intro(
-      `configure-env check · ${relative(io.cwd, schemaPath) || schemaPath}`,
-    );
+    prompts.intro(`configure-env check · ${displayPath(io.cwd, schemaPath)}`);
     if (lines.length) prompts.note(lines.join('\n'), 'Check');
     if (errors.length) prompts.log.error(errors.join('\n'));
     prompts.outro(

@@ -4,6 +4,7 @@ import { applyCommand } from './apply.ts';
 import { checkCommand } from './check.ts';
 import { CliError, usageError } from './common.ts';
 import { MAIN_HELP, VERSION } from './help.ts';
+import { initCommand } from './init.ts';
 import type { Io } from './io.ts';
 
 type Command = (args: string[], io: Io) => Promise<number>;
@@ -11,6 +12,7 @@ type Command = (args: string[], io: Io) => Promise<number>;
 export const COMMANDS: Record<string, Command> = {
   apply: applyCommand,
   check: checkCommand,
+  init: initCommand,
 };
 
 const has = (args: readonly string[], ...flags: string[]) =>

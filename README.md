@@ -4,7 +4,7 @@ Configure, check and edit env files from a schema, interactively or in CI.
 
 ## Status
 
-Pre-release; the package is not on npm yet. `apply` and `check` work; the other commands are being built.
+Pre-release; the package is not on npm yet. `apply`, `check` and `init` work; the other commands are being built.
 
 The CLI reads a JSON schema that lists the env files (their paths and write policies) and the variables (names, types and validation rules), then works from it:
 
@@ -150,6 +150,7 @@ Until the package is published, run it from a checkout with `pnpm start -- <comm
 | ------- | -------------------------------------------------------------------- |
 | `apply` | writes the env files the schema describes; the default command       |
 | `check` | changes nothing; reports drift and invalid values, exits 1 on either |
+| `init`  | writes a starting `env.schema.json`, inferred from an example env file |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -198,16 +199,34 @@ configure-env check
 configure-env check --ci --json
 ```
 
+### init
+
+`init` writes `env.schema.json` in the root (or the `--schema` path), with `$schema` pointing at the published JSON Schema and `version` 1. It refuses to overwrite an existing schema (exit 1) unless `--force`.
+
+It infers the variables from `--from <file>`, or from `.env.example` when that exists, and lists that file with policy `merge`:
+
+- the type from the value: a whole number is an `integer`, another number a `number`, `true`/`false` a `boolean`; then an `email`, a `url` with a scheme, and an IPv4 address as a `host`; anything else is a `string`
+- the `comment` from the comment lines just above the key
+- the `default` from the value (none for an empty one)
+
+Without an example file it writes an empty schema. In a terminal it shows the inferred types and lets you keep them or pick each one (a default that no longer fits the new type is dropped); with `--ci` it writes them as inferred.
+
+```sh
+configure-env init
+configure-env init --ci --from config/app.env.example
+configure-env init --force
+```
+
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
 
 ### Exit codes
 
 | Code  | Meaning                                                                  |
 | ----- | ------------------------------------------------------------------------ |
 | `0`   | ok                                                                       |
-| `1`   | drift, an invalid value or schema, or a failed write                     |
+| `1`   | drift, an invalid value or schema, a failed write, or `init` over an existing schema without `--force` |
 | `2`   | usage error: a bad option, no schema, or no terminal without `--ci`      |
 | `130` | cancelled                                                                |
 

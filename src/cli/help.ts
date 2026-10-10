@@ -22,7 +22,8 @@ const GLOBAL = `Global options:
 
 const EXIT_CODES = `Exit codes:
   0    ok
-  1    drift, an invalid value or schema, or a failed write
+  1    drift, an invalid value or schema, a failed write, or an
+       existing schema without --force
   2    usage error: a bad option, no schema, or no terminal without --ci
   130  cancelled`;
 
@@ -34,6 +35,7 @@ terminal UI or unattended with --ci.
 Commands:
   apply   write the env files the schema describes (the default)
   check   change nothing; report drift and invalid values
+  init    write a starting env.schema.json, inferred from .env.example
 
 Run configure-env <command> --help for the command's own options.
 
@@ -83,5 +85,35 @@ ${GLOBAL}
 Examples:
   configure-env check
   configure-env check --ci --json
+
+${EXIT_CODES}`;
+
+export const INIT_HELP = `Usage: configure-env init [options]
+
+Writes env.schema.json (or --schema) in the root, with $schema pointing at
+the published JSON Schema for editor support. It never overwrites an
+existing schema unless --force.
+
+The variables are inferred from --from, else from .env.example when it
+exists: the type from each value (a whole number is an integer, true and
+false a boolean, then email, URL and IPv4 host patterns, else a string),
+the comment from the comment lines just above the key, and the default
+from the value. The file goes in the schema with policy merge. Without an
+example file, the schema starts empty.
+
+In a terminal it shows the inferred types and lets you keep or change
+each one; with --ci (or --json) it writes them as inferred.
+
+Options:
+  --from <file>  the env file to infer from, inside the root
+                 (default: .env.example when it exists)
+  --force        overwrite an existing schema
+
+${GLOBAL}
+
+Examples:
+  configure-env init
+  configure-env init --ci --from config/app.env.example
+  configure-env init --force
 
 ${EXIT_CODES}`;

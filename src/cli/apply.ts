@@ -1,16 +1,17 @@
 // `configure-env apply`: writes the env files, in the TUI or unattended.
 
-import { relative } from 'node:path';
 import { applyPlan } from '../engine/apply.ts';
 import { type FilePlan, type Plan, planChanges } from '../engine/plan.ts';
 import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
+  displayPath,
   type Context,
   contextOf,
   describeError,
   givenValue,
   loadContextSchema,
+  NO_TERMINAL,
   neededKeys,
   neededKeysOf,
   parseCommand,
@@ -23,9 +24,6 @@ import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
 
 const OPTIONS = { set: { type: 'string', multiple: true } } as const;
-
-export const NO_TERMINAL =
-  'no terminal for the interactive mode; pass --ci (or set CI=true) to run unattended';
 
 export async function applyCommand(args: string[], io: Io): Promise<number> {
   const options = parseCommand(args, OPTIONS);
@@ -180,9 +178,7 @@ async function applyInteractive(
   schema: EnvSchema,
   sets: Record<string, string>,
 ): Promise<number> {
-  prompts.intro(
-    `configure-env · ${relative(io.cwd, schemaPath) || schemaPath}`,
-  );
+  prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
 
   const first = await planChanges({ schema, root, values: {}, files });
   const picked = await prompts.multiselect<string>({

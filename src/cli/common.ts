@@ -2,7 +2,7 @@
 // schema, and where values come from.
 
 import { stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import type { FilePlan, PlanError } from '../engine/plan.ts';
 import { fileKeys } from '../engine/plan.ts';
@@ -21,6 +21,9 @@ export class CliError extends Error {
     super(lines[0]);
   }
 }
+
+export const NO_TERMINAL =
+  'no terminal for the interactive mode; pass --ci (or set CI=true) to run unattended';
 
 /** A usage error: exit code 2. */
 export const usageError = (...lines: string[]) => new CliError(2, lines);
@@ -74,6 +77,12 @@ export interface Context {
   /** Unattended: --ci, or CI set in the environment. */
   ci: boolean;
   json: boolean;
+}
+
+/** A path for messages: relative to `cwd` when inside it, else absolute. */
+export function displayPath(cwd: string, path: string): string {
+  const rel = relative(cwd, path);
+  return !rel || rel.startsWith('..') || isAbsolute(rel) ? path : rel;
 }
 
 /** Whether CI is set to anything but empty, `false` or `0`. */

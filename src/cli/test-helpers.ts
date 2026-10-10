@@ -47,12 +47,12 @@ export const CLI_SCHEMA = {
   ],
 };
 
-/** A fresh temporary root per test, holding `env.schema.json`. */
+/** A fresh temporary root per test, holding `env.schema.json` unless `schema` is null. */
 export function useProject(schema: unknown = CLI_SCHEMA) {
   const dirs = { root: '' };
   beforeEach(async () => {
     dirs.root = await mkdtemp(join(tmpdir(), 'configure-env-cli-'));
-    if (schema !== undefined)
+    if (schema !== null)
       await writeFile(
         join(dirs.root, 'env.schema.json'),
         JSON.stringify(schema, null, 2),
