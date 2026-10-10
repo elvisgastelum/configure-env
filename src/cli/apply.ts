@@ -31,6 +31,7 @@ import {
 import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
 import { generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
+import { variablesOf } from './target.ts';
 import type { Io, Prompts } from './io.ts';
 
 const OPTIONS = {
@@ -102,9 +103,23 @@ const leftEmpty = (
       schema.variables[key]!.default === undefined,
   );
 
-/** The report line for keys left for a person to set. */
-const deferredLine = (keys: readonly string[]) =>
-  `deferred: ${keys.join(', ')} (set ${keys.length > 1 ? 'them' : 'it'} with configure-env set ${keys.map((key) => `--prompt ${key}`).join(' ')})`;
+/**
+ * The report line for keys left for a person to set: one `set` command per
+ * real file that lists them, with `--file` so it works with several files.
+ */
+function deferredLine(schema: EnvSchema, keys: readonly string[]) {
+  const commands = schema.files
+    .filter((file) => !isTemplate(file))
+    .map((file) => {
+      const listed = variablesOf(schema, file);
+      const prompts = keys.filter((key) => listed.has(key));
+      return prompts.length
+        ? `configure-env set --file ${file.path} ${prompts.map((key) => `--prompt ${key}`).join(' ')}`
+        : '';
+    })
+    .filter(Boolean);
+  return `deferred: ${keys.join(', ')} (set ${keys.length > 1 ? 'them' : 'it'} with ${commands.join(', and ')})`;
+}
 
 /**
  * Refuses a generated key that a chosen generate file writes: it would get
@@ -203,7 +218,7 @@ async function applyUnattended(
     plan.files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
-    if (empty.length) io.stdout(deferredLine(empty));
+    if (empty.length) io.stdout(deferredLine(schema, empty));
   }
   return ok ? 0 : 1;
 }
@@ -401,7 +416,7 @@ async function applyInteractive(
       ...plan.files.map(
         (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
       ),
-      ...(empty.length ? [deferredLine(empty)] : []),
+      ...(empty.length ? [deferredLine(schema, empty)] : []),
     ].join('\n'),
   );
   return failure;

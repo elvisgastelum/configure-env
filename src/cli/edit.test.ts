@@ -331,6 +331,22 @@ describe('set --stdin', () => {
     expect(await read('app.env')).toContain('GREETING="hi\\n"\n');
   });
 
+  it('masks a piped value even for a key that is not secret', async () => {
+    await seed('PORT=1\n');
+    const text = await cli(['set', '--stdin', 'GREETING'], {
+      stdin: 'piped-from-a-vault\n',
+    });
+    expect(text).toMatchObject({ code: 0, out: ['GREETING: added (••••lt)'] });
+    const json = await cli(['set', '--json', '--stdin', 'GREETING'], {
+      stdin: 'another-vault-value',
+    });
+    expect(json.out.join('')).not.toContain('vault');
+    expect(JSON.parse(json.out.join('')).keys[0]).toMatchObject({
+      key: 'GREETING',
+      masked: '••••ue',
+    });
+  });
+
   it('exits 2 when stdin is a terminal or cannot be read', async () => {
     await seed();
     expect((await cli(['set', '--stdin', 'TOKEN'])).code).toBe(2);

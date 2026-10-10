@@ -517,7 +517,7 @@ describe('apply --defer', () => {
     expect(r.out).toEqual([
       '.env.example: created',
       '.env: created',
-      'deferred: API_TOKEN (set it with configure-env set --prompt API_TOKEN)',
+      'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
     ]);
     const env = await read('.env');
     expect(env).toMatch(/^PORT=3000$/m);

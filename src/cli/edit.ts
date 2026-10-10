@@ -266,7 +266,10 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       setValue(file.doc, key, text);
       status = 'updated';
     }
-    report.push({ key, status, spec: variable, plain });
+    // A piped value is masked even for a key not marked secret: it came
+    // from a secret manager, and the output may land in an agent's log.
+    const shown = key === stdinKey ? { ...variable, secret: true } : variable;
+    report.push({ key, status, spec: shown, plain });
   }
   if (report.some((entry) => entry.status !== 'unchanged'))
     await writeEnvFile(file, serialize(file.doc));
