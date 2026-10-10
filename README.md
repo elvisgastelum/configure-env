@@ -2,9 +2,9 @@
 
 Configure, check and edit env files from a schema, interactively or in CI.
 
-## Status
+[![npm](https://img.shields.io/npm/v/@elvisgastelum/configure-env)](https://www.npmjs.com/package/@elvisgastelum/configure-env) [![CI](https://github.com/elvisgastelum/configure-env/actions/workflows/ci.yml/badge.svg)](https://github.com/elvisgastelum/configure-env/actions/workflows/ci.yml)
 
-Pre-release; the package is not on npm yet. Every command below works.
+One JSON file describes a project's env files and the variables they hold. `configure-env` writes those files from it, keeps the ones you edit by hand, checks them for drift in CI, and edits single variables without touching the rest of the file. Secrets stay out of committed templates such as `.env.example`.
 
 The CLI reads a JSON schema that lists the env files (their paths and write policies) and the variables (names, types and validation rules), then works from it:
 
@@ -19,10 +19,31 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | `list`     | list the variables and where they are set          |
 | `validate` | validate the values against the schema             |
 
-Each command runs as an interactive TUI for people, or with `--ci` for unattended runs. Once published, it will run without installing:
+Each command runs as an interactive TUI for people, or with `--ci` for unattended runs.
+
+## Quick start
+
+It needs Node.js 22 or later, and runs without installing:
 
 ```sh
+# 1. Start a schema; the variables are inferred from .env.example when it exists.
+npx @elvisgastelum/configure-env init
+
+# 2. Edit env.schema.json: types, defaults, required and secret variables, and
+#    the files to write (see "Schema" below).
+
+# 3. Write the env files, answering the prompts.
 npx @elvisgastelum/configure-env apply
+
+# 4. In CI, fail when a file drifts from the schema.
+npx @elvisgastelum/configure-env check --ci
+```
+
+To pin the version for a team, install it as a dev dependency and call the `configure-env` bin from a script:
+
+```sh
+pnpm add -D @elvisgastelum/configure-env   # or npm install -D, yarn add -D
+pnpm exec configure-env check
 ```
 
 ## Schema (v1)
@@ -141,7 +162,7 @@ The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` wh
 
 ### Editor support
 
-The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json`](schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, variable names in `files`, value overrides, and unique paths.
+The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json`](schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, variable names in `files`, value overrides, and unique paths.
 
 The JSON Schema is generated from the zod definition in `src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
 
@@ -151,7 +172,7 @@ The JSON Schema is generated from the zod definition in `src/schema/definition.t
 configure-env [command] [options]
 ```
 
-Until the package is published, run it from a checkout with `pnpm start -- <command> [options]`; `--root` points it at a project.
+Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <command>` once installed. From a checkout of this repo, `pnpm start -- <command> [options]` runs the sources; `--root` points it at a project.
 
 | Command | What it does                                                         |
 | ------- | -------------------------------------------------------------------- |
@@ -333,23 +354,119 @@ With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`;
 pnpm start -- apply --ci --schema examples/portfolio.env.schema.json --root ../my-project
 ```
 
+## CI usage
+
+In CI the real env files usually do not exist and the secrets are not at hand, so check the committed files: the templates. A create-only file that is missing is not drift, so `check` passes without it.
+
+```yaml
+# .github/workflows/env.yml
+name: Env files
+on: [pull_request]
+jobs:
+  env:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # pin to a commit SHA in real workflows
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Fails (exit 1) when .env.example lacks a key the schema adds, or when
+      # a generated file differs from the schema.
+      - run: npx --yes @elvisgastelum/configure-env@0.1 check --ci
+      # Fails on lines that are not valid entries and on missing keys.
+      - run: npx --yes @elvisgastelum/configure-env@0.1 validate --file .env.example
+```
+
+To write a real env file in a deploy job, pass the values as environment variables (from secrets) or `--set`; with `--ci` nothing prompts, and a missing required value fails before anything is written:
+
+```yaml
+      - run: npx --yes @elvisgastelum/configure-env@0.1 apply --ci --file .env
+        env:
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          WEB_PORT: '8080'
+```
+
+`CI=true`, which GitHub Actions sets, turns on `--ci` by itself; passing it keeps the intent visible. `--json` prints one JSON document on stdout for scripts (see "JSON output").
+
+## Programmatic API
+
+The package also exports the functions the CLI is built on, as ESM with type declarations:
+
+```ts
+import {
+  applyPlan,
+  checkDrift,
+  loadSchema,
+  planChanges,
+} from '@elvisgastelum/configure-env';
+
+const loaded = await loadSchema('env.schema.json');
+if (!loaded.ok) {
+  throw new Error(loaded.errors.map((e) => `${e.path}: ${e.message}`).join('\n'));
+}
+const { schema } = loaded;
+const root = process.cwd();
+
+// Plan first: nothing is written, and errors never hold a value.
+const plan = await planChanges({ schema, root, values: { WEB_PORT: '9090' } });
+if (plan.errors.length) throw new Error(JSON.stringify(plan.errors));
+for (const result of await applyPlan(plan)) {
+  console.log(result.path, result.action, result.ok);
+}
+
+const report = await checkDrift({ schema, root, values: { WEB_PORT: '9090' } });
+console.log(report.ok, report.files.map((file) => [file.path, file.status]));
+```
+
+| Export | What it does |
+| ------ | ------------ |
+| `loadSchema(path?)`, `parseSchemaText(text)`, `parseSchema(json)` | read and validate a schema; `{ ok: true, schema }` or `{ ok: false, errors }` |
+| `planChanges({ schema, root, values, files? })` | what a run would write to each file, without writing |
+| `applyPlan(plan)` | write the plan's files atomically; one result per file |
+| `checkDrift({ schema, root, values?, files? })` | the drift and invalid values per file, as `check` reports them |
+| `validateValue(spec, raw)`, `formatValue(spec, value)`, `maskValue(spec, value)` | one variable's rules, its written form, and its masked display |
+| `parseDotenv(text)`, `serialize(doc)`, `getValue`, `setValue`, `removeKey`, `keysOf`, `appendLines`, `removeEntry`, `invalidLineNumbers` | parse dotenv text and edit it, keeping every other byte |
+| `envSchema`, `SCHEMA_ID`, `SCHEMA_VERSION`, `isTemplate`, ... | the zod schema and the format constants |
+| `main(argv, io)` | the CLI itself, with the streams, environment and prompts passed in |
+
+The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and the rest) are exported too. The JSON Schema is `@elvisgastelum/configure-env/schema.json`. Until 1.0 a minor version may change the API.
+
 ## Development
 
 Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
 
-| Script                 | What it does                                 |
-| ---------------------- | -------------------------------------------- |
-| `pnpm dev`             | run the CLI from source with tsx             |
-| `pnpm start`           | same as `pnpm dev`                           |
-| `pnpm lint`            | lint with ESLint                             |
-| `pnpm format`          | format with Prettier                         |
-| `pnpm format:check`    | check the formatting without changing files  |
-| `pnpm typecheck`       | type-check with `tsc`                        |
-| `pnpm test`            | run the tests with Vitest                    |
-| `pnpm schema:generate` | regenerate `schema/env.schema.v1.json`       |
-| `pnpm schema:check`    | fail when the committed JSON Schema is stale |
+| Script                 | What it does                                                         |
+| ---------------------- | -------------------------------------------------------------------- |
+| `pnpm dev`             | run the CLI from source with tsx                                     |
+| `pnpm start`           | same as `pnpm dev`                                                   |
+| `pnpm lint`            | lint with ESLint                                                     |
+| `pnpm format`          | format with Prettier                                                 |
+| `pnpm format:check`    | check the formatting without changing files                          |
+| `pnpm typecheck`       | type-check with `tsc`                                                |
+| `pnpm test`            | run the tests with Vitest                                            |
+| `pnpm schema:generate` | regenerate `schema/env.schema.v1.json`                               |
+| `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
+| `pnpm build`           | compile `src/` to `dist/` (JavaScript, declarations and source maps) |
+| `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
+| `pnpm changeset`       | describe a change for the next release                               |
 
-CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`.
+CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`.
+
+`dist/` is built, never committed; `npm pack` and `npm publish` build it first (`prepack`). The package ships `dist/`, `schema/`, this README, the license and the changelog, and no tests or fixtures.
+
+## Releasing
+
+Versions and the changelog come from [Changesets](https://github.com/changesets/changesets):
+
+1. A pull request with a user-visible change adds a changeset: `pnpm changeset`, pick the bump, describe the change. It lands in `.changeset/`.
+2. To release, run the **Release** workflow by hand (Actions, Release, Run workflow, on `main`). It runs every check and the smoke test, then opens a `chore: release` pull request that bumps `package.json` and writes `CHANGELOG.md`.
+3. Merge that pull request and run the **Release** workflow again. With no changesets left, it publishes the version to npm with [provenance](https://docs.npmjs.com/generating-provenance-statements), tags it and creates the GitHub release.
+
+The workflow needs, once:
+
+- an npm account that owns the `@elvisgastelum` scope (the user scope of the npm user `elvisgastelum`, or an npm organization of that name);
+- an npm access token that may publish `@elvisgastelum/configure-env` (an automation token, or a granular token with read and write access to the package), saved as the `NPM_TOKEN` repository secret (Settings, Secrets and variables, Actions);
+- Actions allowed to create pull requests (Settings, Actions, General, Workflow permissions), for the release pull request.
 
 ## License
 

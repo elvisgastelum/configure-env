@@ -1,0 +1,66 @@
+# Releases to npm through Changesets, only when started by hand from the
+# Actions tab (run it on main). Each run first repeats the CI checks and the
+# packed-tarball smoke test, then:
+#
+#   - with changesets in .changeset/, opens or updates a "Version Packages"
+#     pull request that bumps package.json and writes CHANGELOG.md;
+#   - with none (that pull request was merged), publishes the version in
+#     package.json to npm with provenance and tags it on GitHub.
+#
+# Needs the NPM_TOKEN repository secret: an npm automation (or granular)
+# token that may publish @elvisgastelum/configure-env. See the README,
+# "Releasing". Each action is pinned to a full commit SHA (the tag in the
+# comment) so a moved tag cannot change what runs.
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  # Push the version branch, tags and GitHub releases.
+  contents: write
+  # Open the "Version Packages" pull request.
+  pull-requests: write
+  # Sign the npm provenance statement.
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm schema:check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm smoke
+
+      - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          version-script: pnpm changeset version
+          publish-script: pnpm release
+          commit-message: 'chore: release'
+          pr-title: 'chore: release'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
