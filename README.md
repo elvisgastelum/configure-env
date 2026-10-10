@@ -100,6 +100,9 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `example`     | typed   | a sample value shown to people; it must pass the variable's own rules too           |
 | `secret`      | boolean | mask the value in output (`••••` and the last 2 characters past 8); default `false` |
 | `comment`     | string  | written as `#` lines above the key in generated files; `\n` starts a new line       |
+| `requiredUnless` | name or list | the variable is required unless one of these is set; not with `required: true` |
+| `conflictsWith` | name or list | the variable and one of these must not both be set                          |
+| `distinctFrom` | name or list | when the variable and one of these are both set, their values must differ      |
 
 `default` and `example` take the type's JSON type: a number for `number`, `integer` and `port`, a boolean for `boolean`, a string for the rest.
 
@@ -119,6 +122,39 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 `pattern` is a JavaScript regular expression in Unicode mode; `patternMessage` replaces the default error when a value does not match. An option of another type (say `minLength` on a `port`) is an error.
 
 `encoding` makes a `string` hold bytes: `base64` (standard alphabet, with its `=` padding), `base64url` (URL-safe alphabet, without padding) or `hex` (either case, an even number of digits). The value must be canonical, as the encoding writes it, so whitespace, the other base64 alphabet or a wrong padding fails. `bytes`, which needs `encoding`, is the number of bytes it must decode to: `{ "type": "string", "encoding": "base64", "bytes": 32 }` takes what `openssl rand -base64 32` prints. The error names the rule, never the value: `must be base64 that decodes to 32 bytes`. `minLength`, `maxLength` and `pattern` apply too; with `bytes` the length is fixed, so a `minLength` above it or a `maxLength` below it is a schema error.
+
+### Rules between variables
+
+`requiredUnless`, `conflictsWith` and `distinctFrom` each take a declared variable name or a non-empty list of them, never the variable itself. A value counts as set when it is not empty.
+
+```json
+"SM_MASTER_KEY": {
+  "type": "string",
+  "secret": true,
+  "encoding": "base64",
+  "bytes": 32,
+  "requiredUnless": "SM_MASTER_KEY_FILE",
+  "conflictsWith": "SM_MASTER_KEY_FILE"
+},
+"SM_MASTER_KEY_FILE": { "type": "string" },
+"SM_PREVIOUS_MASTER_KEY": {
+  "type": "string",
+  "secret": true,
+  "encoding": "base64",
+  "bytes": 32,
+  "distinctFrom": "SM_MASTER_KEY"
+}
+```
+
+The rules hold per file, over that file's own variables: a name the file does not list is left out of the rule there, and a rule left with no name is ignored for that file. A conflict is symmetric and reported once per pair, whichever side declares it. `distinctFrom` compares the values as a reader of the file gets them, unquoted. Templates hold placeholders, so their rules are not checked. The messages name the keys, never a value:
+
+```text
+.env: SM_MASTER_KEY: required unless SM_MASTER_KEY_FILE is set
+.env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them
+.env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY
+```
+
+`validate` and `check` report them and exit 1, `list` shows them in the `VALID` column, and `apply` and `set` refuse to write a file that would break one (exit 1). In generated files, a `requiredUnless` variable's comment ends with `required unless X is set` (`X or Y` for several).
 
 ### Files
 
@@ -150,7 +186,7 @@ A template takes only its `values` entries and the defaults. It never takes a `-
 
 ### How files are written
 
-A generated or created file holds the `header` as `#` lines, a blank line, then each variable in the file's order: its comment as `#` lines, then `KEY=value`. A blank line separates blocks; a new block starts where the `group` changes or a variable has a comment. The value is the file's `values` entry, else the given value (never for a template), else the `default`, else empty.
+A generated or created file holds the `header` as `#` lines, a blank line, then each variable in the file's order: its comment as `#` lines (with the `requiredUnless` line after it), then `KEY=value`. A blank line separates blocks; a new block starts where the `group` changes or a variable has a comment. The value is the file's `values` entry, else the given value (never for a template), else the `default`, else empty.
 
 A `merge` file keeps every existing line byte for byte, including its line endings, `export` prefixes, quotes and comments; the missing keys go at the end after a blank line, with their comments. Existing values are never changed.
 
@@ -164,7 +200,7 @@ The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` wh
 
 ### Editor support
 
-The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json`](schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, variable names in `files`, value overrides, and unique paths.
+The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json`](schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, `bytes` without `encoding`, the names in the rules between variables, variable names in `files`, value overrides, and unique paths.
 
 The JSON Schema is generated from the zod definition in `src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
 
@@ -208,7 +244,7 @@ A missing schema exits 2 with a hint to run `configure-env init`; an invalid one
 
 In a terminal, `apply` shows the schema files with their policy and current state and asks which to write. It then prompts, grouped by `group`, for the values the chosen files need: every variable of a generate file or a file it creates, and the keys a merge file lacks. A variable a file sets through `values` is not asked for, and neither is one given with `--set` or one only template files need. Each prompt fits the type: a select for an `enum`, a yes/no for a `boolean`, a hidden input for a `secret`, and text for the rest, starting from the default and checked against the variable's rules. It shows the plan (secrets masked), asks before writing, and writes. Ctrl-C at any prompt exits 130 and writes nothing. A create-only file that exists is skipped; a refused path is reported with its reason.
 
-With `--ci`, or `CI=true`, it never prompts. Each value comes from `--set KEY=VALUE`, else the environment variable of the same name (when not empty), else the schema default. A required variable that ends up with no value, or any invalid value, is an error: nothing is written and it exits 1. It prints one line per file:
+With `--ci`, or `CI=true`, it never prompts. Each value comes from `--set KEY=VALUE`, else the environment variable of the same name (when not empty), else the schema default. A required variable that ends up with no value, any invalid value, or a file whose values would break a rule between variables (for the rules that name a key the run writes to it), is an error: nothing is written and it exits 1. In a terminal the same rules are checked before the plan is shown. It prints one line per file:
 
 ```text
 config/app.env: created
@@ -218,9 +254,9 @@ config/app.env: created
 
 Other states are `updated`, `unchanged`, `skipped (refused: <reason>)` and `failed (<reason>)`. Without a terminal and without `--ci` it exits 2.
 
-`--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. A `maxLength` under 16 is a usage error (exit 2): a value that short is too weak to generate, so set it with `--prompt` or `--stdin`. A variable with `encoding` gets `bytes` random bytes (32 when not set) in that encoding instead; `bytes` under 16 is the same usage error. A base64 value is written unquoted: `+`, `/` and `=` need no quotes, and readers get it back unchanged. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. When a non-template file of the run already holds a non-empty value for the key, that value is reused instead of a new one, so a rerun after one file was deleted writes the same secret the others keep; two files of the run holding different values exit 2, naming the files and never a value. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A random value is made only when a file of the run writes the key; one that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
+`--generate KEY` (repeatable) acts like `--set` with a random value for a variable declared `type: "string"` and `secret: true`: 48 characters of `[A-Za-z0-9_-]` from `node:crypto`, within `minLength` and `maxLength`, one value per run for every file. A `maxLength` under 16 is a usage error (exit 2): a value that short is too weak to generate, so set it with `--prompt` or `--stdin`. A variable with `encoding` gets `bytes` random bytes (32 when not set) in that encoding instead; `bytes` under 16 is the same usage error. A base64 value is written unquoted: `+`, `/` and `=` need no quotes, and readers get it back unchanged. It is never printed. Merge and create-only files never change a value, so it lands only where a file lacks the key. When a non-template file of the run already holds a non-empty value for the key, that value is reused instead of a new one, so a rerun after one file was deleted writes the same secret the others keep; two files of the run holding different values exit 2, naming the files and never a value. A key whose `conflictsWith` partner has a value (given, from the environment, a default, or held by a file of the run) is a usage error (exit 2), so the run never writes both. A chosen non-template file with policy `generate` that writes the key is a usage error (exit 2), since it would rotate the secret on every run; so is a key also given with `--set`, or one that is not a secret string. A random value is made only when a file of the run writes the key; one that cannot pass the variable's rules (a `pattern`, say) exits 1 and writes nothing. In a terminal the key is not prompted for.
 
-`--defer KEY` (repeatable) leaves a required variable for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key that is not `required: true`, one also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, and `validate` fails on them until they are set:
+`--defer KEY` (repeatable) leaves a required variable, or a `requiredUnless` one, for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key that is neither `required: true` nor `requiredUnless`, one also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, leaving out a `requiredUnless` key whose alternative the file sets, and `validate` fails on them until they are set:
 
 ```text
 .env.example: created
@@ -239,7 +275,7 @@ configure-env apply --ci --json
 
 ### check
 
-`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600`), values that break their variable's rules (secrets masked), and lines that are not valid entries. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them. It runs the same way with or without a terminal.
+`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600`), values that break their variable's rules (secrets masked), broken rules between variables, and lines that are not valid entries. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them. It runs the same way with or without a terminal.
 
 ```sh
 configure-env check
@@ -271,7 +307,7 @@ configure-env init --force
 
 ### set
 
-`set KEY=VALUE [KEY=VALUE…]` checks every value against its variable's rules first; one invalid value writes nothing and exits 1, naming the rule but never the value. A key the file holds is edited in place, keeping its `export` prefix, spacing and inline comment; a missing key is appended with its schema comment. Every other line stays byte for byte, line endings included, and the file is written atomically with its mode kept. Values are written as `apply` writes them (a boolean `yes` becomes `true`, a value with `$` is single-quoted).
+`set KEY=VALUE [KEY=VALUE…]` checks every value against its variable's rules first; one invalid value writes nothing and exits 1, naming the rule but never the value. A key the file holds is edited in place, keeping its `export` prefix, spacing and inline comment; a missing key is appended with its schema comment. Every other line stays byte for byte, line endings included, and the file is written atomically with its mode kept. Values are written as `apply` writes them (a boolean `yes` becomes `true`, a value with `$` is single-quoted). The file's resulting values are checked against the rules between variables that name a key being set; a broken one writes nothing and exits 1, so `SM_MASTER_KEY_FILE= SM_MASTER_KEY=…` swaps an either-or pair in one `set`.
 
 A key that is not one of the file's variables exits 1 unless `--allow-unknown`. A file that does not exist exits 1 unless `--create`, which creates it with the schema's `mode`. `--prompt KEY` (repeatable) asks for the value in a terminal, hidden for a secret; a `KEY=VALUE` given for the same key wins. Each key is reported as `updated`, `added` or `unchanged`, with the value masked for a secret:
 
@@ -310,7 +346,7 @@ configure-env get WEB_HOST --file .env --json
 
 ### unset
 
-`unset KEY [KEY…]` removes each key. The comment lines right above it go too, but only when they are exactly the comment the schema writes for it; any other comment stays. Every other byte stays, and the file keeps its mode. A key the file does not hold is reported as `absent` and exits 0.
+`unset KEY [KEY…]` removes each key. The comment lines right above it go too, but only when they are exactly the comment the schema writes for it; any other comment stays. Every other byte stays, and the file keeps its mode. A key the file does not hold is reported as `absent` and exits 0. Rules between variables are not checked: an `unset` may leave a `requiredUnless` variable without its alternative, which `validate` then reports.
 
 ```sh
 configure-env unset WEB_PORT
@@ -325,7 +361,7 @@ configure-env unset --file .env API_TOKEN MODE
 | ------------- | -------------------------------------------------------------------------------------------------------- |
 | `KEY`         | the name                                                                                                 |
 | `SET`         | `yes`, `no` or `empty`                                                                                   |
-| `VALID`       | `ok` or the rule the value breaks; `-` in a template (placeholders); `unknown` for a key the schema does not list for the file |
+| `VALID`       | `ok` or the rule the value breaks, else a broken rule between variables (`set only one of A, B` on both keys); `-` in a template (placeholders); `unknown` for a key the schema does not list for the file |
 | `VALUE`       | the value, masked for a secret, cut at 40 characters                                                     |
 | `DESCRIPTION` | the variable's description                                                                               |
 
@@ -344,7 +380,7 @@ configure-env list --file .env --json
 
 ### validate
 
-`validate` changes nothing. It checks the current values of every schema file (or the `--file` paths): a missing file, lines that are not valid entries, required keys that are not set, and values that break their variable's rules. A key the schema does not list for the file is a warning, and an error with `--strict`. A template holds placeholders, so only its lines and the presence of each key are checked. A placeholder a file sets through `values` passes. It exits 1 on any error; messages never show a value.
+`validate` changes nothing. It checks the current values of every schema file (or the `--file` paths): a missing file, lines that are not valid entries, required keys that are not set, values that break their variable's rules, and broken rules between variables. A key the schema does not list for the file is a warning, and an error with `--strict`. A template holds placeholders, so only its lines and the presence of each key are checked. A placeholder a file sets through `values` passes. It exits 1 on any error; messages never show a value.
 
 ```text
 .env: PORT: must be a port between 1 and 65535
@@ -360,7 +396,7 @@ configure-env validate --json
 
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), and `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), and `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`, plus `keys` (both names) for a conflict. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `rules` (`rule`, `key`, `others` and `message`, for each broken rule between variables), `invalidLines`, and `mode` when it differs.
 
 ### Exit codes
 

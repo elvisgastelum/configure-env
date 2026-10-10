@@ -8,7 +8,12 @@ import {
   type PlanError,
   planChanges,
 } from '../engine/plan.ts';
-import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
+import { fileRules } from '../engine/check.ts';
+import {
+  type EnvSchema,
+  type VariableSpec,
+  ruleNames,
+} from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
   CliError,
@@ -28,6 +33,7 @@ import {
   parseCommand,
   parseSets,
   resolveValues,
+  ruleErrors,
   usageError,
 } from './common.ts';
 import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
@@ -112,7 +118,9 @@ function deferKeys(
     if (!Object.hasOwn(schema.variables, key))
       throw keyError('usage', key, 'is not declared in the schema');
     if (given.includes(key)) throw givenTwice('--defer', key);
-    if (!schema.variables[key]!.required)
+    // A requiredUnless variable is required while its alternatives are unset.
+    const spec = schema.variables[key]!;
+    if (!spec.required && spec.requiredUnless === undefined)
       throw keyError('usage', key, '--defer takes a required variable');
   }
   return unique;
@@ -129,8 +137,31 @@ function writtenEmpty(
   empty: readonly string[],
 ) {
   const written = plans.filter((_, i) => results[i]?.ok);
-  const needed = neededKeys(schema, written);
-  return { written, keys: empty.filter((key) => needed.includes(key)) };
+  const left = new Set(written.flatMap((plan) => leftIn(schema, plan, empty)));
+  return { written, keys: empty.filter((key) => left.has(key)) };
+}
+
+/**
+ * The `empty` keys the file takes that still need a value there: a required
+ * one, or a requiredUnless one whose alternatives the file leaves unset.
+ */
+function leftIn(
+  schema: EnvSchema,
+  plan: FilePlan,
+  empty: readonly string[],
+): string[] {
+  const needed = neededKeysOf(schema, plan);
+  const spec = schema.files.find((file) => file.path === plan.path)!;
+  const unsatisfied = new Set(
+    fileRules(schema, spec, parseDotenv(plan.content ?? ''))
+      .filter((problem) => problem.rule === 'requiredUnless')
+      .map((problem) => problem.key),
+  );
+  return empty.filter(
+    (key) =>
+      needed.includes(key) &&
+      (schema.variables[key]!.required || unsatisfied.has(key)),
+  );
 }
 
 /**
@@ -144,8 +175,7 @@ function deferredLine(
 ) {
   const commands = plans
     .map((plan) => {
-      const needed = neededKeysOf(schema, plan);
-      const prompts = keys.filter((key) => needed.includes(key));
+      const prompts = leftIn(schema, plan, keys);
       return prompts.length
         ? `configure-env set --file ${plan.path} ${prompts.map((key) => `--prompt ${key}`).join(' ')}`
         : '';
@@ -192,6 +222,7 @@ function withGenerated(
   plans: readonly FilePlan[],
   sets: Readonly<Record<string, string>>,
   keys: readonly string[],
+  env: Io['env'],
 ): Record<string, string> {
   const values = { ...sets };
   const needed = neededKeys(schema, plans);
@@ -213,10 +244,59 @@ function withGenerated(
         'set the same value in each, or pass --file to leave one out of the run',
       );
     if (distinct[0] !== undefined) values[key] = distinct[0];
-    else if (needed.includes(key))
+    else if (needed.includes(key)) {
+      checkConflicts(schema, plans, sets, keys, env, key);
       values[key] = generateValue(key, schema.variables[key]!);
+    }
   }
   return values;
+}
+
+/** The variables `key` must not be set together with, either way round. */
+const conflictsOf = (schema: EnvSchema, key: string) => [
+  ...new Set([
+    ...ruleNames(schema.variables[key]!.conflictsWith),
+    ...Object.keys(schema.variables).filter((name) =>
+      ruleNames(schema.variables[name]!.conflictsWith).includes(key),
+    ),
+  ]),
+];
+
+/**
+ * Refuses to generate `key` while a variable it conflicts with has a value:
+ * given, generated, from the environment, a default, or held by a file of the
+ * run that takes the key. The run would write both.
+ */
+function checkConflicts(
+  schema: EnvSchema,
+  plans: readonly FilePlan[],
+  sets: Readonly<Record<string, string>>,
+  generated: readonly string[],
+  env: Io['env'],
+  key: string,
+) {
+  for (const other of conflictsOf(schema, key)) {
+    const fallback = schema.variables[other]!.default;
+    const held = plans.some((plan) => {
+      const file = schema.files.find((spec) => spec.path === plan.path)!;
+      return (
+        plan.previous !== undefined &&
+        takesValue(schema, file, key) &&
+        Boolean(getValue(parseDotenv(plan.previous), other))
+      );
+    });
+    if (
+      givenValue(other, sets, env) ||
+      generated.includes(other) ||
+      (fallback !== undefined && String(fallback) !== '') ||
+      held
+    )
+      throw keyError(
+        'usage',
+        key,
+        `--generate would set it while ${other} is set; set only one of them`,
+      );
+  }
 }
 
 const toWrite = (plan: Plan) =>
@@ -232,7 +312,13 @@ async function applyUnattended(
   deferred: readonly string[],
 ): Promise<number> {
   const first = await planChanges({ schema, root, values: {}, files });
-  const givenValues = withGenerated(schema, first.files, sets, generated);
+  const givenValues = withGenerated(
+    schema,
+    first.files,
+    sets,
+    generated,
+    io.env,
+  );
   const keys = neededKeys(schema, first.files);
   const { values, errors, empty } = resolveValues(
     schema,
@@ -243,6 +329,8 @@ async function applyUnattended(
   );
   const plan = await planChanges({ schema, root, values, files });
   errors.push(...plan.errors);
+  // Like a required value, a broken rule between variables writes nothing.
+  if (!errors.length) errors.push(...ruleErrors(schema, plan.files, deferred));
 
   if (errors.length) {
     if (json) io.stdout(failureJson(errors, plan.files));
@@ -390,6 +478,7 @@ async function applyInteractive(
       first.files.filter((file) => picked.includes(file.path)),
       sets,
       generated,
+      io.env,
     );
   } catch (error) {
     // The prompts are open: close them with the error, not a bare exit.
@@ -454,8 +543,11 @@ async function applyInteractive(
     values: { ...givenValues, ...answers },
     files: selected.map((file) => file.path),
   });
-  if (plan.errors.length) {
-    prompts.log.error(plan.errors.map(describeError).join('\n'));
+  const planErrors = plan.errors.length
+    ? plan.errors
+    : ruleErrors(schema, plan.files, deferred);
+  if (planErrors.length) {
+    prompts.log.error(planErrors.map(describeError).join('\n'));
     prompts.outro('Nothing was written.');
     return 1;
   }

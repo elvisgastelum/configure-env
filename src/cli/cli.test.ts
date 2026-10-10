@@ -13,7 +13,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
-import { run, scriptedPrompts, useProject } from './test-helpers.ts';
+import {
+  KEY_A,
+  KEY_B,
+  RULES_SCHEMA,
+  run,
+  scriptedPrompts,
+  useProject,
+} from './test-helpers.ts';
 
 const dirs = useProject();
 const root = () => dirs.root;
@@ -1118,5 +1125,160 @@ describe('the cli entry point', () => {
     expect(child.stderr).toBe('');
     expect(child.status).toBe(0);
     expect(child.stdout).toMatch(/^Usage: configure-env/);
+  });
+});
+
+describe('apply rules between variables', () => {
+  const useRules = () =>
+    writeFile(join(root(), 'env.schema.json'), JSON.stringify(RULES_SCHEMA));
+  const CI = ['apply', '--ci'];
+  const keyIn = async (key: string) =>
+    getValue(parseDotenv(await read('.env')), key);
+
+  it('generates a base64 master key of 32 bytes, satisfying requiredUnless', async () => {
+    await useRules();
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    const value = (await keyIn('SM_MASTER_KEY'))!;
+    expect(Buffer.from(value, 'base64')).toHaveLength(32);
+    expect(r.out.join('\n')).not.toContain(value);
+    expect(await read('.env.example')).toContain(
+      '# required unless SM_MASTER_KEY_FILE is set\nSM_MASTER_KEY=\n',
+    );
+  });
+
+  it('fails and writes nothing for a key required unless another is set', async () => {
+    await useRules();
+    const r = await cli(CI);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: SM_MASTER_KEY: required unless SM_MASTER_KEY_FILE is set',
+    ]);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+    const file = await cli([...CI, '--set', 'SM_MASTER_KEY_FILE=/run/key']);
+    expect(file.code).toBe(0);
+  });
+
+  it('refuses both of an either-or pair, never printing a value', async () => {
+    await useRules();
+    const r = await cli(CI, {
+      env: { SM_MASTER_KEY: KEY_A, SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+    ]);
+    const json = await cli(['apply', '--json'], {
+      env: { SM_MASTER_KEY: KEY_A, SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(JSON.parse(json.out.join('')).errors).toEqual([
+      {
+        kind: 'value',
+        key: 'SM_MASTER_KEY',
+        keys: ['SM_MASTER_KEY', 'SM_MASTER_KEY_FILE'],
+        message: 'set only one of them',
+      },
+    ]);
+    expect([...r.out, ...r.err, ...json.out].join('\n')).not.toContain(KEY_A);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
+  });
+
+  it('refuses a previous key equal to the current one', async () => {
+    await useRules();
+    const r = await cli(CI, {
+      env: { SM_MASTER_KEY: KEY_A, SM_PREVIOUS_MASTER_KEY: KEY_A },
+    });
+    expect(r).toMatchObject({
+      code: 1,
+      err: [
+        'configure-env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY',
+      ],
+    });
+    const ok = await cli(CI, {
+      env: { SM_MASTER_KEY: KEY_A, SM_PREVIOUS_MASTER_KEY: KEY_B },
+    });
+    expect(ok.code).toBe(0);
+  });
+
+  it('defers a requiredUnless key, and lists it only while it is still needed', async () => {
+    await useRules();
+    const r = await cli([...CI, '--defer', 'SM_MASTER_KEY']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(r.out.at(-1)).toBe(
+      'deferred: SM_MASTER_KEY (set it with configure-env set --file .env --prompt SM_MASTER_KEY)',
+    );
+    await rm(join(root(), '.env'));
+    const file = await cli([
+      ...CI,
+      '--defer',
+      'SM_MASTER_KEY',
+      '--set',
+      'SM_MASTER_KEY_FILE=/run/key',
+    ]);
+    expect(file).toMatchObject({
+      code: 0,
+      out: ['.env.example: unchanged', '.env: created'],
+    });
+  });
+
+  it('exits 2 for --generate of a key whose conflicting partner is set', async () => {
+    await useRules();
+    const r = await cli([...CI, '--generate', 'SM_MASTER_KEY'], {
+      env: { SM_MASTER_KEY_FILE: '/run/key' },
+    });
+    expect(r).toMatchObject({
+      code: 2,
+      err: [
+        'configure-env: SM_MASTER_KEY: --generate would set it while SM_MASTER_KEY_FILE is set; set only one of them',
+      ],
+    });
+    await writeFile(
+      join(root(), 'env.schema.json'),
+      JSON.stringify({
+        ...RULES_SCHEMA,
+        files: [{ path: '.env', policy: 'merge', variables: '*' }],
+      }),
+    );
+    await writeFile(join(root(), '.env'), 'SM_MASTER_KEY_FILE=/run/key\n');
+    const held = await cli(['apply', '--json', '--generate', 'SM_MASTER_KEY']);
+    expect(held.code).toBe(2);
+    expect(JSON.parse(held.out.join('')).errors[0]).toMatchObject({
+      kind: 'usage',
+      key: 'SM_MASTER_KEY',
+    });
+  });
+
+  it('check reports a broken rule and exits 1, never printing a value', async () => {
+    await useRules();
+    await cli([...CI, '--set', 'SM_MASTER_KEY_FILE=/run/key']);
+    await writeFile(
+      join(root(), '.env'),
+      `${await read('.env')}SM_PREVIOUS_MASTER_KEY=${KEY_A}\nSM_MASTER_KEY=${KEY_A}\n`,
+    );
+    const r = await cli(['check', '--ci']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      '.env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+    );
+    expect(r.out).toContain(
+      '.env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY',
+    );
+    expect(r.out.join('\n')).not.toContain(KEY_A);
+  });
+
+  it('enforces the rules in the terminal before writing', async () => {
+    await useRules();
+    const { prompts, logs } = scriptedPrompts({
+      SM_PREVIOUS_MASTER_KEY: '',
+      SM_MASTER_KEY_FILE: '/run/key',
+      SM_MASTER_KEY: KEY_A,
+    });
+    const r = await cli(['apply'], { isTTY: true, prompts });
+    expect(r.code).toBe(1);
+    expect(logs.slice(-2)).toEqual([
+      'error: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+      'outro: Nothing was written.',
+    ]);
+    expect(await readdir(root())).toEqual(['env.schema.json']);
   });
 });

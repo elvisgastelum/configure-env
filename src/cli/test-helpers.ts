@@ -47,6 +47,42 @@ export const CLI_SCHEMA = {
   ],
 };
 
+/**
+ * secret-manager's rules: a base64 master key or a file holding it, never
+ * both, and a previous key, or its file, that must differ from the current one.
+ */
+export const RULES_SCHEMA = {
+  version: 1,
+  variables: {
+    SM_MASTER_KEY: {
+      type: 'string',
+      secret: true,
+      encoding: 'base64',
+      bytes: 32,
+      requiredUnless: 'SM_MASTER_KEY_FILE',
+      conflictsWith: 'SM_MASTER_KEY_FILE',
+    },
+    SM_MASTER_KEY_FILE: { type: 'string' },
+    SM_PREVIOUS_MASTER_KEY: {
+      type: 'string',
+      secret: true,
+      encoding: 'base64',
+      bytes: 32,
+      conflictsWith: 'SM_PREVIOUS_MASTER_KEY_FILE',
+      distinctFrom: 'SM_MASTER_KEY',
+    },
+    SM_PREVIOUS_MASTER_KEY_FILE: { type: 'string' },
+  },
+  files: [
+    { path: '.env.example', policy: 'merge', variables: '*' },
+    { path: '.env', policy: 'create-only', mode: '600', variables: '*' },
+  ],
+};
+
+/** Two base64 keys of 32 bytes. */
+export const KEY_A = Buffer.alloc(32, 0xfb).toString('base64');
+export const KEY_B = Buffer.alloc(32, 0x0a).toString('base64');
+
 /** A fresh temporary root per test, holding `env.schema.json` unless `schema` is null. */
 export function useProject(schema: unknown = CLI_SCHEMA) {
   const dirs = { root: '' };

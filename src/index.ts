@@ -13,6 +13,7 @@ export type { SchemaError, SchemaResult } from './schema/load.ts';
 export {
   ENCODINGS,
   FILE_POLICIES,
+  RULE_FIELDS,
   SCHEMA_ID,
   SCHEMA_VERSION,
   TEMPLATE_SUFFIXES,
@@ -25,17 +26,24 @@ export type {
   EnvSchema,
   FilePolicy,
   FileSpec,
+  RuleField,
   VariableSpec,
   VariableType,
 } from './schema/definition.ts';
 
 export {
+  checkRules,
   formatValue,
   maskValue,
+  ruleKeys,
   unquoteValue,
   validateValue,
 } from './schema/values.ts';
-export type { ValueResult, VariableValue } from './schema/values.ts';
+export type {
+  RuleProblem,
+  ValueResult,
+  VariableValue,
+} from './schema/values.ts';
 
 export { planChanges, validateValues } from './engine/plan.ts';
 export type {
@@ -50,7 +58,7 @@ export type {
 export { applyPlan } from './engine/apply.ts';
 export type { ApplyFs, ApplyOptions, ApplyResult } from './engine/apply.ts';
 
-export { checkDrift } from './engine/check.ts';
+export { checkDrift, fileRules } from './engine/check.ts';
 export type {
   CheckOptions,
   DriftReport,

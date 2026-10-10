@@ -7,8 +7,19 @@ import {
   type FileSpec,
   isTemplate,
 } from '../schema/definition.ts';
-import { maskValue, unquoteValue, validateValue } from '../schema/values.ts';
-import { getValue, invalidLineNumbers, parseDotenv } from './dotenv.ts';
+import {
+  type RuleProblem,
+  checkRules,
+  maskValue,
+  unquoteValue,
+  validateValue,
+} from '../schema/values.ts';
+import {
+  type DotenvDocument,
+  getValue,
+  invalidLineNumbers,
+  parseDotenv,
+} from './dotenv.ts';
 import {
   type FilePlan,
   type PlanError,
@@ -41,6 +52,8 @@ export interface FileDrift {
   /** The keys a merge file lacks. */
   missingKeys: string[];
   invalid: InvalidValue[];
+  /** The rules between variables the file's values break. */
+  rules: RuleProblem[];
   /** The 1-based numbers of the lines that are not valid entries. */
   invalidLines: number[];
   /** Set when the file's mode differs from the schema's `mode`. */
@@ -95,6 +108,21 @@ function invalidValues(
   return invalid;
 }
 
+/**
+ * The rules between variables the file's values break, over the file's own
+ * keys. A template holds placeholders, so it breaks none.
+ */
+export function fileRules(
+  schema: EnvSchema,
+  file: FileSpec,
+  doc: DotenvDocument,
+): RuleProblem[] {
+  if (isTemplate(file)) return [];
+  return checkRules(schema.variables, fileKeys(schema, file), (key) =>
+    getValue(doc, key),
+  );
+}
+
 function statusOf(plan: FilePlan): Pick<FileDrift, 'status' | 'drift'> {
   if (plan.reason === 'refused') return { status: 'refused', drift: true };
   if (plan.previous === undefined)
@@ -138,6 +166,10 @@ export async function checkDrift({
         previous === undefined
           ? []
           : invalidValues(schema, spec, previous, missingKeys),
+      rules:
+        previous === undefined
+          ? []
+          : fileRules(schema, spec, parseDotenv(previous)),
       invalidLines:
         previous === undefined ? [] : invalidLineNumbers(parseDotenv(previous)),
       ...(mode ? { mode } : {}),
@@ -148,6 +180,9 @@ export async function checkDrift({
   const ok =
     !drift &&
     !plan.errors.length &&
-    report.every((file) => !file.invalid.length && !file.invalidLines.length);
+    report.every(
+      (file) =>
+        !file.invalid.length && !file.rules.length && !file.invalidLines.length,
+    );
   return { files: report, drift, ok, errors: plan.errors };
 }

@@ -62,7 +62,8 @@ In a terminal it asks which files to write, prompts for the values they
 need, shows the plan and asks before writing. With --ci (or CI=true, or
 --json) it never prompts: each value comes from --set, else the
 environment variable of the same name, else the schema default; a required
-variable with none is an error and nothing is written.
+variable with none, or a broken rule between variables (requiredUnless,
+conflictsWith, distinctFrom), is an error and nothing is written.
 
 Template files (template: true, or a path ending in .example, .sample or
 .template) take only their values entries and the defaults: never --set,
@@ -72,9 +73,10 @@ prompt is shown for a variable only template files need.
 --generate KEY puts a random value in place of a secret string variable,
 one per run, never printed; a value the run's files already hold is used
 instead. It lands only where a file lacks the key, so it cannot take a key
-that a chosen generate file writes. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
+that a chosen generate file writes, or one whose conflictsWith partner has
+a value. A maxLength under ${MIN_GENERATED_LENGTH} exits 2.
 
---defer KEY leaves a required variable for a person: with no value, it is
+--defer KEY leaves a required (or requiredUnless) variable for a person: with no value, it is
 written empty instead of failing the run, not prompted for, and reported,
 so it can be set later with set --prompt KEY or set --stdin KEY. An
 optional or undeclared variable, or one also given with --set or
@@ -272,7 +274,9 @@ export const VALIDATE_HELP = `Usage: configure-env validate [options]
 
 Changes nothing. Checks the current values of every schema file (or the
 --file paths): a missing file, lines that are not valid entries, required
-keys that are not set, and values that break their variable's rules. A
+keys that are not set, values that break their variable's rules, and
+broken rules between variables (requiredUnless, conflictsWith,
+distinctFrom). A
 key the schema does not list for the file is a warning, an error with
 --strict. Template files hold placeholders, so only their lines and the
 presence of each key are checked. Exits 1 on any error; messages never

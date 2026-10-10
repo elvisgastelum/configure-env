@@ -8,7 +8,8 @@ import {
   appendLines,
   serialize,
 } from '../engine/dotenv.ts';
-import { commentLines } from '../engine/plan.ts';
+import { fileRules } from '../engine/check.ts';
+import { commentLines, entryComment } from '../engine/plan.ts';
 import {
   VARIABLE_NAME,
   isTemplate,
@@ -19,6 +20,7 @@ import {
 import {
   formatValue,
   maskValue,
+  ruleKeys,
   unquoteValue,
   validateValue,
 } from '../schema/values.ts';
@@ -104,7 +106,7 @@ function newEntryLines(
   written: string,
 ): string[] {
   const comment = variablesOf(schema, file).has(key)
-    ? (file.comments?.[key] ?? schema.variables[key]?.comment)
+    ? entryComment(schema, file, key)
     : undefined;
   return [...(comment ? commentLines(comment) : []), `${key}=${written}`];
 }
@@ -315,6 +317,18 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     const shown = key === stdinKey ? { ...variable, secret: true } : variable;
     report.push({ key, status, spec: shown, plain });
   }
+  // The rules between variables, over the values the file would hold: one
+  // that names a key this run sets and breaks writes nothing.
+  const broken = fileRules(schema, spec, file.doc).filter((problem) =>
+    [problem.key, ...problem.others].some((key) => written.has(key)),
+  );
+  if (broken.length)
+    throw new CliError(1, [
+      ...broken.map(
+        (problem) => `${ruleKeys(problem).join(', ')}: ${problem.message}`,
+      ),
+      `nothing was written to ${spec.path}`,
+    ]);
   if (report.some((entry) => entry.status !== 'unchanged'))
     await writeEnvFile(file, serialize(file.doc));
 
@@ -406,9 +420,7 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
   const report: { key: string; status: 'removed' | 'absent' }[] = [];
   for (const key of new Set(positionals)) {
     const known = specFor(schema, spec, key) !== undefined;
-    const comment = known
-      ? (spec.comments?.[key] ?? schema.variables[key]?.comment)
-      : undefined;
+    const comment = known ? entryComment(schema, spec, key) : undefined;
     const removed = removeEntry(
       file.doc,
       key,

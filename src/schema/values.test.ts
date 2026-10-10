@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import { type VariableSpec, variableSpec } from './definition.ts';
 import {
+  checkRules,
   formatValue,
+  ruleKeys,
   maskValue,
   unquoteValue,
   validateValue,
@@ -445,5 +447,72 @@ describe('maskValue', () => {
   it('shows a value that is not secret as written', () => {
     expect(maskValue(spec({ type: 'string' }), 'two words')).toBe('two words');
     expect(maskValue(spec({ type: 'port' }), 8080)).toBe('8080');
+  });
+});
+
+describe('checkRules', () => {
+  const variables = {
+    A: spec({
+      type: 'string',
+      requiredUnless: ['B', 'C'],
+      conflictsWith: 'B',
+      distinctFrom: 'C',
+    }),
+    B: spec({ type: 'string', conflictsWith: ['A'] }),
+    C: spec({ type: 'string' }),
+  };
+  const rules = (
+    values: Record<string, string>,
+    keys: string[] = ['A', 'B', 'C'],
+  ) => checkRules(variables, keys, (key) => values[key]);
+
+  it('requires a variable unless one of the others is set, empty counting as unset', () => {
+    const problem = {
+      rule: 'requiredUnless',
+      key: 'A',
+      others: ['B', 'C'],
+      message: 'required unless B or C is set',
+    };
+    expect(rules({})).toEqual([problem]);
+    expect(rules({ A: '', B: '' })).toEqual([problem]);
+    expect(rules({ C: 'x' })).toEqual([]);
+    expect(rules({ A: 'x' })).toEqual([]);
+  });
+
+  it('reports a conflict once per pair, even when both sides declare it', () => {
+    const problems = rules({ A: '1', B: '2' });
+    expect(problems).toEqual([
+      {
+        rule: 'conflictsWith',
+        key: 'A',
+        others: ['B'],
+        message: 'set only one of them',
+      },
+    ]);
+    expect(ruleKeys(problems[0]!)).toEqual(['A', 'B']);
+    expect(rules({ A: '1', B: '' })).toEqual([]);
+  });
+
+  it('requires different values when both are set', () => {
+    const problems = rules({ A: 'same', C: 'same' });
+    expect(problems).toEqual([
+      {
+        rule: 'distinctFrom',
+        key: 'A',
+        others: ['C'],
+        message: 'must differ from C',
+      },
+    ]);
+    expect(ruleKeys(problems[0]!)).toEqual(['A']);
+    expect(JSON.stringify(problems)).not.toContain('same');
+    expect(rules({ A: 'one', C: 'two' })).toEqual([]);
+  });
+
+  it('ignores the names a file does not list', () => {
+    expect(rules({}, ['A'])).toEqual([]);
+    expect(rules({ A: 'x', C: 'x' }, ['A', 'B'])).toEqual([]);
+    expect(rules({}, ['A', 'C'])).toEqual([
+      expect.objectContaining({ message: 'required unless C is set' }),
+    ]);
   });
 });

@@ -4,7 +4,12 @@
 
 import { isIP, isIPv4 } from 'node:net';
 import { z } from 'zod';
-import type { Encoding, VariableSpec } from './definition.ts';
+import {
+  type Encoding,
+  type RuleField,
+  type VariableSpec,
+  ruleNames,
+} from './definition.ts';
 
 /** A typed variable value: a string, number or boolean by variable type. */
 export type VariableValue = string | number | boolean;
@@ -244,4 +249,85 @@ export function maskValue(
   const chars = [...text];
   if (chars.length > 8) return BULLET.repeat(4) + chars.slice(-2).join('');
   return BULLET.repeat(chars.length);
+}
+
+/**
+ * A rule between variables that a file's values break. `others` are the
+ * variables the rule names that the file lists; the message names them, never
+ * a value.
+ */
+export interface RuleProblem {
+  rule: RuleField;
+  /** The variable that declares the rule. */
+  key: string;
+  others: string[];
+  message: string;
+}
+
+/** The keys a problem is reported under: both of a conflict, else its own. */
+export const ruleKeys = (problem: RuleProblem): string[] =>
+  problem.rule === 'conflictsWith'
+    ? [problem.key, ...problem.others]
+    : [problem.key];
+
+/**
+ * The rules between variables that `keys` (one file's variables) break, by
+ * `valueOf`, the value a reader of the file sees. A name the file does not
+ * list is left out of the rule, and a rule left with no name is skipped. A
+ * value counts as set when it is not empty. A pair is reported once.
+ */
+export function checkRules(
+  variables: Readonly<Record<string, VariableSpec>>,
+  keys: readonly string[],
+  valueOf: (key: string) => string | undefined,
+): RuleProblem[] {
+  const listed = new Set(keys);
+  const isSet = (key: string) => Boolean(valueOf(key));
+  const problems: RuleProblem[] = [];
+  const reported = new Set<string>();
+  const once = (rule: RuleField, a: string, b: string) => {
+    const pair = `${rule}:${[a, b].sort().join(',')}`;
+    if (reported.has(pair)) return false;
+    reported.add(pair);
+    return true;
+  };
+  for (const key of keys) {
+    const spec = variables[key];
+    if (!spec) continue;
+    const named = (field: RuleField) =>
+      ruleNames(spec[field]).filter((other) => listed.has(other));
+
+    const alternatives = named('requiredUnless');
+    if (alternatives.length && !isSet(key) && !alternatives.some(isSet))
+      problems.push({
+        rule: 'requiredUnless',
+        key,
+        others: alternatives,
+        message: `required unless ${alternatives.join(' or ')} is set`,
+      });
+    for (const other of named('conflictsWith')) {
+      if (isSet(key) && isSet(other) && once('conflictsWith', key, other))
+        problems.push({
+          rule: 'conflictsWith',
+          key,
+          others: [other],
+          message: 'set only one of them',
+        });
+    }
+    for (const other of named('distinctFrom')) {
+      if (
+        isSet(key) &&
+        isSet(other) &&
+        valueOf(key) === valueOf(other) &&
+        once('distinctFrom', key, other)
+      )
+        problems.push({
+          rule: 'distinctFrom',
+          key,
+          others: [other],
+          message: `must differ from ${other}`,
+        });
+    }
+  }
+  return problems;
 }

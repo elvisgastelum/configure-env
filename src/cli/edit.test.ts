@@ -9,6 +9,9 @@ import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import { readStream } from './stdin.ts';
 import {
   CLI_SCHEMA,
+  KEY_A,
+  KEY_B,
+  RULES_SCHEMA,
   run,
   scriptedPrompts,
   useProject,
@@ -730,5 +733,100 @@ describe('help', () => {
       new RegExp(`^Usage: configure-env ${command}`),
     );
     expect(r.out.join('\n')).toContain('Examples:');
+  });
+});
+
+describe('set and unset with rules between variables', () => {
+  const useRules = () =>
+    writeFile(path('env.schema.json'), JSON.stringify(RULES_SCHEMA));
+  const env = (content: string) => writeFile(path('.env'), content);
+
+  it('refuses a set that would break a rule, writing nothing', async () => {
+    await useRules();
+    await env('SM_MASTER_KEY_FILE=/run/key\n');
+    const r = await cli(['set', '--file', '.env', `SM_MASTER_KEY=${KEY_A}`]);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+      'nothing was written to .env',
+    ]);
+    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=/run/key\n');
+    expect([...r.out, ...r.err].join('\n')).not.toContain(KEY_A);
+  });
+
+  it('refuses a previous key equal to the current one', async () => {
+    await useRules();
+    await env(`SM_MASTER_KEY=${KEY_A}\n`);
+    const r = await cli([
+      'set',
+      '--file',
+      '.env',
+      `SM_PREVIOUS_MASTER_KEY=${KEY_A}`,
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.err[0]).toBe(
+      'configure-env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY',
+    );
+    const ok = await cli([
+      'set',
+      '--file',
+      '.env',
+      `SM_PREVIOUS_MASTER_KEY=${KEY_B}`,
+    ]);
+    expect(ok.code).toBe(0);
+  });
+
+  it('refuses --generate while the conflicting partner is set', async () => {
+    await useRules();
+    await env('SM_MASTER_KEY_FILE=/run/key\n');
+    const r = await cli([
+      'set',
+      '--file',
+      '.env',
+      '--generate',
+      'SM_MASTER_KEY',
+    ]);
+    expect(r.code).toBe(1);
+    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=/run/key\n');
+  });
+
+  it('lets an unrelated set through, and swaps a pair in one set', async () => {
+    await useRules();
+    await env('SM_MASTER_KEY_FILE=/run/key\n');
+    expect(
+      (await cli(['set', '--file', '.env', 'SM_PREVIOUS_MASTER_KEY_FILE=/old']))
+        .code,
+    ).toBe(0);
+    const swap = await cli([
+      'set',
+      '--file',
+      '.env',
+      'SM_MASTER_KEY_FILE=',
+      `SM_MASTER_KEY=${KEY_A}`,
+    ]);
+    expect(swap.code).toBe(0);
+  });
+
+  it('unset may leave a requiredUnless key unsatisfied, for validate to report', async () => {
+    await useRules();
+    await env('SM_MASTER_KEY_FILE=/run/key\n');
+    const r = await cli(['unset', '--file', '.env', 'SM_MASTER_KEY_FILE']);
+    expect(r).toMatchObject({ code: 0, out: ['SM_MASTER_KEY_FILE: removed'] });
+    const v = await cli(['validate', '--file', '.env']);
+    expect(v.code).toBe(1);
+    expect(v.out).toContain(
+      '.env: SM_MASTER_KEY: required unless SM_MASTER_KEY_FILE is set',
+    );
+  });
+
+  it('appends a requiredUnless key with its generated comment line, and unset removes it', async () => {
+    await useRules();
+    await env('SM_MASTER_KEY_FILE=\n');
+    await cli(['set', '--file', '.env', `SM_MASTER_KEY=${KEY_A}`]);
+    expect(await read('.env')).toBe(
+      `SM_MASTER_KEY_FILE=\n\n# required unless SM_MASTER_KEY_FILE is set\nSM_MASTER_KEY=${KEY_A}\n`,
+    );
+    await cli(['unset', '--file', '.env', 'SM_MASTER_KEY']);
+    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=\n\n');
   });
 });

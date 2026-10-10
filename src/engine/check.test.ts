@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { applyPlan } from './apply.ts';
 import { checkDrift } from './check.ts';
 import { planChanges } from './plan.ts';
-import { GENERATED, MERGED, testSchema, useTempRoot } from './test-helpers.ts';
+import {
+  GENERATED,
+  MERGED,
+  rulesSchema,
+  testSchema,
+  useTempRoot,
+} from './test-helpers.ts';
 
 const temp = useTempRoot();
 const root = () => temp.dirs.root;
@@ -175,5 +181,54 @@ describe('checkDrift', () => {
     expect((await check()).files[1]!.invalid).toEqual([
       { key: 'PORT', message: expect.any(String), shown: 'http' },
     ]);
+  });
+});
+
+describe('checkDrift rules between variables', () => {
+  const checkRulesOf = async (files: Record<string, string>) => {
+    for (const [path, content] of Object.entries(files))
+      await writeFile(join(root(), path), content);
+    return checkDrift({ schema: rulesSchema(), root: root() });
+  };
+
+  it('reports each broken rule per file, naming keys and never a value', async () => {
+    const report = await checkRulesOf({
+      'app.env':
+        'KEY=s3cret\nKEY_FILE=/run/key\nOLD_KEY=s3cret\nOLD_KEY_FILE=\n',
+      'app.env.example': 'KEY=\nKEY_FILE=\nOLD_KEY=\nOLD_KEY_FILE=\n',
+      'key.env': 'KEY=\nOLD_KEY=\n',
+    });
+    expect(report.ok).toBe(false);
+    expect(report.files.map((file) => file.rules)).toEqual([
+      [
+        {
+          rule: 'conflictsWith',
+          key: 'KEY',
+          others: ['KEY_FILE'],
+          message: 'set only one of them',
+        },
+        {
+          rule: 'distinctFrom',
+          key: 'OLD_KEY',
+          others: ['KEY'],
+          message: 'must differ from KEY',
+        },
+      ],
+      // A template holds placeholders, and its rules are not checked.
+      [],
+      // The file lists no alternative to KEY, so it is not required here.
+      [],
+    ]);
+    expect(JSON.stringify(report)).not.toContain('s3cret');
+  });
+
+  it('passes when the rules hold', async () => {
+    const report = await checkRulesOf({
+      'app.env': 'KEY=\nKEY_FILE=/run/key\nOLD_KEY=\nOLD_KEY_FILE=\n',
+      'app.env.example': 'KEY=\nKEY_FILE=\nOLD_KEY=\nOLD_KEY_FILE=\n',
+      'key.env': 'KEY=a\nOLD_KEY=b\n',
+    });
+    expect(report.files.map((file) => file.rules)).toEqual([[], [], []]);
+    expect(report.ok).toBe(true);
   });
 });

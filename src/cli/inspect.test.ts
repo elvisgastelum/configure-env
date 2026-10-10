@@ -3,7 +3,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { run, useProject } from './test-helpers.ts';
+import { KEY_A, KEY_B, RULES_SCHEMA, run, useProject } from './test-helpers.ts';
 
 const SCHEMA = {
   version: 1,
@@ -222,6 +222,103 @@ describe('validate', () => {
         },
       ],
     });
+  });
+});
+
+describe('rules between variables', () => {
+  const useRules = () =>
+    writeFile(join(dirs.root, 'env.schema.json'), JSON.stringify(RULES_SCHEMA));
+  const env = (values: Record<string, string>) =>
+    put(
+      '.env',
+      Object.entries(values)
+        .map(([key, value]) => `${key}=${value}\n`)
+        .join(''),
+    );
+
+  it('validate reports each broken rule, naming the keys and never a value', async () => {
+    await useRules();
+    await env({
+      SM_MASTER_KEY: KEY_A,
+      SM_MASTER_KEY_FILE: '/run/secrets/key',
+      SM_PREVIOUS_MASTER_KEY: KEY_A,
+    });
+    const r = await cli(['validate', '--file', '.env']);
+    expect(r.code).toBe(1);
+    expect(r.out).toEqual([
+      '.env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+      '.env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY',
+    ]);
+    expect(r.out.join('\n')).not.toContain(KEY_A);
+  });
+
+  it('validate reports a variable required unless another is set', async () => {
+    await useRules();
+    await env({ SM_MASTER_KEY: '' });
+    const r = await cli(['validate', '--json', '--file', '.env']);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.out.join('')).files[0].errors).toEqual([
+      {
+        key: 'SM_MASTER_KEY',
+        message: 'required unless SM_MASTER_KEY_FILE is set',
+      },
+    ]);
+    await env({ SM_MASTER_KEY_FILE: '/run/secrets/key' });
+    expect(await cli(['validate', '--file', '.env'])).toMatchObject({
+      code: 0,
+      out: ['.env: ok'],
+    });
+  });
+
+  it('validate --json gives a conflict both keys', async () => {
+    await useRules();
+    await env({ SM_MASTER_KEY: KEY_A, SM_MASTER_KEY_FILE: '/k' });
+    const r = await cli(['validate', '--json', '--file', '.env']);
+    expect(JSON.parse(r.out.join('')).files[0].errors).toEqual([
+      {
+        key: 'SM_MASTER_KEY',
+        keys: ['SM_MASTER_KEY', 'SM_MASTER_KEY_FILE'],
+        message: 'set only one of them',
+      },
+    ]);
+  });
+
+  it('validate checks no rule in a template', async () => {
+    await useRules();
+    await put(
+      '.env.example',
+      'SM_MASTER_KEY=\nSM_MASTER_KEY_FILE=\nSM_PREVIOUS_MASTER_KEY=\nSM_PREVIOUS_MASTER_KEY_FILE=\n',
+    );
+    expect((await cli(['validate', '--file', '.env.example'])).out).toEqual([
+      '.env.example: ok',
+    ]);
+  });
+
+  it('list shows the broken rule in the VALID column of its keys', async () => {
+    await useRules();
+    await env({
+      SM_MASTER_KEY: KEY_A,
+      SM_MASTER_KEY_FILE: '/k',
+      SM_PREVIOUS_MASTER_KEY: KEY_B,
+    });
+    const r = await cli(['list', '--file', '.env']);
+    expect(r.out[2]).toMatch(
+      /^SM_MASTER_KEY\s+yes\s+set only one of SM_MASTER_KEY, SM_MASTER_KEY_FILE\s/,
+    );
+    expect(r.out[3]).toMatch(
+      /^SM_MASTER_KEY_FILE\s+yes\s+set only one of SM_MASTER_KEY, SM_MASTER_KEY_FILE\s/,
+    );
+    expect(r.out[4]).toMatch(/^SM_PREVIOUS_MASTER_KEY\s+yes\s+ok\s/);
+    await env({ SM_PREVIOUS_MASTER_KEY: KEY_B });
+    const json = JSON.parse(
+      (await cli(['list', '--json', '--file', '.env'])).out.join(''),
+    ) as { key: string; valid: boolean; error?: string }[];
+    expect(json[0]).toMatchObject({
+      key: 'SM_MASTER_KEY',
+      valid: false,
+      error: 'required unless SM_MASTER_KEY_FILE is set',
+    });
+    expect(JSON.stringify(json)).not.toContain(KEY_B);
   });
 });
 

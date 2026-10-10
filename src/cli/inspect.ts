@@ -7,13 +7,19 @@ import {
   invalidLineNumbers,
   keysOf,
 } from '../engine/dotenv.ts';
+import { fileRules } from '../engine/check.ts';
 import { fileKeys } from '../engine/plan.ts';
 import {
   type EnvSchema,
   type FileSpec,
   isTemplate,
 } from '../schema/definition.ts';
-import { unquoteValue, validateValue } from '../schema/values.ts';
+import {
+  type RuleProblem,
+  ruleKeys,
+  unquoteValue,
+  validateValue,
+} from '../schema/values.ts';
 import {
   type Context,
   contextOf,
@@ -88,16 +94,30 @@ const truncate = (text: string) => {
     : text;
 };
 
+/** A broken rule for the VALID column of each key it is reported under. */
+const ruleCell = (problem: RuleProblem) =>
+  problem.rule === 'conflictsWith'
+    ? `set only one of ${ruleKeys(problem).join(', ')}`
+    : problem.message;
+
 function rowsOf(schema: EnvSchema, file: EnvFile): Row[] {
   const { spec, doc } = file;
   const template = isTemplate(spec);
+  // A key's own rule comes first; a broken rule between variables shows
+  // when its value passes.
+  const broken = new Map<string, string>();
+  for (const problem of fileRules(schema, spec, doc))
+    for (const key of ruleKeys(problem))
+      if (!broken.has(key)) broken.set(key, ruleCell(problem));
   const row = (key: string, unknown: boolean): Row => {
     const variable = unknown ? UNKNOWN_SPEC : schema.variables[key]!;
     const value = getValue(doc, key);
     const set: SetState =
       value === undefined ? 'no' : value === '' ? 'empty' : 'yes';
     const checked = !unknown && !template;
-    const error = checked ? checkValue(schema, spec, key, value) : undefined;
+    const error = checked
+      ? (checkValue(schema, spec, key, value) ?? broken.get(key))
+      : undefined;
     return {
       file: spec.path,
       key,
@@ -179,9 +199,14 @@ export async function listCommand(args: string[], io: Io): Promise<number> {
 
 // ---------------------------------------------------------------- validate
 
-/** One problem: at a key or at a line. Never holds a value. */
+/**
+ * One problem: at a key or at a line. A broken rule between variables that
+ * is reported under more than one key lists them in `keys`. Never holds a
+ * value.
+ */
 interface Problem {
   key?: string;
+  keys?: string[];
   line?: number;
   message: string;
 }
@@ -220,6 +245,14 @@ function validateFile(
         : checkValue(schema, spec, key, value);
       if (message) errors.push({ key, message });
     }
+    for (const problem of fileRules(schema, spec, doc)) {
+      const keys = ruleKeys(problem);
+      errors.push({
+        key: problem.key,
+        ...(keys.length > 1 ? { keys } : {}),
+        message: problem.message,
+      });
+    }
     for (const key of unknownKeys(schema, spec, doc))
       (strict ? errors : warnings).push({ key, message: UNKNOWN_MESSAGE });
   }
@@ -233,11 +266,11 @@ function validateFile(
   };
 }
 
-const problemText = ({ key, line, message }: Problem) =>
+const problemText = ({ key, keys, line, message }: Problem) =>
   line !== undefined
     ? `line ${line} ${message}`
     : key
-      ? `${key}: ${message}`
+      ? `${keys?.join(', ') ?? key}: ${message}`
       : message;
 
 const VALIDATE_OPTIONS = { strict: { type: 'boolean' } } as const;

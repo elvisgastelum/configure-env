@@ -6,6 +6,7 @@ import { planChanges } from './plan.ts';
 import {
   GENERATED,
   MERGED,
+  rulesSchema,
   schemaOf,
   testSchema,
   useTempRoot,
@@ -257,5 +258,54 @@ describe('planChanges file comments', () => {
       '# Default.\nA=\n',
       '# Override\n# spans lines.\nA=\n',
     ]);
+  });
+});
+
+describe('planChanges requiredUnless comments', () => {
+  it('adds a line after the comment, naming the alternatives the file lists', async () => {
+    const p = await planChanges({
+      schema: rulesSchema(),
+      root: root(),
+      values: {},
+    });
+    expect(p.files[0]!.content).toBe(
+      [
+        '# The master key.',
+        '# required unless KEY_FILE is set',
+        'KEY=',
+        'KEY_FILE=',
+        '',
+        '# required unless OLD_KEY_FILE or KEY_FILE is set',
+        'OLD_KEY=',
+        'OLD_KEY_FILE=',
+        '',
+      ].join('\n'),
+    );
+    expect(p.files[2]!.content).toBe(
+      ['# The master key.', 'KEY=', 'OLD_KEY=', ''].join('\n'),
+    );
+  });
+
+  it('adds it to the keys a merge file appends', async () => {
+    await writeFile(join(root(), 'app.env'), 'KEY_FILE=/run/key\n');
+    const p = await planChanges({
+      schema: rulesSchema(),
+      root: root(),
+      values: {},
+    });
+    expect(p.files[0]!.content).toBe(
+      [
+        'KEY_FILE=/run/key',
+        '',
+        '# The master key.',
+        '# required unless KEY_FILE is set',
+        'KEY=',
+        '',
+        '# required unless OLD_KEY_FILE or KEY_FILE is set',
+        'OLD_KEY=',
+        'OLD_KEY_FILE=',
+        '',
+      ].join('\n'),
+    );
   });
 });

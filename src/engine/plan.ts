@@ -7,6 +7,7 @@ import {
   type FilePolicy,
   type FileSpec,
   isTemplate,
+  ruleNames,
 } from '../schema/definition.ts';
 import { formatValue, validateValue } from '../schema/values.ts';
 import { appendLines, keysOf, parseDotenv, serialize } from './dotenv.ts';
@@ -41,7 +42,13 @@ export interface FilePlan {
 
 /** A problem that stops the plan from being applied. Never holds a value. */
 export type PlanError =
-  | { kind: 'value'; key: string; message: string }
+  | {
+      kind: 'value';
+      key: string;
+      /** Every key a broken rule between variables names, when more than one. */
+      keys?: string[];
+      message: string;
+    }
   | { kind: 'file'; path: string; message: string };
 
 export type ValueError = Extract<PlanError, { kind: 'value' }>;
@@ -73,6 +80,28 @@ export const fileKeys = (schema: EnvSchema, file: FileSpec): string[] =>
 /** A comment as `#` lines, one per line of text. */
 export const commentLines = (text: string) =>
   text.split('\n').map((line) => (line ? `# ${line}` : '#'));
+
+/**
+ * The comment written above a key in the file: the file's or the variable's
+ * own, then `required unless X is set` for a `requiredUnless` that names
+ * variables the file lists.
+ */
+export function entryComment(
+  schema: EnvSchema,
+  file: FileSpec,
+  key: string,
+): string | undefined {
+  const spec = schema.variables[key];
+  const own = file.comments?.[key] ?? spec?.comment;
+  const keys = fileKeys(schema, file);
+  const alternatives = ruleNames(spec?.requiredUnless).filter((name) =>
+    keys.includes(name),
+  );
+  const rule = alternatives.length
+    ? `required unless ${alternatives.join(' or ')} is set`
+    : undefined;
+  return own && rule ? `${own}\n${rule}` : (own ?? rule);
+}
 
 /**
  * Validates the given values; each valid one in the form written after
@@ -117,7 +146,7 @@ function entryLines(
   let group: string | undefined;
   keys.forEach((key, index) => {
     const spec = schema.variables[key]!;
-    const comment = file.comments?.[key] ?? spec.comment;
+    const comment = entryComment(schema, file, key);
     if (index > 0 && (comment || spec.group !== group)) lines.push('');
     if (comment) lines.push(...commentLines(comment));
     lines.push(`${key}=${write(key)}`);

@@ -59,6 +59,36 @@ export const testSchema = () =>
     ],
   });
 
+/**
+ * A secret-manager-like setup: a key or a file for it, never both, and a
+ * previous key that must differ from the current one.
+ */
+export const rulesSchema = () =>
+  schemaOf({
+    variables: {
+      KEY: {
+        type: 'string',
+        secret: true,
+        comment: 'The master key.',
+        requiredUnless: 'KEY_FILE',
+        conflictsWith: 'KEY_FILE',
+      },
+      KEY_FILE: { type: 'string' },
+      OLD_KEY: {
+        type: 'string',
+        secret: true,
+        requiredUnless: ['OLD_KEY_FILE', 'KEY_FILE'],
+        distinctFrom: 'KEY',
+      },
+      OLD_KEY_FILE: { type: 'string' },
+    },
+    files: [
+      { path: 'app.env', policy: 'merge', variables: '*' },
+      { path: 'app.env.example', policy: 'merge', variables: '*' },
+      { path: 'key.env', policy: 'merge', variables: ['KEY', 'OLD_KEY'] },
+    ],
+  });
+
 export const GENERATED = [
   '# Generated.',
   '#',

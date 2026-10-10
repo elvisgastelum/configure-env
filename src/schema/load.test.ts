@@ -268,6 +268,54 @@ describe('parseSchema', () => {
     });
   });
 
+  describe('rules between variables', () => {
+    const withX = (x: Record<string, unknown>) =>
+      errorsFor((schema) => {
+        Object.assign(schema.variables, { X: { type: 'string', ...x } });
+      });
+
+    it('accepts a name or a list of declared names', () => {
+      expect(
+        withX({
+          requiredUnless: 'WEB_HOST',
+          conflictsWith: ['WEB_HOST', 'WEB_PORT'],
+          distinctFrom: 'API_TOKEN',
+        }),
+      ).toEqual([]);
+    });
+
+    it.each(['requiredUnless', 'conflictsWith', 'distinctFrom'])(
+      'rejects an undeclared name, the variable itself and an empty list in %s',
+      (field) => {
+        expect(withX({ [field]: 'NOPE' })).toEqual([
+          {
+            path: `variables.X.${field}`,
+            message: 'NOPE is not declared in variables',
+          },
+        ]);
+        expect(withX({ [field]: ['WEB_HOST', 'X'] })).toEqual([
+          {
+            path: `variables.X.${field}[1]`,
+            message: 'must not name the variable itself',
+          },
+        ]);
+        expect(paths(withX({ [field]: [] }))).toEqual([`variables.X.${field}`]);
+        expect(paths(withX({ [field]: 'not a name' }))).toEqual([
+          `variables.X.${field}`,
+        ]);
+      },
+    );
+
+    it('rejects requiredUnless together with required: true', () => {
+      expect(withX({ required: true, requiredUnless: 'WEB_HOST' })).toEqual([
+        {
+          path: 'variables.X.requiredUnless',
+          message: 'requiredUnless cannot be combined with required: true',
+        },
+      ]);
+    });
+  });
+
   describe('files', () => {
     it('rejects a file variable that is not declared', () => {
       const errors = errorsFor((schema) => {

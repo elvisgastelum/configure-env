@@ -54,6 +54,18 @@ export function encodedLength(encoding: Encoding, bytes: number): number {
   }
 }
 
+/** One variable name, or a non-empty list of them. */
+const variableNames = z.union([variableName, z.array(variableName).min(1)]);
+
+/** The fields that name other variables: the rules between variables. */
+export const RULE_FIELDS = [
+  'requiredUnless',
+  'conflictsWith',
+  'distinctFrom',
+] as const;
+
+export type RuleField = (typeof RULE_FIELDS)[number];
+
 /** The fields every variable type shares. */
 const common = {
   description: z
@@ -78,6 +90,18 @@ const common = {
   comment: z.string().optional().meta({
     description:
       'Text written as `#` comment lines above the key in generated files; may span lines.',
+  }),
+  requiredUnless: variableNames.optional().meta({
+    description:
+      'The variable is required unless one of these is set (non-empty). Not with `required: true`.',
+  }),
+  conflictsWith: variableNames.optional().meta({
+    description:
+      'The variable and one of these must not both be set (non-empty).',
+  }),
+  distinctFrom: variableNames.optional().meta({
+    description:
+      'When the variable and one of these are both set, their values must differ.',
   }),
 };
 
@@ -353,6 +377,41 @@ function checkValues(spec: VariableSpec, path: Path, ctx: Ctx) {
   }
 }
 
+/** A rule field's names as a list. */
+export const ruleNames = (names: string | readonly string[] | undefined) =>
+  names === undefined ? [] : typeof names === 'string' ? [names] : [...names];
+
+/** Checks the names the rule fields hold: declared, not the variable itself. */
+function checkRules(
+  schema: z.output<typeof envSchemaObject>,
+  name: string,
+  spec: VariableSpec,
+  path: Path,
+  ctx: Ctx,
+) {
+  for (const field of RULE_FIELDS) {
+    const names = spec[field];
+    if (names === undefined) continue;
+    ruleNames(names).forEach((other, index) => {
+      const at =
+        typeof names === 'string' ? [...path, field] : [...path, field, index];
+      if (other === name) issue(ctx, at, 'must not name the variable itself');
+      // A name that is not one is reported by its own rule already.
+      else if (
+        VARIABLE_NAME.test(other) &&
+        !Object.hasOwn(schema.variables, other)
+      )
+        issue(ctx, at, `${other} is not declared in variables`);
+    });
+  }
+  if (spec.requiredUnless !== undefined && spec.required)
+    issue(
+      ctx,
+      [...path, 'requiredUnless'],
+      'requiredUnless cannot be combined with required: true',
+    );
+}
+
 function checkFiles(schema: z.output<typeof envSchemaObject>, ctx: Ctx) {
   const declared = new Set(Object.keys(schema.variables));
   const seenPaths = new Map<string, number>();
@@ -398,6 +457,7 @@ export const envSchema = envSchemaObject
     for (const [name, spec] of Object.entries(schema.variables)) {
       const path = ['variables', name];
       if (checkOptions(spec, path, ctx)) checkValues(spec, path, ctx);
+      checkRules(schema, name, spec, path, ctx);
     }
     checkFiles(schema, ctx);
   })

@@ -4,6 +4,8 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
+import { fileRules } from '../engine/check.ts';
+import { parseDotenv } from '../engine/dotenv.ts';
 import type { FilePlan, PlanError, ValueError } from '../engine/plan.ts';
 import { fileKeys } from '../engine/plan.ts';
 import {
@@ -12,7 +14,7 @@ import {
   isTemplate,
 } from '../schema/definition.ts';
 import { DEFAULT_SCHEMA_PATH, loadSchema } from '../schema/load.ts';
-import { validateValue } from '../schema/values.ts';
+import { ruleKeys, validateValue } from '../schema/values.ts';
 import type { Io, Prompts } from './io.ts';
 import { clackPrompts } from './prompts.ts';
 
@@ -285,6 +287,43 @@ export function resolveValues(
   return { values, errors, empty };
 }
 
+/**
+ * The rules between variables that the files a run writes would break, as
+ * value errors: each file's resulting values over its own keys, for the rules
+ * that name a key the run writes to it. A `requiredUnless` of a `deferred` key
+ * is left for a person, as a deferred required key is.
+ */
+export function ruleErrors(
+  schema: EnvSchema,
+  plans: readonly FilePlan[],
+  deferred: readonly string[] = [],
+): ValueError[] {
+  const errors = new Map<string, ValueError>();
+  for (const plan of plans) {
+    if (plan.content === undefined) continue;
+    if (plan.action !== 'create' && plan.action !== 'update') continue;
+    const spec = schema.files.find((file) => file.path === plan.path)!;
+    const written = neededKeysOf(schema, plan);
+    for (const problem of fileRules(schema, spec, parseDotenv(plan.content))) {
+      if (problem.rule === 'requiredUnless' && deferred.includes(problem.key))
+        continue;
+      if (
+        ![problem.key, ...problem.others].some((key) => written.includes(key))
+      )
+        continue;
+      const keys = ruleKeys(problem);
+      const error: ValueError = {
+        kind: 'value',
+        key: problem.key,
+        ...(keys.length > 1 ? { keys } : {}),
+        message: problem.message,
+      };
+      errors.set(describeError(error), error);
+    }
+  }
+  return [...errors.values()];
+}
+
 /** A plan error as one line. */
 export const describeError = (error: PlanError) =>
-  `${error.kind === 'file' ? error.path : error.key}: ${error.message}`;
+  `${error.kind === 'file' ? error.path : (error.keys?.join(', ') ?? error.key)}: ${error.message}`;
