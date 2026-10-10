@@ -4,9 +4,9 @@ Configure, check and edit env files from a schema, interactively or in CI.
 
 ## Status
 
-Pre-release; the schema-driven CLI is being built. The package is not on npm yet.
+Pre-release; the package is not on npm yet. `apply` and `check` work; the other commands are being built.
 
-The planned CLI reads a JSON schema that lists the env files (their paths and write policies) and the variables (names, types and validation rules), then works from it:
+The CLI reads a JSON schema that lists the env files (their paths and write policies) and the variables (names, types and validation rules), then works from it:
 
 | Command    | Purpose                                            |
 | ---------- | -------------------------------------------------- |
@@ -27,7 +27,7 @@ npx @elvisgastelum/configure-env apply
 
 ## Schema (v1)
 
-A project describes its env files in `env.schema.json` at its root. The format is versioned; this is version 1. The CLI does not read a project's own schema yet (the commands above are being built on it), but the format, its loader, its JSON Schema and the engine that plans, applies and checks the files are in place.
+A project describes its env files in `env.schema.json` at its root. The format is versioned; this is version 1.
 
 ```json
 {
@@ -138,14 +138,85 @@ The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json
 
 The JSON Schema is generated from the zod definition in `src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
 
-## Current usage
-
-Today the CLI runs the schema-driven engine (`src/engine/`) on a built-in schema, [`examples/portfolio.env.schema.json`](examples/portfolio.env.schema.json): the env layout of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project it was extracted from. It writes the files into the current directory, or into `--root <dir>`; `--check` also reports values in the example files that break their variable's rules:
+## Usage
 
 ```sh
-pnpm install
-pnpm start -- --help
-pnpm start -- --ci --root ../my-project
+configure-env [command] [options]
+```
+
+Until the package is published, run it from a checkout with `pnpm start -- <command> [options]`; `--root` points it at a project.
+
+| Command | What it does                                                         |
+| ------- | -------------------------------------------------------------------- |
+| `apply` | writes the env files the schema describes; the default command       |
+| `check` | changes nothing; reports drift and invalid values, exits 1 on either |
+
+`configure-env <command> --help` shows each command's options and examples.
+
+### Global options
+
+| Option            | Meaning                                                                       |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `--schema <path>` | the schema file; default `env.schema.json` in the root                        |
+| `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
+| `--file <path>`   | only this schema file; repeat it for more                                     |
+| `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
+| `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
+| `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
+| `-h`, `--help`    | the help, of the CLI or of a command                                          |
+| `-v`, `--version` | the version                                                                   |
+
+A missing schema exits 2 with a hint to run `configure-env init`; an invalid one exits 1 and names each problem.
+
+### apply
+
+In a terminal, `apply` shows the schema files with their policy and current state and asks which to write. It then prompts, grouped by `group`, for the values the chosen files need: every variable of a generate file or a file it creates, and the keys a merge file lacks. A variable a file sets through `values` is not asked for. Each prompt fits the type: a select for an `enum`, a yes/no for a `boolean`, a hidden input for a `secret`, and text for the rest, starting from the default and checked against the variable's rules. It shows the plan (secrets masked), asks before writing, and writes. Ctrl-C at any prompt exits 130 and writes nothing. A create-only file that exists is skipped; a refused path is reported with its reason.
+
+With `--ci`, or `CI=true`, it never prompts. Each value comes from `--set KEY=VALUE`, else the environment variable of the same name (when not empty), else the schema default. A required variable that ends up with no value, or any invalid value, is an error: nothing is written and it exits 1. It prints one line per file:
+
+```text
+config/app.env: created
+.env.example: added keys: WEB_PORT
+.env: skipped (exists)
+```
+
+Other states are `updated`, `unchanged`, `skipped (refused: <reason>)` and `failed (<reason>)`. Without a terminal and without `--ci` it exits 2.
+
+```sh
+configure-env apply
+configure-env apply --ci --set WEB_PORT=9090
+WEB_HOST=10.0.0.5 configure-env apply --ci --file .env
+configure-env apply --ci --json
+```
+
+### check
+
+`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600`), values that break their variable's rules (secrets masked), and lines that are not valid entries. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the values from `--set` and the environment, as `apply --ci` writes them. It runs the same way with or without a terminal.
+
+```sh
+configure-env check
+configure-env check --ci --json
+```
+
+### JSON output
+
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+
+### Exit codes
+
+| Code  | Meaning                                                                  |
+| ----- | ------------------------------------------------------------------------ |
+| `0`   | ok                                                                       |
+| `1`   | drift, an invalid value or schema, or a failed write                     |
+| `2`   | usage error: a bad option, no schema, or no terminal without `--ci`      |
+| `130` | cancelled                                                                |
+
+### Example schema
+
+[`examples/portfolio.env.schema.json`](examples/portfolio.env.schema.json) is the env setup of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project this tool was extracted from:
+
+```sh
+pnpm start -- apply --ci --schema examples/portfolio.env.schema.json --root ../my-project
 ```
 
 ## Development
