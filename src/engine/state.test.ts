@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import {
+  link,
   mkdir,
+  open,
   readFile,
   readdir,
   stat,
@@ -306,15 +308,83 @@ describe('updateState', () => {
       );
     });
 
-    it('names another host, or none when it cannot be read', async () => {
+    it('names another host it can read, and tells to remove it', async () => {
       await hold(JSON.stringify({ pid: 1, host: 'elsewhere' }));
       await expect(attempt()).rejects.toThrow(
         `${statePath()}.lock: held by another run (elsewhere); if none is running, remove it`,
       );
-      await hold('');
+    });
+
+    it.each([
+      ['empty', ''],
+      ['partial', '{"pid": 12'],
+      ['pid 0', JSON.stringify({ pid: 0, host: hostname() })],
+      ['a negative pid', JSON.stringify({ pid: -1, host: hostname() })],
+      ['no host', JSON.stringify({ pid: 1 })],
+    ])('only asks to try again when its owner is %s', async (_label, text) => {
+      await hold(text);
       await expect(attempt()).rejects.toThrow(
-        `${statePath()}.lock: held by another run (unknown host); if none is running, remove it`,
+        new RegExp(`^${statePath()}\\.lock: held by another run; try again$`),
       );
+      expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(text);
+    });
+  });
+
+  describe('creating the lock', () => {
+    const lock = () => `${statePath()}.lock`;
+    /** An open whose handles fail to write, as a full disk makes them. */
+    const failingOpen = (async (...args: Parameters<typeof open>) => {
+      const handle = await open(...args);
+      handle.writeFile = (async () => {
+        throw new Error('disk full');
+      }) as never;
+      return handle;
+    }) as typeof open;
+    const noLink = (async () => {
+      throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+    }) as typeof link;
+    const entries = () => readdir(join(temp.dirs.root, '.configure-env'));
+
+    it('leaves no lock when its owner cannot be written', async () => {
+      for (const fs of [
+        { open: failingOpen },
+        { open: failingOpen, link: noLink },
+      ])
+        await expect(
+          withStateLock(statePath(), async () => 'ran', { fs }),
+        ).rejects.toThrow('disk full');
+      expect(await entries()).toEqual([]);
+    });
+
+    it('falls back to an exclusive create without hard links', async () => {
+      await withStateLock(
+        statePath(),
+        async () => {
+          expect(JSON.parse(await readFile(lock(), 'utf8')).pid).toBe(
+            process.pid,
+          );
+          expect((await stat(lock())).mode & 0o777).toBe(0o600);
+        },
+        { fs: { link: noLink } },
+      );
+      expect(await entries()).toEqual([]);
+    });
+
+    it('tries once more at the deadline when the lock is gone', async () => {
+      // The first link finds a lock, which is gone by the deadline.
+      let calls = 0;
+      const busyOnce = (async (...args: Parameters<typeof link>) => {
+        if (!calls++)
+          throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        return link(...args);
+      }) as typeof link;
+      expect(
+        await withStateLock(statePath(), async () => 'ran', {
+          waitMs: 0,
+          fs: { link: busyOnce },
+        }),
+      ).toBe('ran');
+      expect(calls).toBe(2);
     });
   });
 

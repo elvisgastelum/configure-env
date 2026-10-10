@@ -6,6 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   type FileHandle,
+  link,
   lstat,
   mkdir,
   open,
@@ -252,12 +253,18 @@ interface LockOwner {
   token: string;
 }
 
-const readOwner = async (lock: string): Promise<Partial<LockOwner>> => {
+/** The lock's owner; undefined when it cannot be read or makes no sense. */
+const readOwner = async (lock: string): Promise<LockOwner | undefined> => {
   try {
-    const owner: unknown = JSON.parse(await readFile(lock, 'utf8'));
-    return typeof owner === 'object' && owner !== null ? owner : {};
+    const owner = JSON.parse(await readFile(lock, 'utf8')) as LockOwner;
+    return Number.isInteger(owner.pid) &&
+      owner.pid > 0 &&
+      typeof owner.host === 'string' &&
+      owner.host
+      ? owner
+      : undefined;
   } catch {
-    return {};
+    return undefined;
   }
 };
 
@@ -271,28 +278,100 @@ function isRunning(pid: number): boolean {
   }
 }
 
-/** Why `lock` cannot be taken, naming its owner. A lock is never taken over. */
+/**
+ * Why `lock` cannot be taken, naming its owner. A lock is never taken over;
+ * only one whose owner is known to be gone, or on another host, is for a
+ * person to remove.
+ */
 async function heldMessage(lock: string): Promise<string> {
-  const { pid, host } = await readOwner(lock);
-  if (host === hostname() && Number.isInteger(pid))
-    return isRunning(pid!)
-      ? `${lock}: held by process ${pid}; try again`
-      : `${lock}: left by process ${pid}, which is no longer running; remove it and try again`;
-  return `${lock}: held by another run (${typeof host === 'string' ? host : 'unknown host'}); if none is running, remove it`;
+  const owner = await readOwner(lock);
+  if (!owner) return `${lock}: held by another run; try again`;
+  const { pid, host } = owner;
+  if (host !== hostname())
+    return `${lock}: held by another run (${host}); if none is running, remove it`;
+  return isRunning(pid)
+    ? `${lock}: held by process ${pid}; try again`
+    : `${lock}: left by process ${pid}, which is no longer running; remove it and try again`;
+}
+
+/** The file system calls the lock makes that tests replace. */
+export interface LockFs {
+  link: typeof link;
+  open: typeof open;
+}
+
+// The errors of a file system without hard links: the lock is then created
+// exclusively and filled, and removed when it cannot be filled.
+const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS']);
+
+/** Writes `text` to a new file, closing it whatever happens. */
+async function writeNew(fs: LockFs, path: string, text: string) {
+  const handle = await fs.open(path, 'wx', 0o600);
+  try {
+    await handle.writeFile(text, 'utf8');
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
- * Runs `task` holding `<path>.lock`, created exclusively next to the state
- * and holding this run's pid, host and a random token. A lock held by
- * another run is waited for, then refused, naming its owner: it is never
- * taken over, so a run that crashed leaves one for a person to remove. The
- * lock is removed only while it still holds this run's token.
+ * Creates the lock with its owner already in it: the owner goes to a
+ * temporary file that is then hard-linked as the lock, so no run ever sees
+ * an empty lock or leaves one. False when another run holds it.
+ */
+async function createLock(
+  lock: string,
+  owner: LockOwner,
+  fs: LockFs,
+): Promise<boolean> {
+  const text = JSON.stringify(owner);
+  const temp = `${lock}.${owner.token}.tmp`;
+  try {
+    await writeNew(fs, temp, text);
+    await fs.link(temp, lock);
+    return true;
+  } catch (error) {
+    const code = codeOf(error);
+    if (code === 'EEXIST') return false;
+    if (!NO_LINK.has(code)) throw error;
+  } finally {
+    await unlink(temp).catch(() => undefined);
+  }
+  try {
+    await writeNew(fs, lock, text);
+    return true;
+  } catch (error) {
+    if (codeOf(error) === 'EEXIST') return false;
+    // Created but not filled: never leave it for others to wait on.
+    if ((await readOwner(lock))?.token !== owner.token)
+      await unlink(lock).catch(() => undefined);
+    throw error;
+  }
+}
+
+const exists = (path: string) =>
+  lstat(path).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * Runs `task` holding `<path>.lock`, created next to the state with this
+ * run's pid, host and a random token in it. A lock held by another run is
+ * waited for (once more at the deadline if it is gone by then), then
+ * refused, naming its owner: it is never taken over, so a run that crashed
+ * leaves one for a person to remove. The lock is removed only while it
+ * still holds this run's token.
  */
 export async function withStateLock<T>(
   path: string,
   task: () => Promise<T>,
-  { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
+  {
+    waitMs = LOCK_WAIT_MS,
+    fs: given = {},
+  }: { waitMs?: number; fs?: Partial<LockFs> } = {},
 ): Promise<T> {
+  const fs: LockFs = { link, open, ...given };
   const lock = `${path}.lock`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const owner: LockOwner = {
@@ -302,28 +381,18 @@ export async function withStateLock<T>(
     token: randomBytes(16).toString('hex'),
   };
   const deadline = Date.now() + waitMs;
-  for (;;) {
-    let handle: FileHandle;
-    try {
-      handle = await open(lock, 'wx', 0o600);
-    } catch (error) {
-      if (codeOf(error) !== 'EEXIST') throw error;
-      if (Date.now() >= deadline)
-        throw new Error(await heldMessage(lock), { cause: error });
+  while (!(await createLock(lock, owner, fs))) {
+    if (Date.now() < deadline) {
       await pause(25);
       continue;
     }
-    try {
-      await handle.writeFile(JSON.stringify(owner), 'utf8');
-    } finally {
-      await handle.close();
-    }
-    break;
+    if (!(await exists(lock)) && (await createLock(lock, owner, fs))) break;
+    throw new Error(await heldMessage(lock));
   }
   try {
     return await task();
   } finally {
-    if ((await readOwner(lock)).token === owner.token)
+    if ((await readOwner(lock))?.token === owner.token)
       await unlink(lock).catch(() => undefined);
   }
 }
