@@ -56,6 +56,23 @@ export function parseCommand<T extends ParseArgsOptionsConfig>(
   }
 }
 
+/** Like {@link parseCommand}, also returning the positional arguments. */
+export function parseCommandArgs<T extends ParseArgsOptionsConfig>(
+  args: string[],
+  options: T,
+) {
+  try {
+    return parseArgs({
+      args,
+      options: { ...GLOBAL_OPTIONS, ...options },
+      strict: true,
+      allowPositionals: true,
+    });
+  } catch (error) {
+    throw usageError((error as Error).message);
+  }
+}
+
 type GlobalValues = {
   schema?: string;
   root?: string;

@@ -106,7 +106,7 @@ const messageOf = (key: string, spec: VariableSpec) =>
   spec.description ? `${spec.description} (${key})` : key;
 
 /** The variable's prompt by type; the answer as env text, or a cancel. */
-async function ask(
+export async function ask(
   prompts: Prompts,
   key: string,
   spec: VariableSpec,

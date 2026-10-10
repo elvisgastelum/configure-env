@@ -158,6 +158,9 @@ Until the package is published, run it from a checkout with `pnpm start -- <comm
 | `apply` | writes the env files the schema describes; the default command       |
 | `check` | changes nothing; reports drift and invalid values, exits 1 on either |
 | `init`  | writes a starting `env.schema.json`, inferred from an example env file |
+| `set`   | sets variables in one file, keeping every other byte                   |
+| `get`   | prints one variable's value                                            |
+| `unset` | removes variables from one file                                        |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -167,7 +170,7 @@ Until the package is published, run it from a checkout with `pnpm start -- <comm
 | ----------------- | ----------------------------------------------------------------------------- |
 | `--schema <path>` | the schema file; default `env.schema.json` in the root                        |
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
-| `--file <path>`   | only this schema file; repeat it for more                                     |
+| `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -225,9 +228,50 @@ configure-env init --ci --from config/app.env.example
 configure-env init --force
 ```
 
+### Choosing the file to edit
+
+`set`, `get` and `unset` work on one file: the `--file` path, else the only schema file that is not a template. When the schema has more than one such file, `--file` is required (exit 2, listing the paths). `set` and `unset` edit a template file only with `--allow-template`.
+
+### set
+
+`set KEY=VALUE [KEY=VALUE…]` checks every value against its variable's rules first; one invalid value writes nothing and exits 1, naming the rule but never the value. A key the file holds is edited in place, keeping its `export` prefix, spacing and inline comment; a missing key is appended with its schema comment. Every other line stays byte for byte, line endings included, and the file is written atomically with its mode kept. Values are written as `apply` writes them (a boolean `yes` becomes `true`, a value with `$` is single-quoted).
+
+A key that is not one of the file's variables exits 1 unless `--allow-unknown`. A file that does not exist exits 1 unless `--create`, which creates it with the schema's `mode`. `--prompt KEY` (repeatable) asks for the value in a terminal, hidden for a secret; a `KEY=VALUE` given for the same key wins. Each key is reported as `updated`, `added` or `unchanged`, with the value masked for a secret:
+
+```text
+WEB_PORT: updated (9090)
+API_TOKEN: added (••••23)
+```
+
+```sh
+configure-env set WEB_PORT=9090
+configure-env set --file .env API_TOKEN=abc123 MODE=prod
+configure-env set --prompt API_TOKEN
+configure-env set --create --file .env WEB_HOST=10.0.0.5
+```
+
+### get
+
+`get KEY` prints the value as a reader sees it: unquoted and unescaped, then a newline. A key the file does not hold exits 1. A secret exits 1 with a hint unless `--reveal`; with `--json` it prints the masked value instead.
+
+```sh
+configure-env get WEB_PORT
+configure-env get API_TOKEN --reveal
+configure-env get WEB_HOST --file .env --json
+```
+
+### unset
+
+`unset KEY [KEY…]` removes each key. The comment lines right above it go too, but only when they are exactly the comment the schema writes for it; any other comment stays. Every other byte stays, and the file keeps its mode. A key the file does not hold is reported as `absent` and exits 0.
+
+```sh
+configure-env unset WEB_PORT
+configure-env unset --file .env API_TOKEN MODE
+```
+
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files" }`; each file has `path`, `policy`, `action`, `status` (the line above), `addedKeys` and `written`. `init` prints `{ "command": "init", "ok", "schema", "from", "variables" }`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret); `unset` prints the same with `key` and `status` only. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `invalid` (`key`, `message` and the masked `shown` value), `invalidLines`, and `mode` when it differs.
 
 ### Exit codes
 

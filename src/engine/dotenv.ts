@@ -268,3 +268,33 @@ export function removeKey(doc: DotenvDocument, key: string): boolean {
   );
   return doc.lines.length !== before;
 }
+
+/**
+ * Removes every entry for `key`, each with its directly attached comment
+ * block (the comment lines right above it) when that block is exactly
+ * `comment`, as lines without line endings; any other comment stays. True
+ * when there was an entry.
+ */
+export function removeEntry(
+  doc: DotenvDocument,
+  key: string,
+  comment: readonly string[] = [],
+): boolean {
+  const drop = new Set<number>();
+  const isComment = (index: number) => doc.lines[index]?.kind === 'comment';
+  doc.lines.forEach((line, index) => {
+    if (line.kind !== 'entry' || line.key !== key) return;
+    drop.add(index);
+    const start = index - comment.length;
+    const attached =
+      comment.length > 0 &&
+      start >= 0 &&
+      !isComment(start - 1) &&
+      comment.every(
+        (raw, i) => isComment(start + i) && doc.lines[start + i]!.raw === raw,
+      );
+    if (attached) for (let i = start; i < index; i++) drop.add(i);
+  });
+  doc.lines = doc.lines.filter((_, index) => !drop.has(index));
+  return drop.size > 0;
+}

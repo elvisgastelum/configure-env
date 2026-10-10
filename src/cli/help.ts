@@ -13,7 +13,9 @@ const GLOBAL = `Global options:
   --schema <path>  the schema file (default: env.schema.json in the root)
   --root <dir>     the project root the schema's paths are relative to
                    (default: where the command was typed)
-  --file <path>    only this schema file; repeat for more
+  --file <path>    only this schema file; repeat for more (set, get and
+                   unset take one; it defaults to the only file that is
+                   not a template)
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
   --no-color       plain output; NO_COLOR is honoured too
@@ -36,6 +38,9 @@ Commands:
   apply   write the env files the schema describes (the default)
   check   change nothing; report drift and invalid values
   init    write a starting env.schema.json, inferred from .env.example
+  set     set variables in one file, keeping every other line
+  get     print one variable's value
+  unset   remove variables from one file
 
 Run configure-env <command> --help for the command's own options.
 
@@ -123,5 +128,82 @@ Examples:
   configure-env init
   configure-env init --ci --from config/app.env.example
   configure-env init --force
+
+${EXIT_CODES}`;
+
+const FILE_CHOICE = `The file is --file, else the only schema file that is not a template;
+with more than one, --file is required.`;
+
+export const SET_HELP = `Usage: configure-env set KEY=VALUE [KEY=VALUE...] [options]
+
+Sets variables in one env file. Each value is checked against its
+variable's rules first: one invalid value writes nothing (exit 1). A key
+the file holds is edited in place, keeping its export prefix, spacing and
+inline comment; a missing key is appended with its schema comment. Every
+other line stays byte for byte, and the file keeps its mode. Each key is
+reported as updated, added or unchanged, secrets masked.
+
+${FILE_CHOICE} A template file is
+edited only with --allow-template.
+
+Options:
+  --prompt KEY      ask for the value in the terminal (hidden for a
+                    secret); repeat for more
+  --create          create the file when it does not exist, with the
+                    schema's mode
+  --allow-unknown   set a key that is not one of the file's variables
+  --allow-template  edit a template file
+
+${GLOBAL}
+
+Examples:
+  configure-env set WEB_PORT=9090
+  configure-env set --file .env API_TOKEN=abc123 MODE=prod
+  configure-env set --prompt API_TOKEN
+  configure-env set --create --file .env WEB_HOST=10.0.0.5
+
+${EXIT_CODES}`;
+
+export const GET_HELP = `Usage: configure-env get KEY [options]
+
+Prints the value of one variable, unquoted, as the file holds it. A key
+that is not set exits 1. A secret is not printed (exit 1) unless
+--reveal; with --json it shows masked instead.
+
+${FILE_CHOICE}
+
+Options:
+  --reveal  print a secret value
+
+With --json it prints {"key", "value", "set"}, or "masked" in place of
+"value" for a secret without --reveal.
+
+${GLOBAL}
+
+Examples:
+  configure-env get WEB_PORT
+  configure-env get API_TOKEN --reveal
+  configure-env get WEB_HOST --file .env --json
+
+${EXIT_CODES}`;
+
+export const UNSET_HELP = `Usage: configure-env unset KEY [KEY...] [options]
+
+Removes variables from one env file. The comment lines right above a key
+go with it only when they are exactly its schema comment; any other
+comment stays. Every other line stays byte for byte, and the file keeps
+its mode. A key the file does not hold is reported as absent (exit 0).
+
+${FILE_CHOICE} A template file is
+edited only with --allow-template.
+
+Options:
+  --allow-template  edit a template file
+
+${GLOBAL}
+
+Examples:
+  configure-env unset WEB_PORT
+  configure-env unset --file .env API_TOKEN MODE
 
 ${EXIT_CODES}`;

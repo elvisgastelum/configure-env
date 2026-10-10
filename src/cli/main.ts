@@ -3,6 +3,7 @@
 import { applyCommand } from './apply.ts';
 import { checkCommand } from './check.ts';
 import { CliError, usageError } from './common.ts';
+import { getCommand, setCommand, unsetCommand } from './edit.ts';
 import { MAIN_HELP, VERSION } from './help.ts';
 import { initCommand } from './init.ts';
 import type { Io } from './io.ts';
@@ -13,6 +14,9 @@ export const COMMANDS: Record<string, Command> = {
   apply: applyCommand,
   check: checkCommand,
   init: initCommand,
+  set: setCommand,
+  get: getCommand,
+  unset: unsetCommand,
 };
 
 const has = (args: readonly string[], ...flags: string[]) =>

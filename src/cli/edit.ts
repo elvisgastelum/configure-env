@@ -1,0 +1,328 @@
+// `configure-env set`, `get` and `unset`: edit one file's variables in
+// place, keeping every other byte, or print one.
+
+import {
+  getValue,
+  removeEntry,
+  setValue,
+  appendLines,
+  serialize,
+} from '../engine/dotenv.ts';
+import { commentLines } from '../engine/plan.ts';
+import {
+  VARIABLE_NAME,
+  type EnvSchema,
+  type FileSpec,
+  type VariableSpec,
+} from '../schema/definition.ts';
+import {
+  formatValue,
+  maskValue,
+  unquoteValue,
+  validateValue,
+} from '../schema/values.ts';
+import { ask } from './apply.ts';
+import {
+  CliError,
+  NO_TERMINAL,
+  contextOf,
+  loadContextSchema,
+  parseCommandArgs,
+  usageError,
+} from './common.ts';
+import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
+import type { Io } from './io.ts';
+import {
+  type EnvFile,
+  UNKNOWN_SPEC,
+  chooseFile,
+  jsonValue,
+  readEnvFile,
+  variablesOf,
+  writeEnvFile,
+} from './target.ts';
+
+const CANCELLED = 130;
+
+/** The context, schema and file every edit command starts from. */
+async function start(
+  io: Io,
+  values: Parameters<typeof contextOf>[1],
+  guard: { guard?: boolean; allowTemplate?: boolean },
+) {
+  const context = await contextOf(io, values);
+  const schema = await loadContextSchema(context);
+  const spec = chooseFile(schema, context.files, guard);
+  return { context, schema, spec };
+}
+
+/** A key's spec for this file, or undefined when it is not one of its variables. */
+const specFor = (schema: EnvSchema, file: FileSpec, key: string) =>
+  variablesOf(schema, file).has(key) ? schema.variables[key] : undefined;
+
+function checkName(key: string) {
+  if (!VARIABLE_NAME.test(key))
+    throw usageError(`${key}: is not a valid variable name`);
+}
+
+// ---------------------------------------------------------------- set
+
+const SET_OPTIONS = {
+  prompt: { type: 'string', multiple: true },
+  create: { type: 'boolean' },
+  'allow-unknown': { type: 'boolean' },
+  'allow-template': { type: 'boolean' },
+} as const;
+
+type SetStatus = 'updated' | 'added' | 'unchanged';
+
+/** `KEY=VALUE` pairs in order; a later pair for a key replaces an earlier one. */
+function parsePairs(positionals: readonly string[]): Map<string, string> {
+  const pairs = new Map<string, string>();
+  for (const pair of positionals) {
+    const at = pair.indexOf('=');
+    if (at < 1) throw usageError(`set takes KEY=VALUE, got ${pair}`);
+    const key = pair.slice(0, at);
+    checkName(key);
+    pairs.delete(key);
+    pairs.set(key, pair.slice(at + 1));
+  }
+  return pairs;
+}
+
+/** The comment lines above a new key, as the engine writes them. */
+function newEntryLines(
+  schema: EnvSchema,
+  file: FileSpec,
+  key: string,
+  written: string,
+): string[] {
+  const comment = variablesOf(schema, file).has(key)
+    ? (file.comments?.[key] ?? schema.variables[key]?.comment)
+    : undefined;
+  return [...(comment ? commentLines(comment) : []), `${key}=${written}`];
+}
+
+/** Appends a key: after a blank line when it has a comment and follows lines. */
+function appendKey(file: EnvFile, lines: string[]) {
+  const separate = lines.length > 1 && file.doc.lines.length > 0;
+  appendLines(file.doc, separate ? ['', ...lines] : lines);
+}
+
+export async function setCommand(args: string[], io: Io): Promise<number> {
+  const { values: options, positionals } = parseCommandArgs(args, SET_OPTIONS);
+  if (options.help) {
+    io.stdout(SET_HELP);
+    return 0;
+  }
+  const pairs = parsePairs(positionals);
+  const promptKeys = (options.prompt ?? []).filter((key) => !pairs.has(key));
+  promptKeys.forEach(checkName);
+  if (!pairs.size && !promptKeys.length)
+    throw usageError('set takes KEY=VALUE pairs or --prompt KEY');
+  const { context, schema, spec } = await start(io, options, {
+    guard: true,
+    allowTemplate: Boolean(options['allow-template']),
+  });
+  if (promptKeys.length && (context.ci || context.json || !io.isTTY))
+    throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
+
+  const allowUnknown = Boolean(options['allow-unknown']);
+  const unknown = [...pairs.keys(), ...promptKeys].filter(
+    (key) => !specFor(schema, spec, key),
+  );
+  if (unknown.length && !allowUnknown)
+    throw new CliError(
+      1,
+      unknown.map(
+        (key) =>
+          `${key}: is not a variable of ${spec.path}; pass --allow-unknown to set it anyway`,
+      ),
+    );
+
+  const file = await readEnvFile(context, spec);
+  if (!file.exists && !options.create)
+    throw new CliError(1, [
+      `${spec.path}: does not exist; pass --create to create it`,
+    ]);
+
+  for (const key of promptKeys) {
+    const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
+    const current = getValue(file.doc, key);
+    const initial =
+      current ??
+      (variable.default === undefined ? '' : String(variable.default));
+    const answer = await ask(
+      context.prompts,
+      key,
+      variable,
+      variable.secret ? '' : initial,
+    );
+    if (context.prompts.isCancel(answer)) {
+      context.prompts.cancel('Cancelled; nothing was written.');
+      return CANCELLED;
+    }
+    pairs.set(key, answer);
+  }
+
+  // Validate everything before touching the file: one bad value writes nothing.
+  const written = new Map<
+    string,
+    { spec: VariableSpec; text: string; plain: string }
+  >();
+  const errors: string[] = [];
+  for (const [key, raw] of pairs) {
+    const variable = specFor(schema, spec, key);
+    if (!variable) {
+      const text = formatValue(UNKNOWN_SPEC, raw);
+      written.set(key, { spec: UNKNOWN_SPEC, text, plain: raw });
+      continue;
+    }
+    const result = validateValue(variable, raw);
+    if (!result.ok) {
+      errors.push(`${key}: ${result.error}`);
+      continue;
+    }
+    const text = formatValue(variable, result.value);
+    written.set(key, { spec: variable, text, plain: unquoteValue(text) });
+  }
+  if (errors.length)
+    throw new CliError(1, [...errors, `nothing was written to ${spec.path}`]);
+
+  if (!file.exists && spec.header)
+    appendLines(file.doc, [...commentLines(spec.header), '']);
+  const report: {
+    key: string;
+    status: SetStatus;
+    spec: VariableSpec;
+    plain: string;
+  }[] = [];
+  for (const [key, { spec: variable, text, plain }] of written) {
+    const current = getValue(file.doc, key);
+    let status: SetStatus;
+    if (current === undefined) {
+      appendKey(file, newEntryLines(schema, spec, key, text));
+      status = 'added';
+    } else if (current === plain) status = 'unchanged';
+    else {
+      setValue(file.doc, key, text);
+      status = 'updated';
+    }
+    report.push({ key, status, spec: variable, plain });
+  }
+  if (report.some((entry) => entry.status !== 'unchanged'))
+    await writeEnvFile(file, serialize(file.doc));
+
+  if (context.json)
+    io.stdout(
+      JSON.stringify({
+        command: 'set',
+        ok: true,
+        file: spec.path,
+        keys: report.map(({ key, status, spec: variable, plain }) => ({
+          key,
+          status,
+          ...jsonValue(variable, plain),
+        })),
+      }),
+    );
+  else
+    report.forEach(({ key, status, spec: variable, plain }) =>
+      io.stdout(`${key}: ${status} (${maskValue(variable, plain)})`),
+    );
+  return 0;
+}
+
+// ---------------------------------------------------------------- get
+
+const GET_OPTIONS = { reveal: { type: 'boolean' } } as const;
+
+export async function getCommand(args: string[], io: Io): Promise<number> {
+  const { values: options, positionals } = parseCommandArgs(args, GET_OPTIONS);
+  if (options.help) {
+    io.stdout(GET_HELP);
+    return 0;
+  }
+  if (positionals.length !== 1) throw usageError('get takes one KEY');
+  const key = positionals[0]!;
+  checkName(key);
+  const { context, schema, spec } = await start(io, options, {});
+  const file = await readEnvFile(context, spec);
+  if (!file.exists) throw new CliError(1, [`${spec.path}: does not exist`]);
+  const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
+  const value = getValue(file.doc, key);
+  const reveal = Boolean(options.reveal) || !variable.secret;
+
+  if (context.json) {
+    io.stdout(
+      JSON.stringify(
+        value === undefined
+          ? { key, set: false }
+          : {
+              key,
+              ...(reveal ? { value } : jsonValue(variable, value)),
+              set: true,
+            },
+      ),
+    );
+    return value === undefined ? 1 : 0;
+  }
+  if (value === undefined)
+    throw new CliError(1, [`${key}: is not set in ${spec.path}`]);
+  if (!reveal)
+    throw new CliError(1, [
+      `${key}: is secret (${maskValue(variable, value)})`,
+      'pass --reveal to print it',
+    ]);
+  io.stdout(value);
+  return 0;
+}
+
+// ---------------------------------------------------------------- unset
+
+const UNSET_OPTIONS = { 'allow-template': { type: 'boolean' } } as const;
+
+export async function unsetCommand(args: string[], io: Io): Promise<number> {
+  const { values: options, positionals } = parseCommandArgs(
+    args,
+    UNSET_OPTIONS,
+  );
+  if (options.help) {
+    io.stdout(UNSET_HELP);
+    return 0;
+  }
+  if (!positionals.length) throw usageError('unset takes one or more KEYs');
+  positionals.forEach(checkName);
+  const { context, schema, spec } = await start(io, options, {
+    guard: true,
+    allowTemplate: Boolean(options['allow-template']),
+  });
+  const file = await readEnvFile(context, spec);
+  const report: { key: string; status: 'removed' | 'absent' }[] = [];
+  for (const key of new Set(positionals)) {
+    const known = specFor(schema, spec, key) !== undefined;
+    const comment = known
+      ? (spec.comments?.[key] ?? schema.variables[key]?.comment)
+      : undefined;
+    const removed = removeEntry(
+      file.doc,
+      key,
+      comment ? commentLines(comment) : [],
+    );
+    report.push({ key, status: removed ? 'removed' : 'absent' });
+  }
+  if (report.some((entry) => entry.status === 'removed'))
+    await writeEnvFile(file, serialize(file.doc));
+
+  if (context.json)
+    io.stdout(
+      JSON.stringify({
+        command: 'unset',
+        ok: true,
+        file: spec.path,
+        keys: report,
+      }),
+    );
+  else report.forEach(({ key, status }) => io.stdout(`${key}: ${status}`));
+  return 0;
+}
