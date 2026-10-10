@@ -15,8 +15,23 @@ import {
   rm,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { isInside } from './paths.ts';
+import { isInside, nearestReal } from './paths.ts';
 import type { FileAction, FilePlan, Plan } from './plan.ts';
+
+/** The file system calls apply makes that tests replace. */
+export interface ApplyFs {
+  link: typeof link;
+}
+
+export interface ApplyOptions {
+  fs?: Partial<ApplyFs>;
+  /** Shorthand for `fs.link`. */
+  link?: typeof link;
+}
+
+// The errors of a file system without hard links: the fallback creates the
+// target exclusively instead.
+const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS']);
 
 export interface ApplyResult {
   path: string;
@@ -45,6 +60,9 @@ async function syncDirectory(dir: string) {
 /** Re-checks the target right before writing: the disk may have changed. */
 async function checkTarget(root: string, file: FilePlan): Promise<string> {
   const dir = dirname(file.target);
+  // Containment first: mkdir must never create directories outside the root.
+  if (!isInside(root, await nearestReal(dir)))
+    throw new Error('resolves outside the root');
   await mkdir(dir, { recursive: true });
   const realDir = await realpath(dir);
   if (!isInside(root, realDir)) throw new Error('resolves outside the root');
@@ -59,7 +77,19 @@ async function checkTarget(root: string, file: FilePlan): Promise<string> {
   return target;
 }
 
-async function writeFileAtomic(root: string, file: FilePlan) {
+/** Writes `content` to `target` only when it does not exist yet. */
+async function createExclusive(target: string, file: FilePlan) {
+  const handle = await open(target, 'wx', file.mode);
+  try {
+    await handle.writeFile(file.content ?? '', 'utf8');
+    await handle.chmod(file.mode);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeFileAtomic(root: string, file: FilePlan, fs: ApplyFs) {
   const target = await checkTarget(root, file);
   const dir = dirname(target);
   const temp = join(
@@ -80,7 +110,15 @@ async function writeFileAtomic(root: string, file: FilePlan) {
     if (file.action === 'create') {
       // link fails when the target exists: a file created after planning
       // is never replaced.
-      await link(temp, target);
+      try {
+        await fs.link(temp, target);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? '';
+        if (!NO_LINK.has(code)) throw error;
+        // No hard links here: an exclusive create keeps the no-replace
+        // guarantee, at the cost of a reader possibly seeing a partial file.
+        await createExclusive(target, file);
+      }
       await rm(temp, { force: true });
     } else {
       await rename(temp, target);
@@ -98,7 +136,12 @@ async function writeFileAtomic(root: string, file: FilePlan) {
  * in its result and the rest are still written; a plan with errors writes
  * nothing.
  */
-export async function applyPlan(plan: Plan): Promise<ApplyResult[]> {
+export async function applyPlan(
+  plan: Plan,
+  options: ApplyOptions = {},
+): Promise<ApplyResult[]> {
+  const fs: ApplyFs = { link, ...options.fs };
+  if (options.link) fs.link = options.link;
   if (plan.errors.length) {
     return plan.files.map((file) => ({
       path: file.path,
@@ -116,7 +159,7 @@ export async function applyPlan(plan: Plan): Promise<ApplyResult[]> {
       continue;
     }
     try {
-      await writeFileAtomic(plan.root, file);
+      await writeFileAtomic(plan.root, file, fs);
       results.push({ ...result, ok: true, written: true });
     } catch (error) {
       results.push({

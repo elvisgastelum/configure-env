@@ -184,11 +184,14 @@ export function parseDotenv(text: string): DotenvDocument {
         break;
       }
     }
-    if (closed < 0) {
+    const line = closed < 0 ? undefined : makeLine(joined, lastEol);
+    // A quote that is never closed, or closed only by a quote on a later
+    // entry, makes this one line invalid; the next line parses on its own.
+    if (!line || line.kind === 'invalid') {
       lines.push({ kind: 'invalid', raw, eol });
       continue;
     }
-    lines.push(makeLine(joined, lastEol));
+    lines.push(line);
     i = closed;
   }
   return document(lines, crlf > lf ? '\r\n' : '\n', bom);
@@ -198,6 +201,17 @@ export function parseDotenv(text: string): DotenvDocument {
 export function serialize(doc: DotenvDocument): string {
   const body = doc.lines.map((line) => line.raw + line.eol).join('');
   return (doc.bom ? '﻿' : '') + body;
+}
+
+/** The 1-based physical line numbers of the lines that are not valid entries. */
+export function invalidLineNumbers(doc: DotenvDocument): number[] {
+  const numbers: number[] = [];
+  let number = 1;
+  for (const line of doc.lines) {
+    if (line.kind === 'invalid') numbers.push(number);
+    number += line.raw.split('\n').length;
+  }
+  return numbers;
 }
 
 const entriesOf = (doc: DotenvDocument, key: string) =>

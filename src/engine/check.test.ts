@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyPlan } from './apply.ts';
@@ -60,7 +60,9 @@ describe('checkDrift', () => {
   });
 
   it('never reports drift for an existing create-only file', async () => {
-    await writeFile(join(root(), 'local.env'), 'HOST=web\nOTHER=1\n');
+    await writeFile(join(root(), 'local.env'), 'HOST=web\nOTHER=1\n', {
+      mode: 0o600,
+    });
     expect((await check()).files[2]).toMatchObject({
       status: 'current',
       drift: false,
@@ -80,7 +82,7 @@ describe('checkDrift', () => {
       drift: false,
       invalid: [{ key: 'PORT', message: expect.stringMatching(/port/) }],
     });
-    expect(report.files[2]!.invalid).toEqual([
+    expect(report.files[2]!.invalid).toMatchObject([
       { key: 'HOST', message: 'is required' },
       { key: 'TOKEN', message: expect.stringMatching(/8/) },
     ]);
@@ -103,5 +105,75 @@ describe('checkDrift', () => {
       files: ['merge.env'],
     });
     expect(report.files.map((f) => f.path)).toEqual(['merge.env']);
+  });
+
+  it('reports a mode that differs from the schema as drift', async () => {
+    await applyPlan(
+      await planChanges({
+        schema: testSchema(),
+        root: root(),
+        values: { TOKEN: 'abcdefgh' },
+      }),
+    );
+    await chmod(join(root(), 'local.env'), 0o644);
+    const report = await check();
+    expect(report).toMatchObject({ drift: true, ok: false });
+    expect(report.files[2]).toMatchObject({
+      status: 'current',
+      drift: true,
+      mode: { actual: '644', expected: '600' },
+    });
+    // A file without a schema mode never drifts on its mode.
+    expect(report.files[0]).toMatchObject({ drift: false });
+    expect(report.files[0]!.mode).toBeUndefined();
+  });
+
+  it('plans a mode-only update for a generate file, so apply fixes it', async () => {
+    const schema = testSchema();
+    schema.files[0]!.mode = '600';
+    await mkdir(join(root(), 'gen'));
+    await writeFile(join(root(), 'gen/app.env'), GENERATED, { mode: 0o644 });
+    await chmod(join(root(), 'gen/app.env'), 0o644);
+    const p = await planChanges({
+      schema,
+      root: root(),
+      values: {},
+      files: ['gen/app.env'],
+    });
+    expect(p.files[0]).toMatchObject({
+      action: 'update',
+      addedKeys: [],
+      currentMode: 0o644,
+      mode: 0o600,
+    });
+    await applyPlan(p);
+    const report = await checkDrift({
+      schema,
+      root: root(),
+      files: ['gen/app.env'],
+    });
+    expect(report.files[0]).toMatchObject({ status: 'current', drift: false });
+  });
+
+  it('reports lines that are not valid entries', async () => {
+    await writeFile(join(root(), 'merge.env'), `HOST="open\n${MERGED}`);
+    const report = await check();
+    expect(report.ok).toBe(false);
+    expect(report.files[1]).toMatchObject({
+      status: 'current',
+      invalidLines: [1],
+    });
+  });
+
+  it('shows an invalid value masked when the variable is secret', async () => {
+    await writeFile(join(root(), 'local.env'), 'HOST=web\nTOKEN=hunter2\n');
+    const report = await check();
+    expect(report.files[2]!.invalid).toEqual([
+      { key: 'TOKEN', message: expect.any(String), shown: '•••••••' },
+    ]);
+    await writeFile(join(root(), 'merge.env'), MERGED.replace('8080', 'http'));
+    expect((await check()).files[1]!.invalid).toEqual([
+      { key: 'PORT', message: expect.any(String), shown: 'http' },
+    ]);
   });
 });

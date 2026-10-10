@@ -18,7 +18,7 @@ export type Target =
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException).code;
 
 /** The real path of the nearest existing ancestor of `path`. */
-async function nearestReal(path: string): Promise<string> {
+export async function nearestReal(path: string): Promise<string> {
   for (let dir = path; ; dir = dirname(dir)) {
     try {
       return await realpath(dir);

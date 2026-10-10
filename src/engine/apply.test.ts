@@ -1,4 +1,12 @@
-import { chmod, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  link,
+  mkdir,
+  readdir,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyPlan } from './apply.ts';
@@ -123,5 +131,59 @@ describe('applyPlan', () => {
     expect(results.every((r) => !r.ok && !r.written)).toBe(true);
     expect(results[0]!.error).toBe('the plan has errors');
     expect(await readdir(root())).toEqual([]);
+  });
+
+  it.each(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS'])(
+    'creates the file exclusively when link fails with %s',
+    async (code) => {
+      const failingLink: typeof link = () =>
+        Promise.reject(Object.assign(new Error(code), { code }));
+      const [result] = await applyPlan(await plan(['local.env']), {
+        link: failingLink,
+      });
+      expect(result).toMatchObject({ ok: true, written: true });
+      expect(await modeOf('local.env')).toBe(0o600);
+      expect((await plan(['local.env'])).files[0]).toMatchObject({
+        action: 'skip',
+        reason: 'exists',
+      });
+      expect(await readdir(root())).toEqual(['local.env']);
+    },
+  );
+
+  it('keeps the no-replace guarantee in the link fallback', async () => {
+    const p = await plan(['local.env']);
+    await writeFile(join(root(), 'local.env'), 'RACE=1\n');
+    const failingLink: typeof link = () =>
+      Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+    const [result] = await applyPlan(p, { link: failingLink });
+    expect(result).toMatchObject({ ok: false, written: false });
+    expect((await plan(['local.env'])).files[0]!.previous).toBe('RACE=1\n');
+    expect(await readdir(root())).toEqual(['local.env']);
+  });
+
+  it('does not fall back for other link errors', async () => {
+    const failingLink: typeof link = () =>
+      Promise.reject(Object.assign(new Error('EIO'), { code: 'EIO' }));
+    const [result] = await applyPlan(await plan(['local.env']), {
+      link: failingLink,
+    });
+    expect(result).toMatchObject({ ok: false, error: 'EIO' });
+    expect(await readdir(root())).toEqual([]);
+  });
+
+  it('checks containment before creating parent directories', async () => {
+    const schema = testSchema();
+    schema.files[0]!.path = 'link/deep/app.env';
+    const p = await plan(['link/deep/app.env'], schema);
+    // A symlink out of the root appears after planning.
+    const outside = await temp.another();
+    await symlink(outside, join(root(), 'link'));
+    const [result] = await applyPlan(p);
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'resolves outside the root',
+    });
+    expect(await readdir(outside)).toEqual([]);
   });
 });

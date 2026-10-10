@@ -2,8 +2,8 @@
 // drift by policy, and current values that break their variable's rules.
 
 import type { EnvSchema, FilePolicy, FileSpec } from '../schema/definition.ts';
-import { unquoteValue, validateValue } from '../schema/values.ts';
-import { getValue, parseDotenv } from './dotenv.ts';
+import { maskValue, unquoteValue, validateValue } from '../schema/values.ts';
+import { getValue, invalidLineNumbers, parseDotenv } from './dotenv.ts';
 import {
   type FilePlan,
   type PlanError,
@@ -14,11 +14,18 @@ import {
 export type DriftStatus =
   'current' | 'missing' | 'differs' | 'missing-keys' | 'refused';
 
-/** A current value that breaks its rule; the message never holds the value. */
+/**
+ * A current value that breaks its rule. The message never holds the value;
+ * `shown` is the value for display, masked when the variable is secret.
+ */
 export interface InvalidValue {
   key: string;
   message: string;
+  shown: string;
 }
+
+/** Permissions as three octal digits, like `600`. */
+export const formatMode = (mode: number) => mode.toString(8).padStart(3, '0');
 
 export interface FileDrift {
   path: string;
@@ -29,6 +36,10 @@ export interface FileDrift {
   /** The keys a merge file lacks. */
   missingKeys: string[];
   invalid: InvalidValue[];
+  /** The 1-based numbers of the lines that are not valid entries. */
+  invalidLines: number[];
+  /** Set when the file's mode differs from the schema's `mode`. */
+  mode?: { actual: string; expected: string };
   /** Why the path was refused. */
   error?: string;
 }
@@ -65,8 +76,14 @@ function invalidValues(
     // A placeholder the file sets on purpose is not type-checked.
     const literal = file.values?.[key];
     if (literal !== undefined && value === unquoteValue(literal)) continue;
-    const result = validateValue(schema.variables[key]!, value);
-    if (!result.ok) invalid.push({ key, message: result.error });
+    const spec = schema.variables[key]!;
+    const result = validateValue(spec, value);
+    if (!result.ok)
+      invalid.push({
+        key,
+        message: result.error,
+        shown: maskValue(spec, value ?? ''),
+      });
   }
   return invalid;
 }
@@ -75,9 +92,9 @@ function statusOf(plan: FilePlan): Pick<FileDrift, 'status' | 'drift'> {
   if (plan.reason === 'refused') return { status: 'refused', drift: true };
   if (plan.previous === undefined)
     return { status: 'missing', drift: plan.policy !== 'create-only' };
-  if (plan.policy === 'generate' && plan.action === 'update')
+  if (plan.policy === 'generate' && plan.content !== plan.previous)
     return { status: 'differs', drift: true };
-  if (plan.policy === 'merge' && plan.action === 'update')
+  if (plan.policy === 'merge' && plan.addedKeys.length)
     return { status: 'missing-keys', drift: true };
   return { status: 'current', drift: false };
 }
@@ -94,16 +111,29 @@ export async function checkDrift({
     const spec = schema.files.find((file) => file.path === filePlan.path)!;
     const { status, drift } = statusOf(filePlan);
     const missingKeys = status === 'missing-keys' ? filePlan.addedKeys : [];
+    const { previous, currentMode } = filePlan;
+    const mode =
+      filePlan.modeFixed &&
+      currentMode !== undefined &&
+      currentMode !== filePlan.mode
+        ? {
+            actual: formatMode(currentMode),
+            expected: formatMode(filePlan.mode),
+          }
+        : undefined;
     return {
       path: filePlan.path,
       policy: filePlan.policy,
       status,
-      drift,
+      drift: drift || Boolean(mode),
       missingKeys,
       invalid:
-        filePlan.previous === undefined
+        previous === undefined
           ? []
-          : invalidValues(schema, spec, filePlan.previous, missingKeys),
+          : invalidValues(schema, spec, previous, missingKeys),
+      invalidLines:
+        previous === undefined ? [] : invalidLineNumbers(parseDotenv(previous)),
+      ...(mode ? { mode } : {}),
       ...(filePlan.error ? { error: filePlan.error } : {}),
     };
   });
@@ -111,6 +141,6 @@ export async function checkDrift({
   const ok =
     !drift &&
     !plan.errors.length &&
-    report.every((file) => !file.invalid.length);
+    report.every((file) => !file.invalid.length && !file.invalidLines.length);
   return { files: report, drift, ok, errors: plan.errors };
 }

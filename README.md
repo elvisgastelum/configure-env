@@ -126,7 +126,9 @@ A `merge` file keeps every existing line byte for byte, including its line endin
 
 Values are written plain when they can be. A value holding whitespace, `#` or quotes is double-quoted with backslash escapes. A value holding `$` is single-quoted, so Docker Compose and dotenv-expand do not interpolate it: `PASSWORD='pa$$word'`. When it also holds a single quote or a line break, it is double-quoted with `$` written as `\$`.
 
-A file path that leaves the project root, directly or through a symlinked directory, is refused, and so is writing through a symlink. Each file is written atomically (a temporary file in the same directory, flushed, then renamed into place) with the schema's `mode`, else the existing file's mode, else `644`.
+A file path that leaves the project root, directly or through a symlinked directory, is refused, and so is writing through a symlink. Each file is written atomically (a temporary file in the same directory, flushed, then renamed into place) with the schema's `mode`, else the existing file's mode, else `644`. A new file never replaces one that appeared after planning: it is hard-linked into place, or, on a file system without hard links, created exclusively. A generate or merge file whose mode differs from the schema's `mode` is rewritten with that mode.
+
+A line that is not a valid entry, such as a quote that is never closed, is kept as is and reported by `check`; the lines after it parse on their own.
 
 The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` whose last label is all digits must be a valid IPv4 address, so `999.1.1.1` is rejected.
 

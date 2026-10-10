@@ -22,6 +22,10 @@ export interface FilePlan {
   error?: string;
   /** The permissions to write with: the schema's, else the file's, else 644. */
   mode: number;
+  /** The permissions the file has now; absent when it does not exist. */
+  currentMode?: number;
+  /** Whether the schema sets the mode, so a differing one is drift. */
+  modeFixed?: boolean;
   /** What the file holds after the run; absent for a skipped file. */
   content?: string;
   /** What the file holds now; absent when it does not exist. */
@@ -154,7 +158,17 @@ async function planFile(
     ? await readFile(target.absolute, 'utf8')
     : undefined;
   const mode = schemaMode ?? target.mode ?? 0o644;
-  const common = { ...base, mode, previous, target: target.absolute };
+  const common = {
+    ...base,
+    mode,
+    previous,
+    target: target.absolute,
+    ...(target.exists ? { currentMode: target.mode } : {}),
+    ...(schemaMode === undefined ? {} : { modeFixed: true }),
+  };
+  // A generate or merge file whose content is current is still rewritten
+  // when its mode differs from the schema's.
+  const modeDiffers = target.exists && target.mode !== mode;
   const keys = fileKeys(schema, file);
   const write: Writer = (key) => {
     const literal = file.values?.[key];
@@ -176,12 +190,15 @@ async function planFile(
   switch (file.policy) {
     case 'generate': {
       const content = render(schema, file, write, doc.eol);
-      const action = content === previous ? 'unchanged' : 'update';
+      const action =
+        content === previous && !modeDiffers ? 'unchanged' : 'update';
       return { plan: { ...common, action, addedKeys: missing, content } };
     }
     case 'merge': {
-      if (!missing.length)
-        return { plan: { ...common, action: 'unchanged', content: previous } };
+      if (!missing.length) {
+        const action = modeDiffers ? 'update' : 'unchanged';
+        return { plan: { ...common, action, content: previous } };
+      }
       const lines = entryLines(schema, file, missing, write);
       appendLines(doc, doc.lines.length ? ['', ...lines] : lines);
       const content = serialize(doc);

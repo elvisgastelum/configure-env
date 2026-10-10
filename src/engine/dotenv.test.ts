@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendLines,
   getValue,
+  invalidLineNumbers,
   parseDotenv,
   removeKey,
   serialize,
@@ -87,6 +88,25 @@ describe('parseDotenv and serialize', () => {
     expect(doc.bom).toBe(true);
     expect(doc.finalNewline).toBe(false);
     expect(getValue(doc, 'A')).toBe('1');
+  });
+
+  it('keeps parsing after an unterminated quote that a later quote would close', () => {
+    const text = 'A="open\nB=2\nC="x"\nD=4\n';
+    const doc = parseDotenv(text);
+    expect(doc.lines.map((line) => line.kind)).toEqual([
+      'invalid',
+      'entry',
+      'entry',
+      'entry',
+    ]);
+    expect(getValue(doc, 'B')).toBe('2');
+    expect(getValue(doc, 'C')).toBe('x');
+    expect(serialize(doc)).toBe(text);
+  });
+
+  it('numbers each line by the physical line it starts on', () => {
+    const doc = parseDotenv('A="one\ntwo"\nbad\nB=1\n');
+    expect(invalidLineNumbers(doc)).toEqual([3]);
   });
 
   it('reads the last of repeated keys', () => {
