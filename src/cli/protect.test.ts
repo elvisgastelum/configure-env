@@ -982,7 +982,32 @@ describe('apply', () => {
       out: ['.env: mode fixed (644 → 600)'],
     });
     expect(Object.keys((await state()).fingerprints)).toEqual(['.env']);
+    expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
     await expectNoValue([r], KEY_A);
+  });
+
+  it('fixes the mode of a file whose protected value no longer matches, keeping the record', async () => {
+    await seedKey();
+    const recorded = await read(STATE);
+    // The value changed by hand: a chmod neither blocks on it nor records it.
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
+    await chmod(path('.env'), 0o644);
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: mode fixed (644 → 600)'],
+      err: [],
+    });
+    expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
+    expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
+    expect(await read(STATE)).toBe(recorded);
+    // check still reports the mismatch.
+    const check = await cli(['check', '--ci', '--file', '.env']);
+    expect(check.code).toBe(1);
+    expect(check.out).toContain(
+      `.env: SM_MASTER_KEY no longer matches the value recorded on ${today()}`,
+    );
+    await expectNoValue([r, check], KEY_A, KEY_B);
   });
 
   it('takes --state for another place', async () => {
