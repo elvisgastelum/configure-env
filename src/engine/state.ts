@@ -241,8 +241,7 @@ export function applyChanges(
 export const LOCK_WAIT_MS = 2_000;
 export const LOCK_STALE_MS = 30_000;
 
-const pause = (ms: number) =>
-  new Promise((done) => setTimeout(done, ms).unref?.());
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 /**
  * Runs `task` holding `<path>.lock`, created exclusively next to the state.
