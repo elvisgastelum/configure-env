@@ -7,7 +7,6 @@ import { fileKeys } from '../engine/plan.ts';
 import {
   type State,
   type StateChange,
-  applyChanges,
   loadState,
   matchesFingerprint,
   recorded,
@@ -49,8 +48,8 @@ export interface RunState {
   path: string;
   state: State;
   /**
-   * The run's changes, applied to `state` as they are made and to the state
-   * on disk when it is written, so a parallel run's entries survive.
+   * The run's record and remove intents, applied to the state on disk when
+   * it is written, so a parallel run's entries survive.
    */
   changes: StateChange[];
 }
@@ -224,8 +223,9 @@ export function recordValues(
     const change: StateChange = value
       ? { action: 'record', file: file.path, key, value, replace }
       : { action: 'remove', file: file.path, key };
-    // Only a change to what the run read is kept: the rest needs no write.
-    if (applyChanges(run.state, [change])) run.changes.push(change);
+    // Decided against the state on disk when it is written, under its lock:
+    // a parallel run may have changed it since this one read it.
+    run.changes.push(change);
   }
 }
 

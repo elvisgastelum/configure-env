@@ -222,6 +222,43 @@ describe('set', () => {
     await expectNoValue([other, restored], KEY_A, KEY_B);
   });
 
+  it('records a replacement against the state as it is when written', async () => {
+    await seedKey();
+    // A parallel run replaces the value while this one waits on stdin; this
+    // run then puts the first value back, which it read as recorded.
+    const r = await cli(
+      [
+        'set',
+        '--ci',
+        '--file',
+        '.env',
+        '--replace-protected',
+        'SM_MASTER_KEY',
+        '--stdin',
+        'SM_MASTER_KEY',
+      ],
+      {
+        stdin: async () => {
+          const other = await cli([
+            'set',
+            '--ci',
+            '--file',
+            '.env',
+            '--replace-protected',
+            'SM_MASTER_KEY',
+            `SM_MASTER_KEY=${KEY_B}`,
+          ]);
+          expect(other.code).toBe(0);
+          return KEY_A;
+        },
+      },
+    );
+    expect(r.code).toBe(0);
+    expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_A);
+    // The state follows the file: no mismatch.
+    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+  });
+
   it('keeps the fingerprints of parallel runs', async () => {
     const runs = await Promise.all(
       ['.env', 'worker.env'].map((file) =>
@@ -703,8 +740,13 @@ describe('apply', () => {
       '.env',
       'SM_MASTER_KEY_FILE=',
     ]);
-    // The found value has its record already; nothing to write, so no failure.
-    expect(set.code).toBe(0);
+    // The found value is checked against the state under its lock, which
+    // cannot be taken: the file is written, the run fails.
+    expect(set.code).toBe(1);
+    expect(JSON.parse(set.out[0]!)).toMatchObject({
+      ok: false,
+      keys: [{ key: 'SM_MASTER_KEY_FILE', status: 'added' }],
+    });
     const replaced = await cli([
       'set',
       '--json',

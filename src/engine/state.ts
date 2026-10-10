@@ -264,16 +264,7 @@ async function withLock<T>(
       if (codeOf(error) !== 'EEXIST') throw error;
     }
     const stats = await lstat(lock).catch(() => undefined);
-    if (stats && Date.now() - stats.mtimeMs > LOCK_STALE_MS) {
-      // A run that died holding it; a lock that cannot be removed fails.
-      await unlink(lock).catch((error: unknown) => {
-        if (codeOf(error) !== 'ENOENT')
-          throw new Error(
-            `${lock}: stale, and cannot be removed: ${codeOf(error)}`,
-          );
-      });
-      continue;
-    }
+    if (stats && isStale(stats.mtimeMs) && (await takeOver(lock))) continue;
     if (Date.now() >= deadline)
       throw new Error(`${lock}: held by another run; try again`);
     await pause(25);
@@ -282,6 +273,45 @@ async function withLock<T>(
     return await task();
   } finally {
     await unlink(lock).catch(() => undefined);
+  }
+}
+
+const isStale = (mtimeMs: number) => Date.now() - mtimeMs > LOCK_STALE_MS;
+
+/**
+ * Removes a stale lock, a run that died holding it. Takers go one at a time
+ * through `<lock>.takeover`, created exclusively, and remove the lock only
+ * when it is still stale: a lock another taker removed and created anew is
+ * fresh, so two runs never both hold it. A guard is held for a moment
+ * only; one left by a run that stopped is never taken over. False when
+ * another taker holds the guard.
+ */
+async function takeOver(lock: string): Promise<boolean> {
+  const guard = `${lock}.takeover`;
+  try {
+    await (await open(guard, 'wx', 0o600)).close();
+  } catch (error) {
+    if (codeOf(error) !== 'EEXIST') throw error;
+    const stats = await lstat(guard).catch(() => undefined);
+    if (stats && isStale(stats.mtimeMs))
+      throw new Error(
+        `${guard}: left by a run that stopped; remove it and ${lock}`,
+        { cause: error },
+      );
+    return false;
+  }
+  try {
+    const stats = await lstat(lock).catch(() => undefined);
+    if (stats && isStale(stats.mtimeMs))
+      await unlink(lock).catch((error: unknown) => {
+        if (codeOf(error) !== 'ENOENT')
+          throw new Error(
+            `${lock}: stale, and cannot be removed: ${codeOf(error)}`,
+          );
+      });
+    return true;
+  } finally {
+    await unlink(guard).catch(() => undefined);
   }
 }
 

@@ -255,4 +255,41 @@ describe('updateState', () => {
     ).toBe(true);
     await expect(stat(lock)).rejects.toThrow();
   });
+
+  it('lets one of several simultaneous takers take over a stale lock', async () => {
+    const lock = `${statePath()}.lock`;
+    await mkdir(join(temp.dirs.root, '.configure-env'));
+    const old = new Date(Date.now() - 60_000);
+    for (let round = 0; round < 5; round++) {
+      await writeFile(lock, '');
+      await utimes(lock, old, old);
+      const keys = ['A', 'B', 'C', 'D'].map((key) => `${key}${round}`);
+      await Promise.all(
+        keys.map((key) => updateState(statePath(), [record('.env', key, key)])),
+      );
+      const loaded = await loadState(statePath());
+      if (!loaded.ok) throw new Error(loaded.message);
+      for (const key of keys)
+        expect(matchesFingerprint(loaded.state, '.env', key, key)).toBe(true);
+    }
+    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
+      'state.json',
+    ]);
+  });
+
+  it('never takes over a takeover guard a stopped run left', async () => {
+    const lock = `${statePath()}.lock`;
+    await mkdir(join(temp.dirs.root, '.configure-env'));
+    const old = new Date(Date.now() - 60_000);
+    for (const path of [lock, `${lock}.takeover`]) {
+      await writeFile(path, '');
+      await utimes(path, old, old);
+    }
+    await expect(
+      updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+    ).rejects.toThrow(
+      `${lock}.takeover: left by a run that stopped; remove it and ${lock}`,
+    );
+    await expect(stat(statePath())).rejects.toThrow();
+  });
 });
