@@ -991,6 +991,11 @@ describe('apply', () => {
 
   it('fixes the mode of a file whose protected value no longer matches, keeping the record', async () => {
     await seedKey();
+    // A fixed record time near midnight UTC: the date is the UTC day.
+    const seeded = await state();
+    seeded.fingerprints['.env']!['SM_MASTER_KEY']!.recordedAt =
+      '2020-01-02T23:59:30.000Z';
+    await writeFile(path(STATE), JSON.stringify(seeded));
     const recorded = await read(STATE);
     // The value changed by hand: a chmod neither blocks on it nor records it.
     await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
@@ -1005,14 +1010,10 @@ describe('apply', () => {
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
     expect(await read(STATE)).toBe(recorded);
     // check still reports the mismatch.
-    // The date comes from the record, so a run across midnight cannot fail.
-    const on = (await state()).fingerprints['.env']![
-      'SM_MASTER_KEY'
-    ]!.recordedAt.slice(0, 10);
     const check = await cli(['check', '--ci', '--file', '.env']);
     expect(check.code).toBe(1);
     expect(check.out).toContain(
-      `.env: SM_MASTER_KEY no longer matches the value recorded on ${on}`,
+      `.env: SM_MASTER_KEY no longer matches the value recorded on 2020-01-02`,
     );
     await expectNoValue([r, check], KEY_A, KEY_B);
   });
