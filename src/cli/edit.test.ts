@@ -267,6 +267,26 @@ describe('set --generate', () => {
     expect(await tokenIn('app.env')).toMatch(/^[A-Za-z0-9_-]{48}$/);
   });
 
+  it('keeps a valid value byte for byte, however it is written', async () => {
+    const line = "export TOKEN = 'abcdefghij' # kept\n";
+    await seed(line);
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r).toMatchObject({ code: 0, out: ['TOKEN: unchanged (••••ij)'] });
+    expect(await read('app.env')).toBe(line);
+  });
+
+  it('exits 1 for a value it would keep that breaks the rules, never echoing it', async () => {
+    await seed('TOKEN=short\n');
+    const r = await cli(['set', '--generate', 'TOKEN']);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: TOKEN: must be at least 8 characters; unset it to generate a new one',
+      'nothing was written to app.env',
+    ]);
+    expect([...r.out, ...r.err].join('\n')).not.toContain('short');
+    expect(await read('app.env')).toBe('TOKEN=short\n');
+  });
+
   it('raises the length to minLength and lowers it to maxLength', async () => {
     await seed('PORT=1\n');
     await tokenSchema({ type: 'string', secret: true, minLength: 64 });
@@ -349,13 +369,21 @@ describe('set --stdin', () => {
 
   it('exits 2 when stdin is a terminal or cannot be read', async () => {
     await seed();
-    expect((await cli(['set', '--stdin', 'TOKEN'])).code).toBe(2);
+    const none = await cli(['set', '--stdin', 'TOKEN']);
+    expect(none).toMatchObject({
+      code: 2,
+      err: ['configure-env: --stdin needs a stdin reader; this Io has none'],
+    });
     const tty = await cli(['set', '--stdin', 'TOKEN'], {
       stdin: 'abcdefghij',
       stdinIsTTY: true,
     });
-    expect(tty.code).toBe(2);
-    expect(tty.err.join('\n')).toContain('--stdin');
+    expect(tty).toMatchObject({
+      code: 2,
+      err: [
+        'configure-env: --stdin reads the value from a pipe; stdin is a terminal',
+      ],
+    });
     expect(await read('app.env')).toBe(ORIGINAL);
   });
 

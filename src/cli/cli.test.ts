@@ -608,6 +608,56 @@ describe('apply --defer', () => {
     expect(await read('.env')).toMatch(/^API_TOKEN=$/m);
     expect(logs.join('\n')).toContain('deferred: API_TOKEN');
   });
+
+  describe('with two real files', () => {
+    const useTwoFiles = () =>
+      writeFile(
+        join(root(), 'env.schema.json'),
+        JSON.stringify({
+          version: 1,
+          variables: {
+            API_TOKEN: { type: 'string', secret: true, required: true },
+          },
+          files: [
+            { path: '.env.example', policy: 'merge', variables: '*' },
+            { path: '.env', policy: 'create-only', variables: '*' },
+            { path: '.env.test', policy: 'create-only', variables: '*' },
+          ],
+        }),
+      );
+
+    it('names only the files the run wrote', async () => {
+      await useTwoFiles();
+      const r = await cli([
+        'apply',
+        '--ci',
+        '--file',
+        '.env',
+        '--defer',
+        'API_TOKEN',
+      ]);
+      expect(r).toMatchObject({ code: 0, err: [] });
+      expect(r.out).toEqual([
+        '.env: created',
+        'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
+      ]);
+    });
+
+    it('names only the files picked in the terminal', async () => {
+      await useTwoFiles();
+      const { prompts, logs } = scriptedPrompts({ 'Which files': ['.env'] });
+      const r = await cli(['apply', '--defer', 'API_TOKEN'], {
+        isTTY: true,
+        prompts,
+      });
+      expect(r.code).toBe(0);
+      const outro = logs.filter((line) => line.startsWith('outro:')).join('\n');
+      expect(outro).toContain(
+        'deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)',
+      );
+      expect(outro).not.toContain('.env.test');
+    });
+  });
 });
 
 describe('check', () => {

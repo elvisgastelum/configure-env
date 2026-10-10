@@ -18,6 +18,7 @@ import {
   type Context,
   contextOf,
   describeError,
+  givenTwice,
   givenValue,
   loadContextSchema,
   NO_TERMINAL,
@@ -31,7 +32,6 @@ import {
 import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
 import { generateKeys, generateValue } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
-import { variablesOf } from './target.ts';
 import type { Io, Prompts } from './io.ts';
 
 const OPTIONS = {
@@ -53,8 +53,7 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
     Object.hasOwn(schema.variables, key) ? schema.variables[key] : undefined,
   );
   for (const key of generated) {
-    if (sets[key] !== undefined)
-      throw usageError(`${key}: --generate takes a key given no other way`);
+    if (sets[key] !== undefined) throw givenTwice('--generate', key);
   }
   const deferred = deferKeys(schema, options.defer, [
     ...Object.keys(sets),
@@ -83,8 +82,7 @@ function deferKeys(
   for (const key of unique) {
     if (!Object.hasOwn(schema.variables, key))
       throw usageError(`${key}: is not declared in the schema`);
-    if (given.includes(key))
-      throw usageError(`${key}: --defer takes a key given no other way`);
+    if (given.includes(key)) throw givenTwice('--defer', key);
   }
   return unique;
 }
@@ -105,16 +103,19 @@ const leftEmpty = (
 
 /**
  * The report line for keys left for a person to set: one `set` command per
- * real file that lists them, with `--file` so it works with several files.
+ * file of the run that takes them, with `--file` so it works with several.
  */
-function deferredLine(schema: EnvSchema, keys: readonly string[]) {
-  const commands = schema.files
-    .filter((file) => !isTemplate(file))
-    .map((file) => {
-      const listed = variablesOf(schema, file);
-      const prompts = keys.filter((key) => listed.has(key));
+function deferredLine(
+  schema: EnvSchema,
+  plans: readonly FilePlan[],
+  keys: readonly string[],
+) {
+  const commands = plans
+    .map((plan) => {
+      const needed = neededKeysOf(schema, plan);
+      const prompts = keys.filter((key) => needed.includes(key));
       return prompts.length
-        ? `configure-env set --file ${file.path} ${prompts.map((key) => `--prompt ${key}`).join(' ')}`
+        ? `configure-env set --file ${plan.path} ${prompts.map((key) => `--prompt ${key}`).join(' ')}`
         : '';
     })
     .filter(Boolean);
@@ -218,7 +219,7 @@ async function applyUnattended(
     plan.files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
-    if (empty.length) io.stdout(deferredLine(schema, empty));
+    if (empty.length) io.stdout(deferredLine(schema, plan.files, empty));
   }
   return ok ? 0 : 1;
 }
@@ -305,7 +306,7 @@ function previewLines(
 async function applyInteractive(
   { io, prompts, root, files, schemaPath }: Context,
   schema: EnvSchema,
-  given: Record<string, string>,
+  setValues: Record<string, string>,
   generated: readonly string[],
   deferred: readonly string[],
 ): Promise<number> {
@@ -326,7 +327,7 @@ async function applyInteractive(
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
   checkGenerated(schema, picked, generated);
-  const sets = withGenerated(schema, given, generated);
+  const sets = withGenerated(schema, setValues, generated);
 
   let refused = false;
   const selected: FilePlan[] = [];
@@ -416,7 +417,7 @@ async function applyInteractive(
       ...plan.files.map(
         (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
       ),
-      ...(empty.length ? [deferredLine(schema, empty)] : []),
+      ...(empty.length ? [deferredLine(schema, plan.files, empty)] : []),
     ].join('\n'),
   );
   return failure;

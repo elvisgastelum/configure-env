@@ -28,6 +28,10 @@ export const NO_TERMINAL =
 /** A usage error: exit code 2. */
 export const usageError = (...lines: string[]) => new CliError(2, lines);
 
+/** The usage error for a key that `option` takes but that is given another way too. */
+export const givenTwice = (option: string, key: string) =>
+  usageError(`${key}: ${option} takes a key given no other way`);
+
 export const GLOBAL_OPTIONS = {
   schema: { type: 'string' },
   root: { type: 'string' },

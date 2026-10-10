@@ -27,6 +27,7 @@ import {
   CliError,
   NO_TERMINAL,
   contextOf,
+  givenTwice,
   loadContextSchema,
   parseCommandArgs,
   usageError,
@@ -129,10 +130,10 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   for (const key of options.generate ?? []) {
     checkName(key);
     if (pairs.has(key) || options.prompt?.includes(key) || key === stdinKey)
-      throw usageError(`${key}: --generate takes a key given no other way`);
+      throw givenTwice('--generate', key);
   }
   if (stdinKey !== undefined && pairs.has(stdinKey))
-    throw usageError(`${stdinKey}: --stdin takes a key given no other way`);
+    throw givenTwice('--stdin', stdinKey);
   if (
     !pairs.size &&
     !promptKeys.length &&
@@ -153,7 +154,9 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     );
   if (promptKeys.length && (context.ci || context.json || !io.isTTY))
     throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
-  if (stdinKey !== undefined && (!io.readStdin || io.stdinIsTTY))
+  if (stdinKey !== undefined && !io.readStdin)
+    throw usageError('--stdin needs a stdin reader; this Io has none');
+  if (stdinKey !== undefined && io.stdinIsTTY)
     throw usageError(
       '--stdin reads the value from a pipe; stdin is a terminal',
     );
@@ -228,6 +231,15 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   for (const [key, raw] of pairs) {
     const variable = specFor(schema, spec, key);
     if (variable && kept.has(key)) {
+      // A kept value is checked like any other, and never shown: it may be
+      // the secret the file already holds.
+      const result = validateValue(variable, raw);
+      if (!result.ok) {
+        errors.push(`${key}: ${result.error}; unset it to generate a new one`);
+        continue;
+      }
+      // `raw` is the value the file holds: equal to it, the entry reports
+      // unchanged and its line is never rewritten, so no formatting applies.
       written.set(key, { spec: variable, text: raw, plain: raw });
       continue;
     }

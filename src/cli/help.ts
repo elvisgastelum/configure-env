@@ -1,6 +1,7 @@
 // The help text of each command.
 
 import { readFileSync } from 'node:fs';
+import { GENERATED_LENGTH } from './generate.ts';
 
 /** The package version, from package.json. */
 export const VERSION: string = (
@@ -158,12 +159,13 @@ inline comment; a missing key is appended with its schema comment. Every
 other line stays byte for byte, and the file keeps its mode. Each key is
 reported as updated, added or unchanged, secrets masked.
 
---generate KEY writes a random value for a secret string variable (48
+--generate KEY writes a random value for a secret string variable (${GENERATED_LENGTH}
 characters of [A-Za-z0-9_-], within minLength and maxLength); a key that
 already has a value keeps it. --stdin KEY reads one value from stdin, one
 trailing newline stripped, so a secret never goes through argv. An empty
 stdin, as a failed command in the pipe leaves, writes nothing (exit 1); so
-does input past 64 KiB. No input within 60s exits 2.
+does input past 64 KiB. 60s with no new input exits 2, as does a pipe
+that sends the value but never closes.
 
 ${FILE_CHOICE} A template file is
 edited only with --allow-template, and never with --generate or --stdin.
