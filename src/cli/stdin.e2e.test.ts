@@ -11,6 +11,8 @@ import { STDIN_MAX_BYTES } from './stdin.ts';
 import { useProject } from './test-helpers.ts';
 
 const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));
+/** Each test spawns a process: allow far more than the default 5 s. */
+const TIMEOUT = 10_000;
 const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
 
 const dirs = useProject({
@@ -53,46 +55,58 @@ function cli(args: string[], input: string, { keepOpen = false } = {}) {
 }
 
 describe('set --stdin through src/cli.ts', () => {
-  it('writes the piped value and masks it in the output', async () => {
-    const r = await cli(
-      ['set', '--create', '--stdin', 'TOKEN'],
-      'piped-secret-value\n',
-    );
-    expect(r).toMatchObject({ code: 0, err: '' });
-    expect(r.out).toBe('TOKEN: added (••••ue)\n');
-    expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
-      'TOKEN=piped-secret-value\n',
-    );
-  });
+  it(
+    'writes the piped value and masks it in the output',
+    async () => {
+      const r = await cli(
+        ['set', '--create', '--stdin', 'TOKEN'],
+        'piped-secret-value\n',
+      );
+      expect(r).toMatchObject({ code: 0, err: '' });
+      expect(r.out).toBe('TOKEN: added (••••ue)\n');
+      expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
+        'TOKEN=piped-secret-value\n',
+      );
+    },
+    TIMEOUT,
+  );
 
-  it('exits 1 and writes nothing for an empty stdin', async () => {
-    await writeFile(join(dirs.root, 'app.env'), 'TOKEN=abcdefghij\n');
-    const r = await cli(['set', '--stdin', 'TOKEN'], '');
-    expect(r.code).toBe(1);
-    expect(r.err).toBe(
-      'configure-env: TOKEN: stdin was empty; nothing was written to app.env\n',
-    );
-    expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
-      'TOKEN=abcdefghij\n',
-    );
-  });
+  it(
+    'exits 1 and writes nothing for an empty stdin',
+    async () => {
+      await writeFile(join(dirs.root, 'app.env'), 'TOKEN=abcdefghij\n');
+      const r = await cli(['set', '--stdin', 'TOKEN'], '');
+      expect(r.code).toBe(1);
+      expect(r.err).toBe(
+        'configure-env: TOKEN: stdin was empty; nothing was written to app.env\n',
+      );
+      expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
+        'TOKEN=abcdefghij\n',
+      );
+    },
+    TIMEOUT,
+  );
 
   // The size cap fails the read the same way the idle timeout does: the
   // stream is destroyed. With the pipe still open, only that lets the
   // process exit, so this proves it without waiting out the timeout.
-  it('exits on a read that fails while the pipe stays open', async () => {
-    await writeFile(join(dirs.root, 'app.env'), 'TOKEN=abcdefghij\n');
-    const r = await cli(
-      ['set', '--stdin', 'TOKEN'],
-      'x'.repeat(STDIN_MAX_BYTES + 1),
-      { keepOpen: true },
-    );
-    expect(r.code).toBe(1);
-    expect(r.err).toBe(
-      `configure-env: --stdin takes at most ${STDIN_MAX_BYTES} bytes\n`,
-    );
-    expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
-      'TOKEN=abcdefghij\n',
-    );
-  }, 10_000);
+  it(
+    'exits on a read that fails while the pipe stays open',
+    async () => {
+      await writeFile(join(dirs.root, 'app.env'), 'TOKEN=abcdefghij\n');
+      const r = await cli(
+        ['set', '--stdin', 'TOKEN'],
+        'x'.repeat(STDIN_MAX_BYTES + 1),
+        { keepOpen: true },
+      );
+      expect(r.code).toBe(1);
+      expect(r.err).toBe(
+        `configure-env: --stdin takes at most ${STDIN_MAX_BYTES} bytes\n`,
+      );
+      expect(await readFile(join(dirs.root, 'app.env'), 'utf8')).toBe(
+        'TOKEN=abcdefghij\n',
+      );
+    },
+    TIMEOUT,
+  );
 });

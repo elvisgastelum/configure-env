@@ -542,12 +542,39 @@ describe('apply --generate', () => {
     expect(differ).toMatchObject({ code: 2, err: [] });
     expect(JSON.parse(differ.out.join('')).errors).toEqual([
       {
-        kind: 'value',
+        kind: 'usage',
         key: 'SECRET',
         message: '--generate found different values in merge.env, local.env',
       },
     ]);
     expect(differ.out.join('')).not.toMatch(/aaaa|bbbb/);
+  });
+
+  it('generates no value for a key no file of the run writes', async () => {
+    await useSecretSchema({ pattern: '^[0-9]+$' });
+    const template = await cli([
+      'apply',
+      '--ci',
+      '--generate',
+      'SECRET',
+      '--file',
+      'gen.env.example',
+    ]);
+    expect(template).toMatchObject({ code: 0, err: [] });
+    expect(await secretIn('gen.env.example')).toBe('');
+    await writeFile(join(root(), 'local.env'), 'PORT=1\n');
+    const skipped = await cli([
+      'apply',
+      '--ci',
+      '--generate',
+      'SECRET',
+      '--file',
+      'local.env',
+    ]);
+    expect(skipped).toMatchObject({
+      code: 0,
+      out: ['local.env: skipped (exists)'],
+    });
   });
 
   it('prints the failure JSON for a key the options misuse', async () => {
@@ -576,7 +603,7 @@ describe('apply --generate', () => {
       expect(JSON.parse(r.out.join(''))).toEqual({
         command: 'apply',
         ok: false,
-        errors: [{ kind: 'value', key, message }],
+        errors: [{ kind: 'usage', key, message }],
         files: [],
         deferred: [],
       });

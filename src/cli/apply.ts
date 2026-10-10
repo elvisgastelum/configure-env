@@ -6,14 +6,9 @@ import {
   type FilePlan,
   type Plan,
   type PlanError,
-  fileKeys,
   planChanges,
 } from '../engine/plan.ts';
-import {
-  type EnvSchema,
-  type VariableSpec,
-  isTemplate,
-} from '../schema/definition.ts';
+import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
 import { maskValue, validateValue } from '../schema/values.ts';
 import {
   CliError,
@@ -24,10 +19,12 @@ import {
   givenTwice,
   givenValue,
   keyError,
+  type KeyProblem,
   loadContextSchema,
   NO_TERMINAL,
   neededKeys,
   neededKeysOf,
+  takesValue,
   parseCommand,
   parseSets,
   resolveValues,
@@ -66,7 +63,7 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
 
 /** The JSON document of a run that failed and wrote nothing. */
 const failureJson = (
-  errors: readonly PlanError[],
+  errors: readonly (PlanError | KeyProblem)[],
   files: readonly FilePlan[],
 ) =>
   JSON.stringify({
@@ -91,10 +88,11 @@ async function applyWith(
   for (const key of generated) {
     if (sets[key] !== undefined) throw givenTwice('--generate', key);
   }
-  const deferred = deferKeys(schema, options.defer, [
-    ...Object.keys(sets),
-    ...generated,
-  ]);
+  const deferred = deferKeys(
+    schema,
+    [...Object.keys(sets), ...generated],
+    options.defer,
+  );
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
     return applyUnattended(context, schema, sets, generated, deferred);
@@ -106,16 +104,16 @@ async function applyWith(
 /** The keys of the repeated --defer option, each once and checked. */
 function deferKeys(
   schema: EnvSchema,
-  keys: readonly string[] = [],
   given: readonly string[],
+  keys: readonly string[] = [],
 ): string[] {
   const unique = [...new Set(keys)];
   for (const key of unique) {
     if (!Object.hasOwn(schema.variables, key))
-      throw keyError(2, key, 'is not declared in the schema');
+      throw keyError('usage', key, 'is not declared in the schema');
     if (given.includes(key)) throw givenTwice('--defer', key);
     if (!schema.variables[key]!.required)
-      throw keyError(2, key, '--defer takes a required variable');
+      throw keyError('usage', key, '--defer takes a required variable');
   }
   return unique;
 }
@@ -166,10 +164,8 @@ function checkGenerated(
 ) {
   for (const file of schema.files) {
     if (paths && !paths.includes(file.path)) continue;
-    if (file.policy !== 'generate' || isTemplate(file)) continue;
-    const written = fileKeys(schema, file).filter(
-      (key) => keys.includes(key) && file.values?.[key] === undefined,
-    );
+    if (file.policy !== 'generate') continue;
+    const written = keys.filter((key) => takesValue(schema, file, key));
     const message = `--generate would rotate it on every run of ${file.path}, a generate file`;
     if (written.length)
       throw new CliError(
@@ -178,16 +174,17 @@ function checkGenerated(
           `${written.join(', ')}: ${message}`,
           'pass --file to leave that file out of the run',
         ],
-        written.map((key) => ({ kind: 'value', key, message })),
+        written.map((key) => ({ kind: 'usage', key, message })),
       );
   }
 }
 
 /**
- * The --set values plus one value per --generate key: the one the run's
- * files already hold, else a random one. A file that lost the key, or a new
- * one, so takes the secret the others keep. Values that differ exit 2,
- * naming the files and never a value.
+ * The --set values plus one value per --generate key. When a file of the
+ * run already holds a non-empty value for the key, that value goes to the
+ * files that lack it, so every file keeps one secret; else a random value
+ * is made, only when a file of the run will write the key. Files holding
+ * different values exit 2, naming the files and never a value.
  */
 function withGenerated(
   schema: EnvSchema,
@@ -196,12 +193,12 @@ function withGenerated(
   keys: readonly string[],
 ): Record<string, string> {
   const values = { ...sets };
+  const needed = neededKeys(schema, plans);
   for (const key of keys) {
     const held = new Map<string, string>();
     for (const plan of plans) {
       const file = schema.files.find((spec) => spec.path === plan.path)!;
-      if (isTemplate(file) || file.values?.[key] !== undefined) continue;
-      if (plan.previous === undefined || !fileKeys(schema, file).includes(key))
+      if (plan.previous === undefined || !takesValue(schema, file, key))
         continue;
       const value = getValue(parseDotenv(plan.previous), key);
       if (value) held.set(plan.path, value);
@@ -209,12 +206,14 @@ function withGenerated(
     const distinct = [...new Set(held.values())];
     if (distinct.length > 1)
       throw keyError(
-        2,
+        'usage',
         key,
         `--generate found different values in ${[...held.keys()].join(', ')}`,
         'set the same value in each, or pass --file to leave one out of the run',
       );
-    values[key] = distinct[0] ?? generateValue(key, schema.variables[key]!);
+    if (distinct[0] !== undefined) values[key] = distinct[0];
+    else if (needed.includes(key))
+      values[key] = generateValue(key, schema.variables[key]!);
   }
   return values;
 }

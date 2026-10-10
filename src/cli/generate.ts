@@ -15,7 +15,7 @@ const ATTEMPTS = 10;
 /** Throws the usage error unless the variable is a secret string. */
 export function checkGeneratable(key: string, spec: VariableSpec | undefined) {
   if (spec?.type !== 'string' || !spec.secret)
-    throw keyError(2, key, '--generate takes a secret string variable');
+    throw keyError('usage', key, '--generate takes a secret string variable');
 }
 
 /** The keys of the repeated --generate option, each once and checked. */
@@ -45,7 +45,7 @@ export function generateValue(key: string, spec: VariableSpec): string {
     if (value && validateValue(spec, value).ok) return value;
   }
   throw keyError(
-    1,
+    'value',
     key,
     'cannot generate a value that passes its rules; set it with --prompt or --stdin',
   );

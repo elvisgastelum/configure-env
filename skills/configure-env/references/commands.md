@@ -38,7 +38,7 @@
 
 ## JSON output
 
-- `apply`: `{ command, ok, errors, files: [{ path, policy, action, status, addedKeys, written }], deferred: [key] }`; `deferred` lists keys written empty, `[]` on a failed run. A failure about a key (misused `--generate`/`--defer`, a value that cannot be generated) prints this document too, `files: []`, exit 1 or 2; errors carry `kind`, `key`, `message`, never a value.
+- `apply`: `{ command, ok, errors, files: [{ path, policy, action, status, addedKeys, written }], deferred: [key] }`; `deferred` lists keys written empty, `[]` on a failed run. A failure about a key (misused `--generate`/`--defer`, a value that cannot be generated) prints this document too, `files: []`, exit 1 or 2; errors carry `kind`, `key` (or `path`), `message`, never a value. `kind` is `value` (a value breaks its rules, exit 1), `file` (an unsafe path, exit 1) or `usage` (the options misuse a key, exit 2).
 - `check`: `{ command, ok, drift, errors, files: [{ path, policy, status, drift, missingKeys, invalid, invalidLines, mode? }] }`
 - `validate`: `{ command, ok, files: [{ path, template, exists, ok, errors, warnings }] }`
 - `list`: `[{ file, key, set, valid, error?, value | masked, description?, unknown? }]`

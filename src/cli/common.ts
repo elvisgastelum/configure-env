@@ -4,39 +4,54 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
-import type { FilePlan, PlanError } from '../engine/plan.ts';
+import type { FilePlan, PlanError, ValueError } from '../engine/plan.ts';
 import { fileKeys } from '../engine/plan.ts';
-import { type EnvSchema, isTemplate } from '../schema/definition.ts';
+import {
+  type EnvSchema,
+  type FileSpec,
+  isTemplate,
+} from '../schema/definition.ts';
 import { DEFAULT_SCHEMA_PATH, loadSchema } from '../schema/load.ts';
 import { validateValue } from '../schema/values.ts';
 import type { Io, Prompts } from './io.ts';
 import { clackPrompts } from './prompts.ts';
 
 /**
+ * A problem with one key, as `--json` reports it: `value` when a value
+ * breaks the variable's rules (exit 1), `usage` when the options misuse the
+ * key (exit 2). Never holds a value.
+ */
+export type KeyProblem =
+  ValueError | { kind: 'usage'; key: string; message: string };
+
+/**
  * A failure that ends the command with `code` after printing `lines`.
- * `errors` holds it as plan errors when it is about a key, for `--json`.
+ * `errors` holds it as key problems, for `--json`.
  */
 export class CliError extends Error {
   constructor(
     readonly code: number,
     readonly lines: string[],
-    readonly errors?: PlanError[],
+    readonly errors?: KeyProblem[],
   ) {
     super(lines[0]);
   }
 }
 
-/** A failure about one key, never holding its value; `hints` follow it. */
+/**
+ * A failure about one key, never holding its value: a `usage` one exits 2,
+ * a `value` one 1. `hints` follow the message.
+ */
 export const keyError = (
-  code: number,
+  kind: KeyProblem['kind'],
   key: string,
   message: string,
   ...hints: string[]
 ) =>
   new CliError(
-    code,
+    kind === 'usage' ? 2 : 1,
     [`${key}: ${message}`, ...hints],
-    [{ kind: 'value', key, message }],
+    [{ kind, key, message }],
   );
 
 export const NO_TERMINAL =
@@ -47,7 +62,7 @@ export const usageError = (...lines: string[]) => new CliError(2, lines);
 
 /** The usage error for a key that `option` takes but that is given another way too. */
 export const givenTwice = (option: string, key: string) =>
-  keyError(2, key, `${option} takes a key given no other way`);
+  keyError('usage', key, `${option} takes a key given no other way`);
 
 export const GLOBAL_OPTIONS = {
   schema: { type: 'string' },
@@ -203,13 +218,21 @@ export function parseSets(pairs: readonly string[] = []) {
 export function neededKeysOf(schema: EnvSchema, plan: FilePlan): string[] {
   if (plan.action === 'skip') return [];
   const spec = schema.files.find((file) => file.path === plan.path)!;
-  if (isTemplate(spec)) return [];
   const keys =
     plan.policy === 'generate' || plan.action === 'create'
       ? fileKeys(schema, spec)
       : plan.addedKeys;
-  return keys.filter((key) => spec.values?.[key] === undefined);
+  return keys.filter((key) => takesValue(schema, spec, key));
 }
+
+/**
+ * Whether a given value (--set, --generate, env) for `key` reaches `file`:
+ * one of its variables, not set literally by its `values`, not a template.
+ */
+export const takesValue = (schema: EnvSchema, file: FileSpec, key: string) =>
+  !isTemplate(file) &&
+  file.values?.[key] === undefined &&
+  fileKeys(schema, file).includes(key);
 
 /** The keys any of the planned files takes values for, in schema order. */
 export function neededKeys(
