@@ -65,7 +65,7 @@ Every command takes them.
 
 `check` reports `mode 644, expected 600 (run configure-env apply to fix it)` when a file's mode differs from the schema `mode`.
 
-- `apply` chmods an existing file whose content needs no change, under any policy (an existing create-only `.env` included): status `mode fixed (644 → 600)`, JSON action `mode`, `written: false`. It needs no value, never rewrites or reads values, never takes the lock or writes the state. The next run reports `skipped (exists)` or `unchanged`.
+- `apply` chmods an existing file whose content needs no change, under any policy (an existing create-only `.env` included): status `mode fixed (644 → 600)`, JSON action `mode`, `written: false`. It needs no value and never rewrites the file. As for a skipped file, protected values it holds are recorded under the lock; a file holding none takes no lock. The next run reports `skipped (exists)` or `unchanged`.
 - It only removes permissions. A schema `mode` that would add one is refused for that file: `mode not loosened (400, schema says 600)`, a `file` error, exit 1; `check` then says `apply never adds a permission; chmod it by hand`.
 - It never follows a symlink (`O_NOFOLLOW` + `fchmod`), ignores the umask, and stays inside the root. A template gets one only when it declares `mode`.
 - A file whose content also changes is written with the schema `mode`; its JSON entry carries `mode`.

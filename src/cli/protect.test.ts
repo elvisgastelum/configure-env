@@ -973,6 +973,18 @@ describe('apply', () => {
     expect(Object.keys((await state()).fingerprints)).toEqual(['.env']);
   });
 
+  it('records the values a file whose mode it fixes holds', async () => {
+    await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_A}\n`);
+    await chmod(path('.env'), 0o644);
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: mode fixed (644 → 600)'],
+    });
+    expect(Object.keys((await state()).fingerprints)).toEqual(['.env']);
+    await expectNoValue([r], KEY_A);
+  });
+
   it('takes --state for another place', async () => {
     const r = await cli([
       'apply',
@@ -989,11 +1001,11 @@ describe('apply', () => {
     expect(await exists('private/state.json')).toBe(true);
   });
 
-  it('fixes a mode without the lock or a state write', async () => {
-    await seedKey();
+  it('fixes a mode without the lock when the file holds no protected value', async () => {
+    await writeFile(path('.env'), 'SM_MASTER_KEY_FILE=/run/key\n');
     await chmod(path('.env'), 0o644);
-    const recorded = await read(STATE);
-    // Another run holds the lock: a chmod never waits for it.
+    // Another run holds the lock: a chmod with nothing to record never waits.
+    await mkdir(path('.configure-env'));
     await writeFile(
       path(`${STATE}.lock`),
       JSON.stringify({ pid: process.pid, host: hostname() }),
@@ -1005,6 +1017,29 @@ describe('apply', () => {
       err: [],
     });
     expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
+    expect(await exists(STATE)).toBe(false);
+  });
+
+  it('takes the lock for a mode fix of a file holding a protected value', async () => {
+    await seedKey();
+    await chmod(path('.env'), 0o644);
+    const recorded = await read(STATE);
+    const lock = path(`${STATE}.lock`);
+    await writeFile(
+      lock,
+      JSON.stringify({ pid: process.pid, host: hostname() }),
+    );
+    // As for a skipped create-only file: the held value is checked under it.
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 1,
+      out: [],
+      err: [
+        `configure-env: .configure-env/state.json: not written: ${lock}: held by process ${process.pid}; try again`,
+        'nothing was written',
+      ],
+    });
+    expect((await stat(path('.env'))).mode & 0o777).toBe(0o644);
     expect(await read(STATE)).toBe(recorded);
     await expectNoValue([r], KEY_A);
   });

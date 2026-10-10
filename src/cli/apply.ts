@@ -140,8 +140,9 @@ function runChecks(schema: EnvSchema, plan: Plan) {
   const checks: ProtectedCheck[] = [];
   const files: RunFile[] = [];
   for (const file of plan.files) {
-    // A chmod changes no value: it takes no lock and records nothing.
-    if (file.reason === 'refused' || file.action === 'mode') continue;
+    // A chmod changes no value; like a skipped file, the values it holds
+    // are still recorded.
+    if (file.reason === 'refused') continue;
     const spec = schema.files.find((entry) => entry.path === file.path)!;
     const content = file.content ?? file.previous;
     if (content !== undefined) {

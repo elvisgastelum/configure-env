@@ -185,6 +185,50 @@ describe('apply fixes mode drift', () => {
     noSecret(r, json, check);
   });
 
+  it('exits 1 when the only file of the run would loosen', async () => {
+    await seed('.env', 0o400);
+    const r = await cli(['apply', '--ci', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 1,
+      out: ['.env: mode not loosened (400, schema says 600)'],
+      err: [],
+    });
+    const json = await cli(['apply', '--ci', '--json', '--file', '.env']);
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.out[0]!)).toMatchObject({
+      ok: false,
+      errors: [
+        {
+          kind: 'file',
+          path: '.env',
+          message: 'mode not loosened (400, schema says 600)',
+        },
+      ],
+      files: [{ path: '.env', action: 'skip', reason: 'loosens' }],
+    });
+    expect(await modeOf('.env')).toBe(0o400);
+  });
+
+  it('warns about a loosening file in the terminal and exits 1', async () => {
+    await seed('.env', 0o400);
+    const { prompts, calls, logs } = scriptedPrompts({
+      'Which files': ['.env'],
+    });
+    const r = await cli(['apply'], { isTTY: true, prompts });
+    expect(r.code).toBe(1);
+    const picker = calls[0] as unknown as {
+      options: { value: string; hint: string }[];
+    };
+    expect(picker.options.find((o) => o.value === '.env')!.hint).toBe(
+      'create-only; mode not loosened (400, schema says 600)',
+    );
+    expect(logs).toContain(
+      'warn: .env: mode not loosened (400, schema says 600)',
+    );
+    expect(logs.at(-1)).toBe('outro: Nothing to write.');
+    expect(await modeOf('.env')).toBe(0o400);
+  });
+
   it('fixes a template only when it declares a mode', async () => {
     await seed('.env.example', 0o664, 'PORT=8080\n');
     await seed('config.env.template', 0o644, 'PORT=8080\n');
