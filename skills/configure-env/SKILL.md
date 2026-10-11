@@ -35,6 +35,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 | No `env.schema.json` | `init --ci` (infers from `.env.example`), then fix types and mark secrets |
 | First setup of a checkout | `apply --ci --json --generate <SECRET>... --defer <HUMAN_SECRET>...`; hand the `deferred` keys to the human |
 | New variable | add it to the schema → `apply --ci --file .env.example` → `set` it in the real file |
+| Variable removed from the schema | `apply --ci --prune` (ask first when the file holds real values) |
 | Non-secret value | `set --ci --file .env KEY=VALUE` |
 | Generated secret | `set --ci --file .env --generate KEY` (it keeps an existing value) |
 | Key or key file (either-or) | `--generate` only the key while its `*_FILE` partner is unset |

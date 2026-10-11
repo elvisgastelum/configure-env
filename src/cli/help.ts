@@ -100,6 +100,11 @@ so it can be set later with set --prompt KEY or set --stdin KEY. An
 optional or undeclared variable, or one also given with --set or
 --generate, exits 2.
 
+--prune removes the keys a merge or existing create-only file holds that
+the schema does not list for it, each with the # lines directly above it
+and the blank line that set them apart: pruned keys: A, B. A pruned key's
+protected fingerprint goes too. Without it, apply keeps every key.
+
 Options:
   --set KEY=VALUE  a value; repeat for more
   --generate KEY   a random value for a secret string; repeat for more
@@ -107,6 +112,7 @@ Options:
                    repeat for more
   --replace-protected KEY
                    replace a protected value; repeat for more
+  --prune          remove the keys the schema does not list for a file
 
 ${GLOBAL}
 
@@ -115,6 +121,7 @@ Examples:
   configure-env apply --ci --set WEB_PORT=9090
   configure-env apply --ci --generate SESSION_SECRET
   configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN
+  configure-env apply --ci --prune
   configure-env apply --ci --file .env --json
 
 ${EXIT_CODES}`;
@@ -125,7 +132,9 @@ Changes nothing. Reports, per file: a missing file, a generated file that
 differs from the schema, the keys a merge file lacks, a mode other than
 the schema's (apply fixes it when it only removes permissions), values that break their variable's rules (secrets masked),
 lines that are not valid entries, and protected values that no longer
-match the ones the state recorded. Exits 1 when it finds any.
+match the ones the state recorded. With --strict, the keys a merge or
+create-only file holds that the schema does not list for it too, which
+apply --prune removes. Exits 1 when it finds any.
 
 Generated files are compared with the --set values and the defaults, so
 the result does not depend on the environment; with --use-env, also with
@@ -134,12 +143,14 @@ the environment variables, as apply --ci would write them.
 Options:
   --set KEY=VALUE  a value to compare with; repeat for more
   --use-env        compare with the environment variables too
+  --strict         report the keys the schema does not list as drift
 
 ${GLOBAL}
 
 Examples:
   configure-env check
   configure-env check --use-env
+  configure-env check --ci --strict
   configure-env check --ci --json
 
 ${EXIT_CODES}`;
@@ -257,8 +268,9 @@ export const UNSET_HELP = `Usage: configure-env unset KEY [KEY...] [options]
 
 Removes variables from one env file. The comment lines right above a key
 go with it only when they are exactly its schema comment; any other
-comment stays. Every other line stays byte for byte, and the file keeps
-its mode. A key the file does not hold is reported as absent (exit 0).
+comment stays. The blank line that set them apart goes too, so no blank
+line is left doubled, leading or trailing. Every other line stays byte
+for byte, and the file keeps its mode. A key the file does not hold is reported as absent (exit 0).
 
 ${FILE_CHOICE} A template file is
 edited only with --allow-template.
