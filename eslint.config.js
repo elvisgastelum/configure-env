@@ -10,13 +10,9 @@ export default defineConfig(
   js.configs.recommended,
   tseslint.configs.recommended,
   {
-    // The CLI, the server-side packages and this config run under Node.
-    files: ['eslint.config.js', 'packages/**', 'apps/api/**'],
+    // Everything in the workspace runs under Node today. A browser app adds
+    // its own block with browser globals when it lands.
     languageOptions: { globals: globals.node },
-  },
-  {
-    files: ['apps/web/**'],
-    languageOptions: { globals: globals.browser },
   },
   // Last, so formatting is Prettier's job alone.
   prettier,

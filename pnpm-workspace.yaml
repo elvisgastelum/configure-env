@@ -1,3 +1,5 @@
+# Libraries and the published CLI live in packages/; runnable apps (the
+# `configure-env serve` API and web portal) go in apps/, which starts empty.
 packages:
   - apps/*
   - packages/*
