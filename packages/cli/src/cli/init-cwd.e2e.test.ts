@@ -59,9 +59,10 @@ describe('relative paths through src/cli.ts', () => {
   it(
     'fall back to the working directory without INIT_CWD',
     async () => {
-      const { code } = await cli(ARGS, undefined);
-      // packages/cli has no env.schema.json: a usage error.
+      const { code, out } = await cli(ARGS, undefined);
+      // packages/cli has no env.schema.json: a usage error naming it.
       expect(code).toBe(2);
+      expect(out).toContain(`no schema at ${PACKAGE}env.schema.json`);
     },
     TIMEOUT,
   );

@@ -9,6 +9,9 @@ import type { Io, Prompts } from './io.ts';
 import { main } from './main.ts';
 
 /** One file per policy over five variables; no file name starts with `.env`. */
+/** The repository root: README.md, the workspace and release config. */
+export const REPO_ROOT = new URL('../../../../', import.meta.url);
+
 export const CLI_SCHEMA = {
   version: 1,
   variables: {

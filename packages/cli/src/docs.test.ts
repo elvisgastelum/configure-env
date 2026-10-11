@@ -16,14 +16,14 @@ import {
   LOCK_WAIT_MS,
   SALT_BYTES,
 } from './engine/state.ts';
+import { REPO_ROOT } from './cli/test-helpers.ts';
 
 // README.md lives at the repo root; the skill docs live in this package.
 const doc = (path: string) =>
   readFileSync(
-    new URL(
-      path === 'README.md' ? '../../../README.md' : `../${path}`,
-      import.meta.url,
-    ),
+    path === 'README.md'
+      ? new URL('README.md', REPO_ROOT)
+      : new URL(`../${path}`, import.meta.url),
     'utf8',
   );
 
