@@ -9,6 +9,7 @@ import { PageEntrance } from '../motion/page-entrance';
 import { Reveal, RevealGroup, RevealItem } from '../motion/reveal';
 import { ScrollProgress } from '../motion/scroll-progress';
 import { SlideIn } from '../motion/slide-in';
+import { useScrolled } from '../motion/use-scrolled';
 import type { RevealDirection } from '../motion/tokens';
 import { Replay } from '../docs';
 import {
@@ -220,6 +221,32 @@ export const ScrollProgressDemo: Story = {
       <p className={cn(TYPE.small, 'text-center')}>
         Scroll: the bar at the very top of the window fills with the page.
       </p>
+      <div className="h-[200vh]" />
+    </div>
+  ),
+};
+
+function ScrolledHeader() {
+  const scrolled = useScrolled();
+  return (
+    <header
+      data-scrolled={scrolled}
+      className="sticky top-0 border-b border-transparent bg-background/80 px-6 py-4 backdrop-blur transition-[border-color,box-shadow] duration-300 data-[scrolled=true]:border-border data-[scrolled=true]:shadow-sm"
+    >
+      <p className={TYPE.small}>
+        {scrolled ? 'Scrolled: the header shows its border' : 'At the top'}
+      </p>
+    </header>
+  );
+}
+
+/** `useScrolled()`: a header that gains a border once the page scrolls. */
+export const UseScrolledDemo: Story = {
+  name: 'useScrolled',
+  parameters: { layout: 'fullscreen' },
+  render: () => (
+    <div>
+      <ScrolledHeader />
       <div className="h-[200vh]" />
     </div>
   ),

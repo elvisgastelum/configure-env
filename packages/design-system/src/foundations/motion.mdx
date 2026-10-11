@@ -128,6 +128,12 @@ A 2px bar fixed along the top of the window that fills with the scroll, smoothed
 
 <Canvas of={MotionStories.ScrollProgressDemo} />
 
+### useScrolled
+
+`useScrolled(threshold = 8)` is true once the window scrolls past `threshold` px, and re-renders only when that flips. Use it for a header that gains a border or shadow on scroll.
+
+<Canvas of={MotionStories.UseScrolledDemo} />
+
 ### Hero glow keyframe
 
 `motion-safe:animate-hero-glow`: the glow drifts down and grows into place over 2.4s on load; the side glow starts 300ms later. Reduced motion: shown in place.
