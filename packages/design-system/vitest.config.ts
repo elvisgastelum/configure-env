@@ -18,6 +18,12 @@ const storybookProject = (theme: 'light' | 'dark') => ({
   define: {
     'import.meta.env.STORYBOOK_THEME': JSON.stringify(theme),
   },
+  // Pre-bundle every dependency the stories reach before the first test,
+  // so Vite never re-optimizes and reloads the browser mid-run (a cold CI
+  // cache would otherwise fail the first files).
+  optimizeDeps: {
+    entries: ['src/**/*.stories.tsx', '.storybook/preview.tsx'],
+  },
   test: {
     name: `storybook-${theme}`,
     setupFiles: ['.storybook/vitest.setup.ts'],

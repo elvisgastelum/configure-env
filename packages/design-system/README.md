@@ -59,8 +59,10 @@ Added for the portal on top of the upstream copy. They come from the shadcn `bas
 | Form controls | `input`, `textarea`, `label`, `field`, `input-group`, `separator` | `Input`, `Textarea`, `Label`, `Field`/`FieldLabel`/`FieldDescription`/`FieldError`/`FieldSet`…, `InputGroup`/`InputGroupAddon`/`InputGroupInput`…, `Separator` |
 | | `select`, `combobox` | `Select`/`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`…, `Combobox`/`ComboboxInput`/`ComboboxContent`/`ComboboxList`/`ComboboxItem`… |
 | | `switch`, `checkbox`, `number-input` | `Switch`, `Checkbox`, `NumberInput` (Base UI `NumberField`; the registry has no number input) |
+| Overlays | `dialog`, `sheet`, `drawer` | `Dialog`/`DialogTrigger`/`DialogContent`/`DialogTitle`…, `Sheet`/`SheetContent` (`side`)…, `Drawer`/`DrawerContent`… (swipe to dismiss) |
+| | `popover`, `tooltip`, `dropdown-menu` | `Popover`/`PopoverTrigger`/`PopoverContent`…, `Tooltip`/`TooltipProvider`/`TooltipTrigger`/`TooltipContent`, `DropdownMenu`/`DropdownMenuItem`/`DropdownMenuCheckboxItem`/`DropdownMenuSub`… |
 
-Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, and `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
+Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe, and the `Dialog` and `Sheet` close buttons take `closeLabel` instead of a hard-coded "Close". Overlay stories include an `Open` story (hidden from the docs page) so the a11y checks cover the open popup, not just its trigger. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
 
 ## Consume it in a Vite + Tailwind v4 app
 
