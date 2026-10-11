@@ -60,6 +60,8 @@ out="$contents"
 expect 'the tarball holds the bin' '^package/dist/cli\.js$'
 expect 'the tarball holds the api types' '^package/dist/index\.d\.ts$'
 expect 'the tarball holds the json schema' '^package/schema/env\.schema\.v1\.json$'
+expect 'the tarball holds the readme' '^package/README\.md$'
+expect 'the tarball holds the license' '^package/LICENSE$'
 if grep -Eq '\.test\.|test-helpers|fixtures|^package/src/' <<<"$contents"; then
   fail 'the tarball holds sources, tests or fixtures'
 else
