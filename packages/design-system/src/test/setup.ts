@@ -55,3 +55,17 @@ class InViewIntersectionObserver implements IntersectionObserver {
   }
 }
 window.IntersectionObserver = InViewIntersectionObserver;
+
+// jsdom has no ResizeObserver, scrollIntoView or pointer capture; cmdk (the
+// command palette) and Sonner (toasts) call them. Layout and pointers never
+// move in jsdom, so no-ops are faithful.
+class NoopResizeObserver implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+window.ResizeObserver ??= NoopResizeObserver;
+Element.prototype.scrollIntoView ??= function scrollIntoView() {};
+Element.prototype.setPointerCapture ??= function setPointerCapture() {};
+Element.prototype.releasePointerCapture ??= function releasePointerCapture() {};
+Element.prototype.hasPointerCapture ??= () => false;

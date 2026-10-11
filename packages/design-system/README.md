@@ -65,8 +65,10 @@ Added for the portal on top of the upstream copy. They come from the shadcn `bas
 | Navigation and data | `tabs`, `table`, `kbd` | `Tabs`/`TabsList` (`variant`)/`TabsTrigger`/`TabsContent`, `Table`/`TableHeader`/`TableRow`/`TableCell`…, `Kbd`/`KbdGroup` |
 | | `empty`, `skeleton`, `spinner` | `Empty`/`EmptyHeader`/`EmptyMedia`/`EmptyTitle`/`EmptyDescription`/`EmptyContent` (the empty state), `Skeleton`, `Spinner` |
 | | `../molecules/code-block` | `CodeBlock`: code with a copy button (`copyLabel`, `copiedLabel`, `onCopyError`) that announces the copy |
+| Feedback | `sonner`, `command` | `Toaster` and `toast` (Sonner; follows the theme preference), `Command`/`CommandInput`/`CommandList`/`CommandGroup`/`CommandItem`/`CommandDialog`… (cmdk) |
+| | `../molecules/command-palette` | `CommandPalette`: the `Command*` atoms in a dialog toggled with ⌘K / Ctrl+K (`shortcut`) |
 
-Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe, and the `Dialog` and `Sheet` close buttons take `closeLabel` instead of a hard-coded "Close". Overlay stories include an `Open` story (hidden from the docs page) so the a11y checks cover the open popup, not just its trigger. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
+Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe, and the `Dialog` and `Sheet` close buttons take `closeLabel` instead of a hard-coded "Close". The toaster reads the theme from `useThemePreference` instead of `next-themes`, and gives toast descriptions the muted token so they keep 4.5:1. `CommandDialog` puts its hidden title inside the popup so the dialog is named, and `CommandSeparator` is `aria-hidden` (a listbox may not own a separator). Overlay stories include an `Open` story (hidden from the docs page) so the a11y checks cover the open popup, not just its trigger. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
 
 ## Consume it in a Vite + Tailwind v4 app
 
@@ -99,7 +101,7 @@ Wrap the app once in `SiteMotionConfig` (from `./motion/site-motion-config`) so 
 | Kind | Packages |
 | --- | --- |
 | Peer | `react` ^19.3, `react-dom` ^19.3, `tailwindcss` ^4.3 |
-| Bundled | `motion`, `@base-ui/react`, `class-variance-authority`, `cn`, `lucide-react`, `tw-animate-css`, `shadcn` (its Tailwind CSS), `@fontsource-variable/geist` |
+| Bundled | `motion`, `@base-ui/react`, `class-variance-authority`, `cn`, `lucide-react`, `sonner`, `cmdk`, `tw-animate-css`, `shadcn` (its Tailwind CSS), `@fontsource-variable/geist` |
 
 Components render no copy of their own and import no router: the app passes text and links through props.
 

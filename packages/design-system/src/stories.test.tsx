@@ -4,7 +4,7 @@ import {
   setProjectAnnotations,
 } from '@storybook/react-vite';
 import { waitFor } from '@testing-library/react';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import preview from '../.storybook/preview';
 
@@ -35,8 +35,22 @@ const cases = Object.entries(modules).flatMap(([path, module]) =>
 // before it renders the next one.
 const canvasElement = document.createElement('div');
 
+// Some components (the toaster) read the color scheme; jsdom has no
+// matchMedia, so every query reports no match.
+beforeAll(() => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+  }));
+});
+
 afterAll(() => {
   canvasElement.remove();
+  vi.unstubAllGlobals();
 });
 
 describe('stories', () => {
