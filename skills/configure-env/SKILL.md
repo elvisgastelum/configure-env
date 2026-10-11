@@ -47,7 +47,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 | Mode drift reported by check | `apply --ci --file <path>` (chmod only; never loosens; on `mode not loosened`, ask the user) |
 | `protected` exit 2 | ask the user; to restore after a deletion, pipe the backup into `set --ci --create --file .env --stdin KEY` |
 | State lock held (exit 1) | retry once; `left by process …`: ask the user to remove the lock |
-| Install or update this skill | `install skill --ci --scope project\|local --mode copy\|symlink --agent claude\|agents`; an existing copy exits 2: update it with `--force` (ask first); a symlink follows package upgrades |
+| Install or update this skill | `install skill --ci --scope project\|local --mode copy\|symlink --agent claude\|agents`; an identical copy is `unchanged`; a differing copy exits 2: update it with `--force` (ask first); a symlink follows package upgrades |
 
 ## Execution Steps
 

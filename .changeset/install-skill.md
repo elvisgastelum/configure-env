@@ -9,6 +9,7 @@
 - `--agent claude` (`.claude/skills/configure-env`, the default) or `agents` (`.agents/skills/configure-env`); repeat it for both.
 - In a terminal it asks for the missing choices; with `--ci`, `--json` or no terminal they default to project, copy and claude.
 - An existing skill exits 2 unless `--force`, except a symlink to the same folder, reported `unchanged`. `--force` builds the new skill next to the old one and swaps it in, so a failure keeps the old one, and removes a link without following it.
-- A run that fails part-way exits 1 and still reports the skills it installed (with `--json`, `ok: false`, those `skills` and a `file` error). `--scope local` trusts a `.git` file only when its git dir names it back.
+- A run that fails part-way exits 1 and still reports the skills it installed (with `--json`, `ok: false`, those `skills` and a `file` error). `--scope local` trusts a `.git` folder or file (worktree, submodule or `git init --separate-git-dir`) only when it leads to a git dir (`HEAD`, `objects`, `refs`) and a worktree's or submodule's git dir names it back.
+- With `--mode copy`, a folder identical to the skill is reported `unchanged` and left as it is, with `--force` too. A previous skill `--force` cannot put back is named in the error; one it cannot remove after the swap is named in a warning (`warnings` with `--json`).
 - Text output `installed  .claude/skills/configure-env (copy)`, `linked` or `unchanged`; with `--json`, `{ "command": "install", "ok", "source", "skills" }`.
 - The agent skill documents `install skill` and asks before `--scope user` or `--force`; its command reference adds the `install` JSON, the `set`/`unset` state-failure JSON and the `install` exit codes.

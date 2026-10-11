@@ -362,14 +362,20 @@ teaches an agent to work with env files through configure-env, for each
 symlink links to the package's folder, which follows package upgrades but
 breaks when that folder goes away (an npx cache, a removed node_modules).
 
-A path that exists is never replaced without --force (exit 2), except a
-symlink to the same folder, reported unchanged. --force builds the new one
-next to it and swaps it in, so a failure keeps the old one; a symlink is
-removed, never what it points at. A run that fails part-way exits 1 and
-still prints the skills it installed, which stay.
+A path that exists is never replaced without --force (exit 2), except what
+the mode would make: a symlink to the same folder, or with copy a folder
+identical to the skill (same files and bytes); either is reported unchanged
+and left as it is, with --force too. --force builds the new one next to it
+and swaps it in, so a failure keeps the old one; a symlink is removed, never
+what it points at. If the old one cannot be put back, the error names where
+it was left; if it cannot be removed after the swap, a warning names it, to
+delete. A run that fails part-way exits 1 and still prints the skills it
+installed, which stay.
 
-local needs a .git folder, or a .git file whose git dir names it back (a
-worktree or a submodule); any other .git counts as no repository.
+local needs a .git folder, or a .git file (a worktree, a submodule or
+git init --separate-git-dir), that leads to a git dir: HEAD, objects and
+refs, as git checks; a worktree's or submodule's git dir must name it
+back. Any other .git counts as no repository.
 
 In a terminal it asks for the scope, the mode and the agents the options
 leave out; with --ci, --json or no terminal they default to project, copy

@@ -7,6 +7,7 @@ import {
   readlink,
   realpath,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,6 +23,7 @@ const faults = vi.hoisted(() => ({
   symlink: undefined as Error | undefined,
   rename: undefined as
     ((from: string, to: string) => Error | undefined) | undefined,
+  rm: undefined as ((path: string) => Error | undefined) | undefined,
 }));
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -42,10 +44,15 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (fault) throw fault;
       return actual.rename(...args);
     },
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      const fault = faults.rm?.(String(args[0]));
+      if (fault) throw fault;
+      return actual.rm(...args);
+    },
   };
 });
 afterEach(() => {
-  faults.cp = faults.symlink = faults.rename = undefined;
+  faults.cp = faults.symlink = faults.rename = faults.rm = undefined;
 });
 
 const noSpace = () =>
@@ -79,13 +86,16 @@ const cli = (
     ...options,
   });
 
-/** Makes the root a git repository; returns its git dir. */
-async function gitInit(dir = root()) {
-  const gitDir = join(dir, '.git');
-  await mkdir(gitDir, { recursive: true });
+/** Makes `gitDir` a git dir as git checks one: HEAD, objects and refs. */
+async function makeGitDir(gitDir: string) {
+  await mkdir(join(gitDir, 'objects'), { recursive: true });
+  await mkdir(join(gitDir, 'refs'), { recursive: true });
   await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
   return gitDir;
 }
+
+/** Makes the root a git repository; returns its git dir. */
+const gitInit = (dir = root()) => makeGitDir(join(dir, '.git'));
 
 /** Every file under `dir`, relative, with its bytes. */
 async function tree(dir: string): Promise<Record<string, string>> {
@@ -211,11 +221,7 @@ describe('install skill', () => {
 
       const second = await cli([...argv, '--force']);
       expect(second).toMatchObject({ code: 0, err: [] });
-      expect(second.out).toEqual([
-        mode === 'symlink'
-          ? `unchanged  ${CLAUDE} (symlink)`
-          : `installed  ${CLAUDE} (copy, replaced)`,
-      ]);
+      expect(second.out).toEqual([`unchanged  ${CLAUDE} (${mode})`]);
       const exclude = await readFile(join(gitDir, 'info', 'exclude'), 'utf8');
       expect(exclude).toBe('/.claude/skills/configure-env\n');
     },
@@ -255,9 +261,7 @@ describe('install skill', () => {
 
   it('excludes in the git dir of a submodule', async () => {
     const gitDir = await gitInit();
-    const moduleGit = join(gitDir, 'modules', 'sub');
-    await mkdir(moduleGit, { recursive: true });
-    await writeFile(join(moduleGit, 'HEAD'), 'ref: refs/heads/main\n');
+    const moduleGit = await makeGitDir(join(gitDir, 'modules', 'sub'));
     // A submodule's git dir names its work tree in its config.
     await writeFile(
       join(moduleGit, 'config'),
@@ -275,6 +279,50 @@ describe('install skill', () => {
     );
   });
 
+  describe('a repository made with git init --separate-git-dir', () => {
+    // As git writes it: a .git file naming a git dir elsewhere, which names
+    // no work tree back.
+    const separate = async () => {
+      const gitDir = await makeGitDir(join(home.dir, 'repo.git'));
+      await writeFile(
+        join(gitDir, 'config'),
+        '[core]\n\trepositoryformatversion = 0\n\tbare = false\n',
+      );
+      await writeFile(join(root(), '.git'), `gitdir: ${gitDir}\n`);
+      return gitDir;
+    };
+
+    it('installs locally and excludes in the separate git dir', async () => {
+      const gitDir = await separate();
+      const result = await cli(['--ci', '--scope', 'local']);
+      expect(result).toMatchObject({ code: 0, err: [] });
+      expect((await lstat(join(root(), CLAUDE))).isDirectory()).toBe(true);
+      expect(await readFile(join(gitDir, 'info', 'exclude'), 'utf8')).toBe(
+        '/.claude/skills/configure-env\n',
+      );
+    });
+
+    it('installs project at the top level from a subdirectory', async () => {
+      await separate();
+      const app = join(root(), 'packages', 'app');
+      await mkdir(app, { recursive: true });
+      const result = await cli(['--ci', '--scope', 'project', '--root', app]);
+      expect(result).toMatchObject({ code: 0, err: [] });
+      expect((await lstat(join(root(), CLAUDE))).isDirectory()).toBe(true);
+      await expect(lstat(join(app, '.claude'))).rejects.toThrow();
+    });
+  });
+
+  it('refuses local for a .git folder that is not a git dir', async () => {
+    await mkdir(join(root(), '.git'));
+    await writeFile(join(root(), '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    const result = await cli(['--ci', '--scope', 'local']);
+    expect(result.code).toBe(2);
+    expect(result.err[0]).toBe(
+      `configure-env: --scope local needs a git repository: ${join(root(), '.git')} does not lead to one`,
+    );
+  });
+
   describe('a .git file that does not lead back to it', () => {
     /** A folder outside the project, for a .git file to point at. */
     const outside = () => join(home.dir, 'elsewhere');
@@ -282,27 +330,47 @@ describe('install skill', () => {
     const crafted: [string, () => Promise<void>][] = [
       ['a folder without HEAD', async () => {}],
       [
-        'a git dir that does not name it',
+        'a folder with only HEAD',
         async () => {
           await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
         },
       ],
       [
-        'a git dir that names another .git',
+        'a git dir without HEAD',
         async () => {
-          await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
+          await makeGitDir(outside());
+          await rm(join(outside(), 'HEAD'));
+        },
+      ],
+      [
+        'a worktree git dir that names another .git',
+        async () => {
+          await makeGitDir(outside());
           await writeFile(join(outside(), 'gitdir'), '/somewhere/else/.git\n');
         },
       ],
       [
-        'a worktree whose commondir has no HEAD',
+        'a submodule git dir whose work tree is elsewhere',
         async () => {
-          await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
+          await makeGitDir(outside());
+          await writeFile(
+            join(outside(), 'config'),
+            '[core]\n\tworktree = /somewhere/else\n',
+          );
+        },
+      ],
+      [
+        'a worktree whose commondir is not a git dir',
+        async () => {
+          // The worktree git dir would pass on its own: its commondir is
+          // what holds objects and refs.
+          await makeGitDir(outside());
           await writeFile(
             join(outside(), 'gitdir'),
             `${join(root(), '.git')}\n`,
           );
           await mkdir(join(outside(), 'common'));
+          await writeFile(join(outside(), 'common', 'HEAD'), 'ref: x\n');
           await writeFile(join(outside(), 'commondir'), 'common\n');
         },
       ],
@@ -426,6 +494,93 @@ describe('install skill', () => {
     },
   );
 
+  describe('when the old target cannot be put back', () => {
+    // Every rename into the target fails: the new skill's and the old one's.
+    const stranded = async () => {
+      const target = join(root(), CLAUDE);
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, 'stale.md'), 'old\n');
+      faults.rename = (_, to) =>
+        basename(to) === 'configure-env' ? noSpace() : undefined;
+    };
+    /** The hidden siblings the old skill was moved aside to. */
+    const aside = async () =>
+      (await readdir(join(root(), '.claude', 'skills'))).filter((name) =>
+        name.startsWith('.configure-env-'),
+      );
+
+    it('reports the first failure and where the old skill is', async () => {
+      await stranded();
+      const result = await cli(['--ci', '--force']);
+      expect(result).toMatchObject({ code: 1, out: [] });
+      const [left] = await aside();
+      expect(await aside()).toHaveLength(1);
+      const shown = `.claude/skills/${left}`;
+      expect(result.err).toEqual([
+        `configure-env: cannot install ${CLAUDE}: ENOSPC`,
+        `the previous skill was left at ${shown}; move it back to ${CLAUDE}`,
+      ]);
+      expect(await tree(join(root(), shown))).toEqual({
+        'stale.md': Buffer.from('old\n').toString('base64'),
+      });
+    });
+
+    it('names it in the JSON error', async () => {
+      await stranded();
+      const result = await cli(['--json', '--force']);
+      expect(result).toMatchObject({ code: 1, err: [] });
+      const [left] = await aside();
+      expect(JSON.parse(result.out[0]!).errors).toEqual([
+        {
+          kind: 'file',
+          path: CLAUDE,
+          message: `cannot install ${CLAUDE}: ENOSPC; the previous skill was left at .claude/skills/${left}; move it back to ${CLAUDE}`,
+        },
+      ]);
+    });
+  });
+
+  describe('when the replaced skill cannot be removed', () => {
+    const leftover = async () => {
+      const target = join(root(), CLAUDE);
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, 'stale.md'), 'old\n');
+      faults.rm = (path) =>
+        basename(path).startsWith('.configure-env-')
+          ? Object.assign(new Error('denied'), { code: 'EACCES' })
+          : undefined;
+    };
+    const warning = (left: string) =>
+      `the previous skill was left at .claude/skills/${left}; delete it, or an agent may load it as a second skill`;
+    const aside = async () =>
+      (await readdir(join(root(), '.claude', 'skills'))).filter((name) =>
+        name.startsWith('.configure-env-'),
+      );
+
+    it('installs and warns with its path', async () => {
+      await leftover();
+      const result = await cli(['--ci', '--force']);
+      expect(result.code).toBe(0);
+      expect(result.out).toEqual([`installed  ${CLAUDE} (copy, replaced)`]);
+      const left = await aside();
+      expect(left).toHaveLength(1);
+      expect(result.err).toEqual([
+        `configure-env: warning: ${warning(left[0]!)}`,
+      ]);
+      expect(await tree(join(root(), CLAUDE))).toEqual(await tree(SOURCE));
+    });
+
+    it('lists the warning in the JSON document', async () => {
+      await leftover();
+      const result = await cli(['--json', '--force']);
+      expect(result).toMatchObject({ code: 0, err: [] });
+      const [left] = await aside();
+      const document = JSON.parse(result.out[0]!);
+      expect(document).toMatchObject({ ok: true, warnings: [warning(left!)] });
+      expect(document.skills).toHaveLength(1);
+    });
+  });
+
   it('leaves no half-written copy when the copy fails', async () => {
     faults.cp = noSpace();
     const result = await cli(['--ci']);
@@ -529,6 +684,81 @@ describe('install skill', () => {
     ]);
     // The run stops there: the next agent is not installed.
     await expect(lstat(join(root(), AGENTS))).rejects.toThrow();
+  });
+
+  it('prints a failed JSON document when the exclude file cannot be written', async () => {
+    const gitDir = await gitInit();
+    await writeFile(join(gitDir, 'info'), '');
+    const result = await cli(['--json', '--scope', 'local']);
+    expect(result).toMatchObject({ code: 1, err: [] });
+    expect(result.out).toHaveLength(1);
+    const file = join(gitDir, 'info', 'exclude');
+    expect(JSON.parse(result.out[0]!)).toEqual({
+      command: 'install',
+      ok: false,
+      source: SOURCE,
+      skills: [
+        {
+          agent: 'claude',
+          scope: 'local',
+          mode: 'copy',
+          path: join(root(), CLAUDE),
+          status: 'installed',
+          replaced: false,
+        },
+      ],
+      errors: [
+        {
+          kind: 'file',
+          path: relative(root(), file),
+          message: `cannot update ${file}: ENOTDIR; ${CLAUDE} was installed; add /.claude/skills/configure-env to it yourself`,
+        },
+      ],
+    });
+  });
+
+  describe('an existing copy', () => {
+    const target = () => join(root(), CLAUDE);
+    /** What a rewrite would change: the folder's and a file's identity. */
+    const identity = async () =>
+      Promise.all(
+        [target(), join(target(), 'SKILL.md')].map(async (path) => {
+          const { ino, mtimeMs } = await stat(path);
+          return { ino, mtimeMs };
+        }),
+      );
+
+    it.each([[[]], [['--force']]])(
+      'is left unchanged when identical, with %j',
+      async (extra) => {
+        await cli(['--ci']);
+        const before = await identity();
+        const result = await cli(['--ci', ...extra]);
+        expect(result).toMatchObject({ code: 0, err: [] });
+        expect(result.out).toEqual([`unchanged  ${CLAUDE} (copy)`]);
+        expect(await identity()).toEqual(before);
+        expect(await readdir(join(root(), '.claude', 'skills'))).toEqual([
+          'configure-env',
+        ]);
+      },
+    );
+
+    it.each([
+      [
+        'a modified file',
+        () => writeFile(join(target(), 'SKILL.md'), 'mine\n'),
+      ],
+      ['an extra file', () => writeFile(join(target(), 'notes.md'), 'x\n')],
+      ['a missing file', () => rm(join(target(), 'SKILL.md'))],
+    ])('is kept without --force when it has %s', async (_, change) => {
+      await cli(['--ci']);
+      await change();
+      const result = await cli(['--ci']);
+      expect(result.code).toBe(2);
+      expect(result.err[0]).toBe(
+        `configure-env: ${CLAUDE} exists; pass --force to replace it`,
+      );
+    });
   });
 
   it('leaves an identical link unchanged', async () => {
