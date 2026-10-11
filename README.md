@@ -82,7 +82,7 @@ A project describes its env files in `env.schema.json` at its root. The format i
 }
 ```
 
-[`examples/portfolio.env.schema.json`](packages/cli/examples/portfolio.env.schema.json) is a complete schema: the env setup of elvisgastelum.com.
+[`packages/cli/examples/portfolio.env.schema.json`](packages/cli/examples/portfolio.env.schema.json) is a complete schema: the env setup of elvisgastelum.com.
 
 Every object is strict: an unknown or misspelled key is an error, not ignored. The top level holds only `$schema`, `version` (must be `1`), `variables` and `files`.
 
@@ -284,7 +284,7 @@ The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` wh
 
 ### Editor support
 
-The `$schema` line points editors such as VS Code at [`schema/env.schema.v1.json`](packages/cli/schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, `bytes` without `encoding`, the names in the rules between variables, variable names in `files`, value overrides, and unique paths.
+The `$schema` line points editors such as VS Code at [`packages/cli/schema/env.schema.v1.json`](packages/cli/schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, `bytes` without `encoding`, the names in the rules between variables, variable names in `files`, value overrides, and unique paths.
 
 The JSON Schema is generated from the zod definition in `packages/cli/src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
 
@@ -507,7 +507,7 @@ With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "d
 
 ### Example schema
 
-[`examples/portfolio.env.schema.json`](packages/cli/examples/portfolio.env.schema.json) is the env setup of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project this tool was extracted from:
+[`packages/cli/examples/portfolio.env.schema.json`](packages/cli/examples/portfolio.env.schema.json) is the env setup of [elvisgastelum.com](https://github.com/elvisgastelum/elvisgastelum.com), the project this tool was extracted from:
 
 ```sh
 pnpm start -- apply --ci --schema packages/cli/examples/portfolio.env.schema.json --root ../my-project
@@ -559,7 +559,7 @@ An agent runs without a terminal, so it uses `--ci` and `--json` and never sees 
 
 On a first setup, `configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN` creates the files with the defaults and the generated secret, and leaves `API_TOKEN` empty for the person.
 
-The package ships a skill that teaches an agent this workflow: [`skills/configure-env/SKILL.md`](packages/cli/skills/configure-env/SKILL.md), with a command and schema reference next to it. Install it with the CLI:
+The package ships a skill that teaches an agent this workflow: [`packages/cli/skills/configure-env/SKILL.md`](packages/cli/skills/configure-env/SKILL.md), with a command and schema reference next to it. Install it with the CLI:
 
 ```sh
 configure-env install skill                     # asks for the scope, mode and agents
@@ -643,15 +643,15 @@ The repo is a pnpm workspace: the published package lives in `packages/cli`, and
 | `pnpm format:check`    | check the formatting without changing files                          |
 | `pnpm typecheck`       | type-check with `tsc`                                                |
 | `pnpm test`            | run the tests with Vitest                                            |
-| `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                   |
+| `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
-| `pnpm build`           | compile `packages/cli/src/` to `dist/` (JavaScript, declarations and source maps) |
+| `pnpm build`           | compile `packages/cli/src/` to `packages/cli/dist/` (JavaScript, declarations and source maps) |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |
 | `pnpm changeset`       | describe a change for the next release                               |
 
-The global link points at this checkout's `dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
+The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
 CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`.
 
