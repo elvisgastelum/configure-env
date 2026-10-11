@@ -297,20 +297,28 @@ describe('apply --prune and an unusable state', () => {
     expect(Object.keys(await fingerprints())).toEqual(['.env']);
   });
 
-  it('warns about nothing when the pruning file fails to write', async () => {
+  it('warns about nothing when the pruning file fails to write', async (ctx) => {
     // A name that fits the 255-byte limit while the temporary file beside it
-    // does not: the write fails, even as root.
+    // does not: the write fails, even as root. A file system with a shorter
+    // limit cannot hold the file at all, so the test does not apply there.
     const LONG = `${'a'.repeat(240)}.env`;
     await useSchema({
       version: 1,
       variables: { PORT: { type: 'port', default: 3000 } },
       files: [{ path: LONG, policy: 'merge', variables: ['PORT'] }],
     });
-    await writeFile(path(LONG), 'PORT=1\nOLD=2\n');
+    try {
+      await writeFile(path(LONG), 'PORT=1\nOLD=2\n');
+    } catch {
+      ctx.skip();
+    }
     await corrupt();
     const r = await cli(['apply', '--ci', '--prune']);
     expect(r.code).toBe(1);
+    // One line, the failure: no warning in stdout or stderr.
+    expect(r.out).toHaveLength(1);
     expect(r.out[0]).toMatch(`${LONG}: failed (ENAMETOOLONG`);
+    expect(r.out.join('\n')).not.toContain('warning');
     expect(r.err).toEqual([]);
     const document = await cli(['apply', '--ci', '--json', '--prune']);
     expect(document.code).toBe(1);
