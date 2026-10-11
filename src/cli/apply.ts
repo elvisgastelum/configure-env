@@ -43,8 +43,10 @@ import {
   type RunFile,
   checksOf,
   confirmReplacements,
+  loadForgetState,
   loadRunState,
   protectedLine,
+  protectsAny,
   replaceKeys,
   verdictsOf,
   writeProtected,
@@ -118,25 +120,46 @@ async function applyWith(
     run: undefined,
     replace: replaceKeys(schema, options['replace-protected']),
     prune,
+    bestEffort: prune && !protectsAny(schema),
+    warnings: [],
   };
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
-    guard.run = await loadRunState(context, schema, prune);
+    await loadGuardState(context, schema, guard);
     return applyUnattended(context, schema, sets, generated, deferred, guard);
   }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
-  guard.run = await loadRunState(context, schema, prune);
+  await loadGuardState(context, schema, guard);
   return applyInteractive(context, schema, sets, generated, deferred, guard);
 }
 
 /**
  * The protected variables' state of a run, its --replace-protected keys and
- * whether it prunes (--prune).
+ * whether it prunes (--prune). `bestEffort`: the schema protects nothing, so
+ * the state is read only to forget pruned keys' fingerprints, and a state
+ * the run cannot use is one of the `warnings`.
  */
 interface Guard {
   run: RunState | undefined;
   replace: ReadonlySet<string>;
   prune: boolean;
+  bestEffort: boolean;
+  warnings: string[];
+}
+
+/** Reads the run's state into the guard (see Guard). */
+async function loadGuardState(
+  context: Context,
+  schema: EnvSchema,
+  guard: Guard,
+) {
+  if (!guard.bestEffort) {
+    guard.run = await loadRunState(context, schema);
+    return;
+  }
+  const { run, warning } = await loadForgetState(context);
+  guard.run = run;
+  if (warning) guard.warnings.push(warning);
 }
 
 /**
@@ -211,6 +234,7 @@ function writeRun(
       forget: plan.files.flatMap((file) =>
         (file.prunedKeys ?? []).map((key) => ({ file: file.path, key })),
       ),
+      bestEffort: guard.bestEffort,
     },
     async () => {
       const results = await applyPlan(plan);
@@ -227,6 +251,12 @@ function writeRun(
     },
   );
 }
+
+/** The warnings of a run: reading its state, then writing it. */
+const warningsOf = (guard: Guard, written: { warning?: string }) => [
+  ...guard.warnings,
+  ...(written.warning ? [written.warning] : []),
+];
 
 const replacedLines = (replaced: readonly Replaced[]) =>
   replaced.map(({ file, key }) => `${file}: replaced protected ${key}`);
@@ -513,6 +543,7 @@ async function applyUnattended(
     return error.code;
   }
   const { value: results, replaced, stateError } = written;
+  const warnings = warningsOf(guard, written);
   // A file left with a looser mode than the schema's still drifts.
   const loosened = loosenedErrors(plan);
   const ok =
@@ -541,6 +572,7 @@ async function applyUnattended(
         files: plan.files.map((file, i) => applyJson(file, results[i])),
         deferred: left.keys,
         ...(done.length ? { replaced: done } : {}),
+        ...(warnings.length ? { warnings } : {}),
       }),
     );
   else {
@@ -553,6 +585,7 @@ async function applyUnattended(
     stateError?.forEach((line, i) =>
       io.stderr(i ? line : `configure-env: ${line}`),
     );
+    warnings.forEach((line) => io.stderr(`configure-env: warning: ${line}`));
   }
   return ok ? 0 : 1;
 }
@@ -803,6 +836,7 @@ async function applyInteractive(
     plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
   );
   if (stateError) prompts.log.error(stateError.join('\n'));
+  warningsOf(guard, written).forEach((line) => prompts.log.warn(line));
   const failed = results.filter((result) => !result.ok);
   if (failed.length) {
     progress.error(`${failed.length} of ${results.length} files failed`);

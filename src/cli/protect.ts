@@ -103,7 +103,7 @@ export const isProtected = (schema: EnvSchema, file: FileSpec, key: string) =>
   schema.variables[key]!.protected !== undefined;
 
 /** Whether the schema protects any variable. */
-const protectsAny = (schema: EnvSchema) =>
+export const protectsAny = (schema: EnvSchema) =>
   Object.values(schema.variables).some((spec) => spec.protected !== undefined);
 
 /** Reads the state; one that cannot be read exits 1 with `hints`. */
@@ -126,21 +126,51 @@ export async function readState(
   return protectsAny(schema) ? readStateFile(context, hints) : undefined;
 }
 
-/**
- * The state of a write command; one that cannot be read writes nothing.
- * `always` reads it even when the schema protects no variable, for the
- * fingerprints of pruned keys.
- */
+/** The state of a write command; one that cannot be read writes nothing. */
 export async function loadRunState(
   context: Context,
   schema: EnvSchema,
-  always = false,
 ): Promise<RunState | undefined> {
-  if (!always && !protectsAny(schema)) return undefined;
+  if (!protectsAny(schema)) return undefined;
   const state = await readStateFile(context, [
     'fix or restore it; nothing was written',
   ]);
   return { path: context.statePath, state };
+}
+
+/** The warning of a state a best-effort run could not use. */
+const keptWarning = (
+  { io }: Context,
+  path: string,
+  verb: string,
+  message: string,
+) => {
+  const shown = displayPath(io.cwd, path);
+  const reason = message.startsWith(`${path}: `)
+    ? message.slice(path.length + 2)
+    : message;
+  return `${shown}: ${verb} (${reason}); fingerprints of pruned keys were kept`;
+};
+
+/**
+ * The state of a run that reads it only to forget the fingerprints of pruned
+ * keys, when the schema protects nothing: a state that cannot be read is a
+ * warning, and the run goes on without it.
+ */
+export async function loadForgetState(
+  context: Context,
+): Promise<{ run?: RunState; warning?: string }> {
+  const result = await loadState(context.statePath);
+  if (!result.ok)
+    return {
+      warning: keptWarning(
+        context,
+        context.statePath,
+        'cannot be read',
+        result.message,
+      ),
+    };
+  return { run: { path: context.statePath, state: result.state } };
 }
 
 /** The keys of the repeated --replace-protected option, each once and checked. */
@@ -322,7 +352,9 @@ export interface Written<T> {
  * into the state and releases the lock. A lock or state it cannot get exits
  * 1 with nothing written; a state write that fails after the env files is
  * returned as `stateError`. The fingerprints of the `forget` keys (pruned
- * ones) of the files written as planned are removed.
+ * ones) of the files written as planned are removed. With `bestEffort` (the
+ * schema protects nothing), a run that only forgets writes even when it
+ * cannot use the state, returning a `warning` instead of failing.
  */
 export async function writeProtected<T>(
   context: Context,
@@ -334,29 +366,42 @@ export async function writeProtected<T>(
     replace: ReadonlySet<string>;
     hints?: readonly string[];
     forget?: readonly Forgotten[];
+    bestEffort?: boolean;
   },
   write: () => Promise<Written<T>>,
-): Promise<{ value: T; replaced: Replaced[]; stateError?: string[] }> {
+): Promise<{
+  value: T;
+  replaced: Replaced[];
+  stateError?: string[];
+  warning?: string;
+}> {
   const { checks, files, replace, hints = [] } = plan;
   const forget = (plan.forget ?? []).filter(
     (entry) => run && recorded(run.state, entry.file, entry.key),
   );
-  // A run that writes or holds no protected value never takes the lock.
-  const involved =
-    forget.length > 0 ||
+  const guarded =
     checks.some((check) => check.current || check.next) ||
     files.some(({ spec, valueOf }) =>
       fileKeys(schema, spec).some(
         (key) => isProtected(schema, spec, key) && valueOf(key),
       ),
     );
-  if (!run || !involved) return { value: (await write()).value, replaced: [] };
+  // A run that writes or holds no protected value never takes the lock.
+  if (!run || (!guarded && !forget.length))
+    return { value: (await write()).value, replaced: [] };
+  const lenient = Boolean(plan.bestEffort) && !guarded;
+  const kept = (verb: string, error: unknown) =>
+    keptWarning(context, run.path, verb, (error as Error).message);
 
   let writing = false;
+  let unreadable = false;
   try {
     return await withStateLock(run.path, async () => {
       const fresh = await loadState(run.path);
-      if (!fresh.ok) throw new Error(fresh.message);
+      if (!fresh.ok) {
+        unreadable = true;
+        throw new Error(fresh.message);
+      }
       const { refused, replaced } = verdictsOf(
         schema,
         fresh.state,
@@ -380,6 +425,8 @@ export async function writeProtected<T>(
         await mergeState(run.path, changes, context.io.writeState);
         return { value, replaced };
       } catch (error) {
+        if (lenient)
+          return { value, replaced, warning: kept('not written', error) };
         return {
           value,
           replaced,
@@ -389,6 +436,12 @@ export async function writeProtected<T>(
     });
   } catch (error) {
     if (error instanceof CliError || writing) throw error;
+    if (lenient)
+      return {
+        value: (await write()).value,
+        replaced: [],
+        warning: kept(unreadable ? 'cannot be read' : 'not written', error),
+      };
     const lines = [
       `${displayPath(context.io.cwd, run.path)}: not written: ${(error as Error).message}`,
       'nothing was written',

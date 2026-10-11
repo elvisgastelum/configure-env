@@ -1,7 +1,8 @@
 // apply --prune and check --strict: a variable removed from the schema
 // leaves the env files with its comment, and only when asked.
 
-import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
@@ -218,6 +219,84 @@ describe('apply --prune', () => {
     expect(plan).toContain('.env.example: prune keys: DEBUG');
     expect(plan).toContain('.env: prune keys: DEBUG');
     expect(await read('.env.example')).not.toContain('DEBUG');
+  });
+});
+
+describe('apply --prune and an unusable state', () => {
+  const KEPT = 'fingerprints of pruned keys were kept';
+  const corrupt = async () => {
+    await mkdir(path('.configure-env'), { recursive: true });
+    await writeFile(path(STATE), 'not json');
+  };
+
+  it('prunes anyway when the schema protects nothing, with a warning', async () => {
+    await cli(['apply', '--ci']);
+    await corrupt();
+    await useSchema(without('API_TOKEN', 'DEBUG'));
+    const warning = `${STATE}: cannot be read (is not valid JSON); ${KEPT}`;
+    const r = await cli(['apply', '--ci', '--prune', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: pruned keys: API_TOKEN, DEBUG'],
+      err: [`configure-env: warning: ${warning}`],
+    });
+    expect(await read('.env')).toBe('# HTTP port\nPORT=3000\nLEVEL=info\n');
+    const document = json(
+      await cli([
+        'apply',
+        '--ci',
+        '--json',
+        '--prune',
+        '--file',
+        '.env.example',
+      ]),
+    );
+    expect(document).toMatchObject({ ok: true, warnings: [warning] });
+    expect(await read(STATE)).toBe('not json');
+  });
+
+  it('keeps failing when the schema protects a variable', async () => {
+    await cli(['apply', '--ci']);
+    const before = await read('.env');
+    await corrupt();
+    await useSchema(without('DEBUG'));
+    const r = await cli(['apply', '--ci', '--prune']);
+    expect(r.code).toBe(1);
+    expect(r.err[0]).toContain('invalid state');
+    expect(await read('.env')).toBe(before);
+  });
+
+  it('creates no state when there is none to forget', async () => {
+    await useSchema(without('API_TOKEN'));
+    await cli(['apply', '--ci']);
+    await useSchema(without('API_TOKEN', 'DEBUG'));
+    const r = await cli(['apply', '--ci', '--prune']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    await expect(stat(path('.configure-env'))).rejects.toThrow();
+    // A run without a warning has no warnings field.
+    expect(
+      json(await cli(['apply', '--ci', '--json', '--prune'])),
+    ).not.toHaveProperty('warnings');
+  });
+
+  it('prunes past a held lock, keeping the fingerprint', async () => {
+    await cli(['apply', '--ci', '--set', `API_TOKEN=${TOKEN}`]);
+    const lock = path(`${STATE}.lock`);
+    await writeFile(
+      lock,
+      JSON.stringify({ pid: process.pid, host: hostname() }),
+    );
+    await useSchema(without('API_TOKEN'));
+    const r = await cli(['apply', '--ci', '--prune', '--file', '.env']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: pruned keys: API_TOKEN'],
+      err: [
+        `configure-env: warning: ${STATE}: not written (${lock}: held by process ${process.pid}; try again); ${KEPT}`,
+      ],
+    });
+    expect(await read('.env')).not.toContain('API_TOKEN');
+    expect(Object.keys(await fingerprints())).toEqual(['.env']);
   });
 });
 
