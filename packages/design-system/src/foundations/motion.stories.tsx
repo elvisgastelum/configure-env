@@ -118,7 +118,14 @@ export const PageEntranceDemo: Story = {
  */
 export const SlideInPair: Story = {
   name: 'SlideIn: paired cards',
-  parameters: { layout: 'fullscreen' },
+  parameters: {
+    layout: 'fullscreen',
+    // The cards start faint on purpose and turn opaque as they scroll in;
+    // contrast is checked on every other story, where text sits at rest.
+    a11y: {
+      config: { rules: [{ id: 'color-contrast', enabled: false }] },
+    },
+  },
   render: () => (
     <div className="px-6">
       <p className={cn(TYPE.small, 'py-8 text-center')}>

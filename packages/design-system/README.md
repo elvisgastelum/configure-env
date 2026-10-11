@@ -94,10 +94,19 @@ pnpm --filter @configure-env/design-system build-storybook  # static build to st
 
 It holds the Foundations docs (colors, typography, spacing, radius, borders, shadows, effects, motion), every component, a system/light/dark theme toolbar and the a11y panel. Its config lives in `.storybook/` (`preview.css` imports Tailwind, the theme and `docs.css`).
 
+The root scripts `pnpm storybook`, `pnpm build-storybook` and `pnpm test:storybook` run the same commands from the repo root.
+
+### Accessibility checks
+
+`parameters.a11y.test` is `'error'`, so any axe violation fails a story's test. `pnpm test:storybook` runs every story through `@storybook/addon-vitest` in headless Chromium (Playwright) twice, as the `storybook-light` and `storybook-dark` Vitest projects, so each story is checked in both themes, color contrast included. CI builds Storybook and runs these checks in the `storybook` job. Install the browser once with `pnpm --filter @configure-env/design-system exec playwright install chromium`.
+
+The only rule turned off is `color-contrast` on the `SlideIn: paired cards` motion demo, whose cards start faint by design until they scroll in. The light `--destructive` color is darker than upstream (`oklch(0.505 0.213 27.518)` instead of `oklch(0.577 0.245 27.325)`) so destructive text keeps 4.5:1 on its own tint.
+
 ## Tests
 
 ```sh
 pnpm --filter @configure-env/design-system test       # Vitest + Testing Library on jsdom
+pnpm --filter @configure-env/design-system test:storybook  # every story in Chromium, light and dark, with axe
 pnpm --filter @configure-env/design-system typecheck
 ```
 

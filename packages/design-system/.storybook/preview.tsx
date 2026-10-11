@@ -45,7 +45,10 @@ const preview: Preview = {
     },
   },
   initialGlobals: {
-    theme: 'system' satisfies ThemePreference,
+    // The Vitest projects pin `light` or `dark` so every story is checked in
+    // both themes; Storybook itself starts on the system theme.
+    theme: (import.meta.env.STORYBOOK_THEME ??
+      'system') satisfies ThemePreference,
   },
   // Applied again before each story renders, so it never flashes in the
   // previous theme.
@@ -86,8 +89,8 @@ const preview: Preview = {
       },
     },
     a11y: {
-      // Report violations in the panel without failing anything.
-      test: 'todo',
+      // Any axe violation fails the story's test (`pnpm test:storybook`).
+      test: 'error',
     },
   },
 };

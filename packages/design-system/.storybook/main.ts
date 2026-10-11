@@ -9,7 +9,11 @@ import { mergeConfig } from 'vite';
  */
 const config: StorybookConfig = {
   stories: ['../src/**/*.mdx', '../src/**/*.stories.@(ts|tsx)'],
-  addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
+  addons: [
+    '@storybook/addon-docs',
+    '@storybook/addon-a11y',
+    '@storybook/addon-vitest',
+  ],
   framework: '@storybook/react-vite',
   core: { disableTelemetry: true },
   // The package has no vite.config.ts; the framework adds React, and

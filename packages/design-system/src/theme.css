@@ -115,7 +115,9 @@
   --muted-foreground: oklch(0.47 0.02 268);
   --accent: oklch(0.95 0.025 268);
   --accent-foreground: oklch(0.3 0.12 268);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Darker than upstream's 0.577 so destructive text keeps 4.5:1 on its own
+     10% tint (the destructive button and badge). */
+  --destructive: oklch(0.505 0.213 27.518);
   --border: oklch(0.91 0.01 268);
   --input: oklch(0.91 0.01 268);
   --ring: oklch(0.55 0.18 268);
