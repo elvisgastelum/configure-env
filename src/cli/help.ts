@@ -30,8 +30,8 @@ const EXIT_CODES = `Exit codes:
   0    ok
   1    drift, an invalid value or schema, or a failed write
   2    usage error: a bad option, no schema, no terminal without --ci,
-       init over an existing schema without --force, or a change to a
-       protected value
+       init or install over an existing one without --force, or a
+       change to a protected value
   130  cancelled`;
 
 const PROTECTED = `A protected variable keeps the value a file holds: a different value,
@@ -55,6 +55,7 @@ Commands:
   unset     remove variables from one file
   list      show each file's variables: set, valid, value (secrets masked)
   validate  check the current values against the schema
+  install   install the agent skill: configure-env install skill
 
 Run configure-env <command> --help for the command's own options.
 
@@ -337,5 +338,55 @@ Examples:
   configure-env validate
   configure-env validate --file .env --strict
   configure-env validate --json
+
+${EXIT_CODES}`;
+
+export const INSTALL_HELP = `Usage: configure-env install skill [options]
+
+Installs the agent skill the package ships (skills/configure-env), which
+teaches an agent to work with env files through configure-env, for each
+--agent:
+
+  claude  .claude/skills/configure-env
+  agents  .agents/skills/configure-env
+
+--scope picks where:
+
+  project  in the project, to commit: the git top level of the root, else
+           the root
+  local    in the project, kept out of git: the path is added once to
+           .git/info/exclude; outside a git repository it exits 2
+  user     in your home folder, for every project
+
+--mode picks how: copy writes the files, which a fresh clone keeps;
+symlink links to the package's folder, which follows package upgrades but
+breaks when that folder goes away (an npx cache, a removed node_modules).
+
+A path that exists is never replaced without --force (exit 2), except a
+symlink to the same folder, reported unchanged. --force removes it first;
+a symlink is removed, never what it points at.
+
+In a terminal it asks for the scope, the mode and the agents the options
+leave out; with --ci, --json or no terminal they default to project, copy
+and claude.
+
+Options:
+  --scope <scope>  project, local or user
+  --mode <mode>    copy or symlink
+  --agent <agent>  claude or agents; repeat for both (default: claude)
+  --force          replace an existing skill folder or link
+
+Global options:
+  --root <dir>  the project (default: where the command was typed)
+  --ci          never prompt; also when CI=true
+  --json        print one JSON document on stdout
+  --no-color    plain output; NO_COLOR is honoured too
+  -h, --help    show the help
+
+Examples:
+  configure-env install skill
+  configure-env install skill --ci --scope project --mode copy
+  configure-env install skill --scope local --mode symlink --agent claude --agent agents
+  configure-env install skill --scope user --force
 
 ${EXIT_CODES}`;

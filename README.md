@@ -18,6 +18,7 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | `unset`    | remove one variable                                |
 | `list`     | list the variables and where they are set          |
 | `validate` | validate the values against the schema             |
+| `install`  | install the agent skill for Claude Code and others |
 
 Each command runs as an interactive TUI for people, or with `--ci` for unattended runs.
 
@@ -278,6 +279,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `unset` | removes variables from one file                                        |
 | `list`  | shows each file's variables: set, valid, value (secrets masked)        |
 | `validate` | checks the current values against the schema; exits 1 on errors     |
+| `install` | `install skill` installs the agent skill (see "AI agents")           |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -465,7 +467,7 @@ configure-env validate --json
 
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`, plus `keys` (both names) for a conflict, and `kind: "protected"` (with `reason`) for a protected value that no longer matches the state. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `unknownKeys` (with `--strict`, the keys `apply --prune` would remove; else `[]`), `invalid` (`key`, `message` and the masked `shown` value), `rules` (`rule`, `key`, `others` and `message`, for each broken rule between variables), `invalidLines`, `protected` (`kind`, `key`, `message` and `reason`, for each protected value that no longer matches the state), and `mode` (`{ "actual", "expected" }`, without the text hint) when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`. `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`, plus `keys` (both names) for a conflict, and `kind: "protected"` (with `reason`) for a protected value that no longer matches the state. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `unknownKeys` (with `--strict`, the keys `apply --prune` would remove; else `[]`), `invalid` (`key`, `message` and the masked `shown` value), `rules` (`rule`, `key`, `others` and `message`, for each broken rule between variables), `invalidLines`, `protected` (`kind`, `key`, `message` and `reason`, for each protected value that no longer matches the state), and `mode` (`{ "actual", "expected" }`, without the text hint) when it differs.
 
 ### Exit codes
 
@@ -473,7 +475,7 @@ With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "d
 | ----- | ------------------------------------------------------------------------ |
 | `0`   | ok                                                                       |
 | `1`   | drift, an invalid value or schema, or a failed write                     |
-| `2`   | usage error: a bad option, no schema, no terminal without `--ci`, `init` over an existing schema without `--force`, or a change to a protected value |
+| `2`   | usage error: a bad option, no schema, no terminal without `--ci`, `init` or `install` over an existing one without `--force`, or a change to a protected value |
 | `130` | cancelled                                                                |
 
 ### Example schema
@@ -530,14 +532,22 @@ An agent runs without a terminal, so it uses `--ci` and `--json` and never sees 
 
 On a first setup, `configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN` creates the files with the defaults and the generated secret, and leaves `API_TOKEN` empty for the person.
 
-The package ships a skill that teaches an agent this workflow: [`skills/configure-env/SKILL.md`](skills/configure-env/SKILL.md), with a command and schema reference next to it. To install it for Claude Code in a project, copy it from the installed package:
+The package ships a skill that teaches an agent this workflow: [`skills/configure-env/SKILL.md`](skills/configure-env/SKILL.md), with a command and schema reference next to it. Install it with the CLI:
 
 ```sh
-mkdir -p .claude/skills
-cp -R node_modules/@elvisgastelum/configure-env/skills/configure-env .claude/skills/
+configure-env install skill                     # asks for the scope, mode and agents
+configure-env install skill --ci --scope project --mode copy
+npx @elvisgastelum/configure-env install skill --scope user --mode copy --agent claude --agent agents
 ```
 
-Other agents that read `SKILL.md` files take the same folder, for example under `.agents/skills/`.
+| Option            | Values                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `--scope`         | `project`: in the project, to commit (the git top level of `--root`, else the root); `local`: in the project, with its path added once to `.git/info/exclude` so it is never committed (exits 2 outside a git repository); `user`: under your home folder, for every project |
+| `--mode`          | `copy`: a copy of the folder, which a fresh clone keeps; `symlink`: a link to the package's folder, which follows upgrades but breaks when that folder goes away (an npx cache, a removed `node_modules`) |
+| `--agent`         | `claude`: `.claude/skills/configure-env`; `agents`: `.agents/skills/configure-env`, read by other agents that take `SKILL.md` files; repeat it for both |
+| `--force`         | replace an existing skill folder or link; a link is removed, never what it points at            |
+
+In a terminal it asks for what the options leave out; with `--ci`, `--json` or no terminal the defaults are `--scope project --mode copy --agent claude`. An existing skill is never replaced without `--force` (exit 2), except a symlink to the same folder, which is reported `unchanged`. Each skill prints one line, such as `installed  .claude/skills/configure-env (copy)` or `linked     ~/.claude/skills/configure-env (symlink)`.
 
 The skill tells the agent not to read real env files directly. Agent permissions can enforce that: in Claude Code, deny the read in `.claude/settings.json`, and list your project's real env files:
 

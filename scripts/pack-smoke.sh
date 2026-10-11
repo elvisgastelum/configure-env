@@ -110,6 +110,13 @@ run 1 'get a secret without --reveal' cli get TOKEN --root "$app" --file config/
 run 0 'validate' cli validate --root "$app"
 run 1 'set rejects an invalid port' cli set PORT=http --root "$app" --file config/app.env
 run 2 'a missing schema is a usage error' cli check --ci --root "$app" --schema missing.json
+run 0 'install skill' cli install skill --ci --root "$app" --scope project --mode copy
+expect 'install copies the skill' '^installed  \.claude/skills/configure-env \(copy\)$'
+if [[ -f "$app/.claude/skills/configure-env/SKILL.md" ]]; then
+  pass 'the installed skill holds SKILL.md'
+else
+  fail 'the installed skill holds SKILL.md'
+fi
 
 echo "== api"
 run 0 'import the api' node --input-type=module -e "
