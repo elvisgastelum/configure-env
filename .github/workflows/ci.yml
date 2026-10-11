@@ -1,5 +1,6 @@
 # Lint, format check, typecheck, JSON Schema drift and tests on every pull
-# request and on every push to main. Each action is pinned to a full commit
+# request and on every push to main. Every step runs a root script, which
+# covers the whole pnpm workspace. Each action is pinned to a full commit
 # SHA (the tag in the comment) so a moved tag cannot change what runs.
 name: CI
 
@@ -43,7 +44,8 @@ jobs:
       - run: pnpm test
 
   # Packs the package as npm would publish it, installs the tarball into a
-  # throwaway project and runs the CLI through npx (scripts/pack-smoke.sh).
+  # throwaway project and runs the CLI through npx
+  # (packages/cli/scripts/pack-smoke.sh).
   package:
     needs: check
     runs-on: ubuntu-latest
@@ -64,3 +66,4 @@ jobs:
       - run: pnpm build
       - run: pnpm smoke
       - run: npm publish --dry-run
+        working-directory: packages/cli
