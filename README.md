@@ -667,7 +667,7 @@ Versions and the changelog come from [Changesets](https://github.com/changesets/
 2. To release, run the **Release** workflow by hand (Actions, Release, Run workflow, on `main`). It runs every check and the smoke test, then opens a `chore: release` pull request that bumps `packages/cli/package.json` and writes `packages/cli/CHANGELOG.md`.
 3. Merge that pull request and run the **Release** workflow again. With no changesets left, it publishes the version to npm with [provenance](https://docs.npmjs.com/generating-provenance-statements), tags it and creates the GitHub release.
 
-Releases are tagged `@elvisgastelum/configure-env@X.Y.Z` (for example `@elvisgastelum/configure-env@0.1.0`), the format Changesets gives a package in a workspace; the GitHub release takes the same name. Only this package is tagged: the workspace root and the internal `@configure-env/*` packages are private, and `.changeset/config.json` never versions or tags private packages.
+Releases are tagged `@elvisgastelum/configure-env@X.Y.Z` (for example `@elvisgastelum/configure-env@0.1.0`), the format Changesets gives a package in a workspace; the GitHub release takes the same name. Only this package is tagged: the workspace root is private, any package added to the workspace must be private too (`release.test.ts` checks it), and `.changeset/config.json` never versions or tags private packages.
 
 The workflow needs, once:
 
