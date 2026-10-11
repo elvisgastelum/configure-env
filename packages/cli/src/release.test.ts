@@ -9,6 +9,14 @@ import { REPO_ROOT as REPO } from './cli/test-helpers.ts';
 
 const PACKAGE = new URL('../', import.meta.url);
 
+/** The `packages:` globs of pnpm-workspace.yaml, such as `apps/*`. */
+function workspaceGlobs(): string[] {
+  const yaml = readFileSync(new URL('pnpm-workspace.yaml', REPO), 'utf8');
+  const block = /^packages:\n((?:[ \t]+-[^\n]*\n?)+)/m.exec(yaml);
+  if (!block?.[1]) throw new Error('pnpm-workspace.yaml has no packages list');
+  return [...block[1].matchAll(/-\s*['"]?([^'"\s]+)/g)].map((m) => m[1]!);
+}
+
 function json(path: string, base: URL): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(path, base), 'utf8')) as Record<
     string,
@@ -23,8 +31,12 @@ describe('release tags', () => {
   it('publishes the cli as the only public package', () => {
     expect(cli.name).toBe('@elvisgastelum/configure-env');
     expect(cli.private).not.toBe(true);
-    for (const group of ['apps', 'packages']) {
-      const dir = new URL(`${group}/`, REPO);
+    const globs = workspaceGlobs();
+    expect(globs.length).toBeGreaterThan(0);
+    for (const glob of globs) {
+      // Every glob is one directory level: `<group>/*`.
+      expect(glob, glob).toMatch(/^[\w.-]+\/\*$/);
+      const dir = new URL(glob.slice(0, -1), REPO);
       if (!existsSync(dir)) continue;
       for (const name of readdirSync(dir)) {
         const manifest = new URL(`${name}/package.json`, dir);
