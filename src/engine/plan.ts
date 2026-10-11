@@ -11,7 +11,14 @@ import {
   ruleNames,
 } from '../schema/definition.ts';
 import { formatValue, validateValue } from '../schema/values.ts';
-import { appendLines, keysOf, parseDotenv, serialize } from './dotenv.ts';
+import {
+  type DotenvDocument,
+  appendLines,
+  keysOf,
+  parseDotenv,
+  removeEntry,
+  serialize,
+} from './dotenv.ts';
 import { resolveTarget } from './paths.ts';
 
 /** `mode`: the content is current, only the permissions change. */
@@ -24,6 +31,8 @@ export interface FilePlan {
   action: FileAction;
   /** The keys the new content adds to the file. */
   addedKeys: string[];
+  /** The keys `prune` removes from the file, each with its comment block. */
+  prunedKeys?: string[];
   /**
    * Why a file is skipped: `exists` (create-only), `refused` (unsafe path) or
    * `loosens` (its schema mode would add permissions).
@@ -76,6 +85,11 @@ export interface PlanOptions {
   values: Readonly<Record<string, string>>;
   /** Only these schema paths; every file when absent. */
   files?: readonly string[];
+  /**
+   * Removes the keys a merge or existing create-only file holds that the
+   * schema does not list for it, with their comment blocks.
+   */
+  prune?: boolean;
 }
 
 /** Permissions as three octal digits, like `600`. */
@@ -88,6 +102,16 @@ export const loosens = (current: number, mode: number) =>
 /** The file's variable names in output order. */
 export const fileKeys = (schema: EnvSchema, file: FileSpec): string[] =>
   file.variables === '*' ? Object.keys(schema.variables) : file.variables;
+
+/** The keys the document holds that the schema does not list for the file. */
+export const unknownKeys = (
+  schema: EnvSchema,
+  file: FileSpec,
+  doc: DotenvDocument,
+): string[] => {
+  const known = new Set(fileKeys(schema, file));
+  return keysOf(doc).filter((key) => !known.has(key));
+};
 
 /** A comment as `#` lines, one per line of text. */
 export const commentLines = (text: string) =>
@@ -207,6 +231,7 @@ async function planFile(
   realRoot: string,
   file: FileSpec,
   given: Map<string, string>,
+  prune: boolean,
 ): Promise<{ plan: FilePlan; error?: PlanError }> {
   const base = { path: file.path, policy: file.policy, addedKeys: [] };
   const schemaMode = file.mode ? Number.parseInt(file.mode, 8) : undefined;
@@ -267,6 +292,11 @@ async function planFile(
   const doc = parseDotenv(previous);
   const present = new Set(keysOf(doc));
   const missing = keys.filter((key) => !present.has(key));
+  // A generate file is rewritten, so it holds no unknown key to prune.
+  const pruned =
+    prune && file.policy !== 'generate' ? unknownKeys(schema, file, doc) : [];
+  for (const key of pruned) removeEntry(doc, key, 'any', groupChanges(schema));
+  const prunedKeys = pruned.length ? { prunedKeys: pruned } : {};
 
   switch (file.policy) {
     case 'generate': {
@@ -278,17 +308,29 @@ async function planFile(
       };
     }
     case 'merge': {
-      if (!missing.length)
+      if (!missing.length && !pruned.length)
         return current({ ...common, action: 'unchanged', content: previous });
-      const lines = entryLines(schema, file, missing, write);
-      appendLines(doc, doc.lines.length ? ['', ...lines] : lines);
+      if (missing.length) {
+        const lines = entryLines(schema, file, missing, write);
+        appendLines(doc, doc.lines.length ? ['', ...lines] : lines);
+      }
       const content = serialize(doc);
       return {
-        plan: { ...common, action: 'update', addedKeys: missing, content },
+        plan: {
+          ...common,
+          action: 'update',
+          addedKeys: missing,
+          ...prunedKeys,
+          content,
+        },
       };
     }
-    case 'create-only':
-      return current({ ...common, action: 'skip', reason: 'exists' });
+    case 'create-only': {
+      if (!pruned.length)
+        return current({ ...common, action: 'skip', reason: 'exists' });
+      const content = serialize(doc);
+      return { plan: { ...common, action: 'update', ...prunedKeys, content } };
+    }
   }
 }
 
@@ -298,6 +340,7 @@ export async function planChanges({
   root,
   values,
   files,
+  prune = false,
 }: PlanOptions): Promise<Plan> {
   const realRoot = await realpath(root);
   const validated = validateValues(schema, values);
@@ -312,7 +355,13 @@ export async function planChanges({
   );
   const planned: FilePlan[] = [];
   for (const file of selected) {
-    const { plan, error } = await planFile(schema, realRoot, file, written);
+    const { plan, error } = await planFile(
+      schema,
+      realRoot,
+      file,
+      written,
+      prune,
+    );
     planned.push(plan);
     if (error) errors.push(error);
   }

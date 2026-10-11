@@ -28,6 +28,7 @@ import {
   fileKeys,
   formatMode,
   planChanges,
+  unknownKeys,
 } from './plan.ts';
 import {
   type State,
@@ -70,6 +71,11 @@ export interface FileDrift {
   drift: boolean;
   /** The keys a merge file lacks. */
   missingKeys: string[];
+  /**
+   * With `strict`, the keys a merge or create-only file holds that the
+   * schema does not list for it: apply --prune removes them.
+   */
+  unknownKeys: string[];
   invalid: InvalidValue[];
   /** The rules between variables the file's values break. */
   rules: RuleProblem[];
@@ -100,6 +106,8 @@ export interface CheckOptions {
   files?: readonly string[];
   /** The protected variables' state; no mismatch is reported without it. */
   state?: State;
+  /** Reports the keys apply --prune would remove as drift. */
+  strict?: boolean;
 }
 
 /** Validates each of the file's variables as the file holds it. */
@@ -195,6 +203,7 @@ export async function checkDrift({
   values = {},
   files,
   state,
+  strict = false,
 }: CheckOptions): Promise<DriftReport> {
   const plan = await planChanges({ schema, root, values, files });
   const report = plan.files.map((filePlan): FileDrift => {
@@ -211,12 +220,17 @@ export async function checkDrift({
             expected: formatMode(filePlan.mode),
           }
         : undefined;
+    const unknown =
+      strict && previous !== undefined && filePlan.policy !== 'generate'
+        ? unknownKeys(schema, spec, parseDotenv(previous))
+        : [];
     return {
       path: filePlan.path,
       policy: filePlan.policy,
       status,
-      drift: drift || Boolean(mode),
+      drift: drift || Boolean(mode) || unknown.length > 0,
       missingKeys,
+      unknownKeys: unknown,
       invalid:
         previous === undefined
           ? []

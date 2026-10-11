@@ -101,6 +101,7 @@ describe('apply fixes mode drift', () => {
         action: 'mode',
         status: 'mode fixed (644 → 600)',
         addedKeys: [],
+        prunedKeys: [],
         written: false,
         mode: { from: '644', to: '600' },
       });

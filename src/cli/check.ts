@@ -18,6 +18,7 @@ import { readState } from './protect.ts';
 const OPTIONS = {
   set: { type: 'string', multiple: true },
   'use-env': { type: 'boolean' },
+  strict: { type: 'boolean' },
 } as const;
 
 export async function checkCommand(args: string[], io: Io): Promise<number> {
@@ -44,6 +45,7 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
     root: context.root,
     values,
     files: context.files,
+    strict: Boolean(options.strict),
     ...(state ? { state } : {}),
   });
   const code = report.ok ? 0 : 1;
@@ -59,10 +61,11 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
     prompts.intro(`configure-env check · ${displayPath(io.cwd, schemaPath)}`);
     if (lines.length) prompts.note(lines.join('\n'), 'Check');
     if (errors.length) prompts.log.error(errors.join('\n'));
+    const unknown = report.files.some((file) => file.unknownKeys.length);
     prompts.outro(
       report.ok
         ? 'Everything is current.'
-        : 'Out of date: run configure-env apply to fix the drift.',
+        : `Out of date: run configure-env apply${unknown ? ' --prune' : ''} to fix the drift.`,
     );
     return code;
   }

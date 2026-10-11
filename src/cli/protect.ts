@@ -102,6 +102,18 @@ export const isProtected = (schema: EnvSchema, file: FileSpec, key: string) =>
   Object.hasOwn(schema.variables, key) &&
   schema.variables[key]!.protected !== undefined;
 
+/** Whether the schema protects any variable. */
+const protectsAny = (schema: EnvSchema) =>
+  Object.values(schema.variables).some((spec) => spec.protected !== undefined);
+
+/** Reads the state; one that cannot be read exits 1 with `hints`. */
+async function readStateFile(context: Context, hints: readonly string[]) {
+  const result = await loadState(context.statePath);
+  if (!result.ok)
+    throw new CliError(1, [`invalid state ${result.message}`, ...hints]);
+  return result.state;
+}
+
 /**
  * Reads the state when the schema protects a variable; undefined when it
  * protects none. A state that cannot be read exits 1 with `hints`.
@@ -111,27 +123,24 @@ export async function readState(
   schema: EnvSchema,
   ...hints: string[]
 ): Promise<State | undefined> {
-  const any = Object.values(schema.variables).some(
-    (spec) => spec.protected !== undefined,
-  );
-  if (!any) return undefined;
-  const result = await loadState(context.statePath);
-  if (!result.ok)
-    throw new CliError(1, [`invalid state ${result.message}`, ...hints]);
-  return result.state;
+  return protectsAny(schema) ? readStateFile(context, hints) : undefined;
 }
 
-/** The state of a write command; one that cannot be read writes nothing. */
+/**
+ * The state of a write command; one that cannot be read writes nothing.
+ * `always` reads it even when the schema protects no variable, for the
+ * fingerprints of pruned keys.
+ */
 export async function loadRunState(
   context: Context,
   schema: EnvSchema,
+  always = false,
 ): Promise<RunState | undefined> {
-  const state = await readState(
-    context,
-    schema,
+  if (!always && !protectsAny(schema)) return undefined;
+  const state = await readStateFile(context, [
     'fix or restore it; nothing was written',
-  );
-  return state && { path: context.statePath, state };
+  ]);
+  return { path: context.statePath, state };
 }
 
 /** The keys of the repeated --replace-protected option, each once and checked. */
@@ -290,6 +299,12 @@ function intentsOf(
   return changes;
 }
 
+/** A key a run removed from a file without a schema variable to check it. */
+export interface Forgotten {
+  file: string;
+  key: string;
+}
+
 /** What the write of a guarded run did. */
 export interface Written<T> {
   value: T;
@@ -306,7 +321,8 @@ export interface Written<T> {
  * against it (a refusal exits 2), writes the env files, merges its changes
  * into the state and releases the lock. A lock or state it cannot get exits
  * 1 with nothing written; a state write that fails after the env files is
- * returned as `stateError`.
+ * returned as `stateError`. The fingerprints of the `forget` keys (pruned
+ * ones) of the files written as planned are removed.
  */
 export async function writeProtected<T>(
   context: Context,
@@ -317,12 +333,17 @@ export async function writeProtected<T>(
     files: readonly RunFile[];
     replace: ReadonlySet<string>;
     hints?: readonly string[];
+    forget?: readonly Forgotten[];
   },
   write: () => Promise<Written<T>>,
 ): Promise<{ value: T; replaced: Replaced[]; stateError?: string[] }> {
   const { checks, files, replace, hints = [] } = plan;
+  const forget = (plan.forget ?? []).filter(
+    (entry) => run && recorded(run.state, entry.file, entry.key),
+  );
   // A run that writes or holds no protected value never takes the lock.
   const involved =
+    forget.length > 0 ||
     checks.some((check) => check.current || check.next) ||
     files.some(({ spec, valueOf }) =>
       fileKeys(schema, spec).some(
@@ -345,11 +366,16 @@ export async function writeProtected<T>(
       if (refused.length) throw protectedError(refused, ...hints);
       writing = true;
       const { value, done, written } = await write();
-      const changes = intentsOf(
-        schema,
-        files.filter((file) => done.includes(file.spec.path)),
-        replaced,
-      );
+      const changes: StateChange[] = [
+        ...intentsOf(
+          schema,
+          files.filter((file) => done.includes(file.spec.path)),
+          replaced,
+        ),
+        ...forget
+          .filter((entry) => done.includes(entry.file))
+          .map((entry) => ({ action: 'remove' as const, ...entry })),
+      ];
       try {
         await mergeState(run.path, changes, context.io.writeState);
         return { value, replaced };

@@ -10,16 +10,33 @@ import { protectedLine } from './protect.ts';
 const modeChange = (file: FilePlan) =>
   `${formatMode(file.currentMode!)} → ${formatMode(file.mode)}`;
 
-/** What a run did to a file: `created`, `added keys: A B`, ... */
+/**
+ * An update that adds or prunes keys, as `<added> keys: A B; <pruned> keys:
+ * C, D`; undefined for any other.
+ */
+function keyChanges(file: FilePlan, added: string, pruned: string) {
+  const parts = [
+    ...(file.policy === 'merge' && file.addedKeys.length
+      ? [`${added} keys: ${file.addedKeys.join(' ')}`]
+      : []),
+    ...(file.prunedKeys?.length
+      ? [`${pruned} keys: ${file.prunedKeys.join(', ')}`]
+      : []),
+  ];
+  return parts.length ? parts.join('; ') : undefined;
+}
+
+/**
+ * What a run did to a file: `created`, `added keys: A B`, `pruned keys: C,
+ * D`, ...
+ */
 export function applyStatus(file: FilePlan, result?: ApplyResult): string {
   if (result && !result.ok) return `failed (${result.error})`;
   switch (file.action) {
     case 'create':
       return 'created';
     case 'update':
-      return file.policy === 'merge' && file.addedKeys.length
-        ? `added keys: ${file.addedKeys.join(' ')}`
-        : 'updated';
+      return keyChanges(file, 'added', 'pruned') ?? 'updated';
     case 'mode':
       return `mode fixed (${modeChange(file)})`;
     case 'unchanged':
@@ -45,6 +62,7 @@ export function fileState(file: FilePlan): string {
   )
     return `mode ${formatMode(file.currentMode)}, expected ${formatMode(file.mode)}`;
   if (file.action === 'unchanged') return 'current';
+  if (file.prunedKeys?.length) return keyChanges(file, 'missing', 'unknown')!;
   if (file.policy === 'merge')
     return `missing keys: ${file.addedKeys.join(' ')}`;
   return 'differs';
@@ -56,9 +74,7 @@ export function planStatus(file: FilePlan): string {
     case 'create':
       return 'create';
     case 'update':
-      return file.policy === 'merge' && file.addedKeys.length
-        ? `add keys: ${file.addedKeys.join(' ')}`
-        : 'update';
+      return keyChanges(file, 'add', 'prune') ?? 'update';
     case 'mode':
       return `fix mode (${modeChange(file)})`;
     case 'unchanged':
@@ -83,6 +99,7 @@ export function applyJson(file: FilePlan, result?: ApplyResult) {
     action: file.action,
     status: applyStatus(file, result),
     addedKeys: file.addedKeys,
+    prunedKeys: file.prunedKeys ?? [],
     written: result?.written ?? false,
     ...(file.reason ? { reason: file.reason } : {}),
     ...(file.error || result?.error
@@ -116,12 +133,17 @@ const DRIFT_STATUS: Record<FileDrift['status'], (file: FileDrift) => string> = {
 };
 
 /**
- * For check: the file's state, its mode, then its invalid values, broken
+ * For check: the file's state, its unknown keys, its mode, then its invalid values, broken
  * rules, lines and protected values that no longer match.
  */
 export function driftLines(file: FileDrift): string[] {
   return [
     `${file.path}: ${DRIFT_STATUS[file.status](file)}`,
+    ...(file.unknownKeys.length
+      ? [
+          `${file.path}: unknown keys: ${file.unknownKeys.join(', ')} (run configure-env apply --prune to remove them)`,
+        ]
+      : []),
     ...(file.mode ? [`${file.path}: ${modeLine(file.mode)}`] : []),
     ...file.invalid.map(
       ({ key, shown, message }) =>

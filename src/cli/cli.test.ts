@@ -225,6 +225,7 @@ describe('apply --ci', () => {
           action: 'create',
           status: 'created',
           addedKeys: ['HOST', 'PORT', 'TOKEN', 'MODE', 'DEBUG'],
+          prunedKeys: [],
           written: true,
         },
         expect.objectContaining({ path: 'shared.env', status: 'created' }),

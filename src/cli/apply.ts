@@ -55,6 +55,7 @@ const OPTIONS = {
   generate: { type: 'string', multiple: true },
   defer: { type: 'string', multiple: true },
   'replace-protected': { type: 'string', multiple: true },
+  prune: { type: 'boolean' },
 } as const;
 
 export async function applyCommand(args: string[], io: Io): Promise<number> {
@@ -112,24 +113,30 @@ async function applyWith(
     [...Object.keys(sets), ...generated],
     options.defer,
   );
+  const prune = Boolean(options.prune);
   const guard: Guard = {
     run: undefined,
     replace: replaceKeys(schema, options['replace-protected']),
+    prune,
   };
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
-    guard.run = await loadRunState(context, schema);
+    guard.run = await loadRunState(context, schema, prune);
     return applyUnattended(context, schema, sets, generated, deferred, guard);
   }
   if (!io.isTTY) throw usageError(NO_TERMINAL);
-  guard.run = await loadRunState(context, schema);
+  guard.run = await loadRunState(context, schema, prune);
   return applyInteractive(context, schema, sets, generated, deferred, guard);
 }
 
-/** The protected variables' state of a run and its --replace-protected keys. */
+/**
+ * The protected variables' state of a run, its --replace-protected keys and
+ * whether it prunes (--prune).
+ */
 interface Guard {
   run: RunState | undefined;
   replace: ReadonlySet<string>;
+  prune: boolean;
 }
 
 /**
@@ -196,7 +203,15 @@ function writeRun(
     context,
     schema,
     guard.run,
-    { checks, files, replace: allowed },
+    {
+      checks,
+      files,
+      replace: allowed,
+      // A pruned key's fingerprint goes with it.
+      forget: plan.files.flatMap((file) =>
+        (file.prunedKeys ?? []).map((key) => ({ file: file.path, key })),
+      ),
+    },
     async () => {
       const results = await applyPlan(plan);
       const paths = (keep: (file: FilePlan, i: number) => boolean) =>
@@ -422,7 +437,13 @@ async function applyUnattended(
   guard: Guard,
 ): Promise<number> {
   const { io, root, files, json } = context;
-  const first = await planChanges({ schema, root, values: {}, files });
+  const first = await planChanges({
+    schema,
+    root,
+    values: {},
+    files,
+    prune: guard.prune,
+  });
   const givenValues = withGenerated(
     schema,
     first.files,
@@ -438,7 +459,13 @@ async function applyUnattended(
     io.env,
     deferred,
   );
-  const plan = await planChanges({ schema, root, values, files });
+  const plan = await planChanges({
+    schema,
+    root,
+    values,
+    files,
+    prune: guard.prune,
+  });
   errors.push(...plan.errors);
   // Like a required value, a broken rule between variables writes nothing.
   if (!errors.length) errors.push(...ruleErrors(schema, plan.files, deferred));
@@ -620,7 +647,13 @@ async function applyInteractive(
   const { io, prompts, root, files, schemaPath } = context;
   prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
 
-  const first = await planChanges({ schema, root, values: {}, files });
+  const first = await planChanges({
+    schema,
+    root,
+    values: {},
+    files,
+    prune: guard.prune,
+  });
   const picked = await prompts.multiselect<string>({
     message: 'Which files should be written?',
     options: first.files.map((file) => ({
@@ -707,6 +740,7 @@ async function applyInteractive(
     root,
     values: { ...givenValues, ...answers },
     files: selected.map((file) => file.path),
+    prune: guard.prune,
   });
   const planErrors = plan.errors.length
     ? plan.errors
