@@ -297,6 +297,34 @@ describe('apply --prune and an unusable state', () => {
     expect(Object.keys(await fingerprints())).toEqual(['.env']);
   });
 
+  it('warns about nothing when the pruning file fails to write', async () => {
+    // A name that fits the 255-byte limit while the temporary file beside it
+    // does not: the write fails, even as root.
+    const LONG = `${'a'.repeat(240)}.env`;
+    await useSchema({
+      version: 1,
+      variables: { PORT: { type: 'port', default: 3000 } },
+      files: [{ path: LONG, policy: 'merge', variables: ['PORT'] }],
+    });
+    await writeFile(path(LONG), 'PORT=1\nOLD=2\n');
+    await corrupt();
+    const r = await cli(['apply', '--ci', '--prune']);
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toMatch(`${LONG}: failed (ENAMETOOLONG`);
+    expect(r.err).toEqual([]);
+    const document = await cli(['apply', '--ci', '--json', '--prune']);
+    expect(document.code).toBe(1);
+    const report = json(document);
+    expect(report.files[0]).toMatchObject({
+      path: LONG,
+      prunedKeys: ['OLD'],
+      written: false,
+    });
+    expect(report.files[0].status).toMatch(/^failed \(ENAMETOOLONG/);
+    expect(report).not.toHaveProperty('warnings');
+    expect(await read(LONG)).toBe('PORT=1\nOLD=2\n');
+  });
+
   it('keeps failing when the schema protects a variable', async () => {
     await cli(['apply', '--ci']);
     const before = await read('.env');
