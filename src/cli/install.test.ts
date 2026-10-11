@@ -10,10 +10,46 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
+
+// Failures the file system is made to raise, to test what a failed install
+// leaves behind; each test that sets one clears it after.
+const faults = vi.hoisted(() => ({
+  cp: undefined as Error | undefined,
+  symlink: undefined as Error | undefined,
+  rename: undefined as
+    ((from: string, to: string) => Error | undefined) | undefined,
+}));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    // A copy that fails half-way leaves its folder behind.
+    cp: async (...args: Parameters<typeof actual.cp>) => {
+      if (!faults.cp) return actual.cp(...args);
+      await actual.mkdir(String(args[1]), { recursive: true });
+      throw faults.cp;
+    },
+    symlink: async (...args: Parameters<typeof actual.symlink>) => {
+      if (faults.symlink) throw faults.symlink;
+      return actual.symlink(...args);
+    },
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      const fault = faults.rename?.(String(args[0]), String(args[1]));
+      if (fault) throw fault;
+      return actual.rename(...args);
+    },
+  };
+});
+afterEach(() => {
+  faults.cp = faults.symlink = faults.rename = undefined;
+});
+
+const noSpace = () =>
+  Object.assign(new Error('no space left'), { code: 'ENOSPC' });
 
 const dirs = useProject(null);
 const root = () => dirs.root;
@@ -47,6 +83,7 @@ const cli = (
 async function gitInit(dir = root()) {
   const gitDir = join(dir, '.git');
   await mkdir(gitDir, { recursive: true });
+  await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
   return gitDir;
 }
 
@@ -172,7 +209,13 @@ describe('install skill', () => {
       if (mode === 'symlink') expect(await isLinkTo(target, SOURCE)).toBe(true);
       else expect(await tree(target)).toEqual(await tree(SOURCE));
 
-      await cli([...argv, '--force']);
+      const second = await cli([...argv, '--force']);
+      expect(second).toMatchObject({ code: 0, err: [] });
+      expect(second.out).toEqual([
+        mode === 'symlink'
+          ? `unchanged  ${CLAUDE} (symlink)`
+          : `installed  ${CLAUDE} (copy, replaced)`,
+      ]);
       const exclude = await readFile(join(gitDir, 'info', 'exclude'), 'utf8');
       expect(exclude).toBe('/.claude/skills/configure-env\n');
     },
@@ -195,9 +238,12 @@ describe('install skill', () => {
     const worktreeGit = join(gitDir, 'worktrees', 'wt');
     await mkdir(worktreeGit, { recursive: true });
     await writeFile(join(worktreeGit, 'commondir'), '../..\n');
+    await writeFile(join(worktreeGit, 'HEAD'), 'ref: refs/heads/wt\n');
     const wt = join(root(), 'wt');
     await mkdir(wt);
     await writeFile(join(wt, '.git'), `gitdir: ${worktreeGit}\n`);
+    // git names the worktree's .git file back from its git dir.
+    await writeFile(join(worktreeGit, 'gitdir'), `${join(wt, '.git')}\n`);
 
     const result = await cli(['--ci', '--scope', 'local', '--root', wt]);
     expect(result).toMatchObject({ code: 0, err: [] });
@@ -205,6 +251,90 @@ describe('install skill', () => {
     expect(await readFile(join(gitDir, 'info', 'exclude'), 'utf8')).toBe(
       '/.claude/skills/configure-env\n',
     );
+  });
+
+  it('excludes in the git dir of a submodule', async () => {
+    const gitDir = await gitInit();
+    const moduleGit = join(gitDir, 'modules', 'sub');
+    await mkdir(moduleGit, { recursive: true });
+    await writeFile(join(moduleGit, 'HEAD'), 'ref: refs/heads/main\n');
+    // A submodule's git dir names its work tree in its config.
+    await writeFile(
+      join(moduleGit, 'config'),
+      '[core]\n\tworktree = ../../../sub\n',
+    );
+    const sub = join(root(), 'sub');
+    await mkdir(sub);
+    await writeFile(join(sub, '.git'), 'gitdir: ../.git/modules/sub\n');
+
+    const result = await cli(['--ci', '--scope', 'local', '--root', sub]);
+    expect(result).toMatchObject({ code: 0, err: [] });
+    expect((await lstat(join(sub, CLAUDE))).isDirectory()).toBe(true);
+    expect(await readFile(join(moduleGit, 'info', 'exclude'), 'utf8')).toBe(
+      '/.claude/skills/configure-env\n',
+    );
+  });
+
+  describe('a .git file that does not lead back to it', () => {
+    /** A folder outside the project, for a .git file to point at. */
+    const outside = () => join(home.dir, 'elsewhere');
+
+    const crafted: [string, () => Promise<void>][] = [
+      ['a folder without HEAD', async () => {}],
+      [
+        'a git dir that does not name it',
+        async () => {
+          await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
+        },
+      ],
+      [
+        'a git dir that names another .git',
+        async () => {
+          await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
+          await writeFile(join(outside(), 'gitdir'), '/somewhere/else/.git\n');
+        },
+      ],
+      [
+        'a worktree whose commondir has no HEAD',
+        async () => {
+          await writeFile(join(outside(), 'HEAD'), 'ref: refs/heads/main\n');
+          await writeFile(
+            join(outside(), 'gitdir'),
+            `${join(root(), '.git')}\n`,
+          );
+          await mkdir(join(outside(), 'common'));
+          await writeFile(join(outside(), 'commondir'), 'common\n');
+        },
+      ],
+    ];
+
+    it.each(crafted)('refuses local for %s', async (_, make) => {
+      await mkdir(outside());
+      await make();
+      await writeFile(join(root(), '.git'), `gitdir: ${outside()}\n`);
+      const result = await cli(['--ci', '--scope', 'local']);
+      expect(result.code).toBe(2);
+      expect(result.err[0]).toBe(
+        `configure-env: --scope local needs a git repository: ${join(root(), '.git')} does not lead to one`,
+      );
+      await expect(lstat(join(outside(), 'info'))).rejects.toThrow();
+      await expect(lstat(join(outside(), 'common', 'info'))).rejects.toThrow();
+      await expect(lstat(join(root(), '.claude'))).rejects.toThrow();
+    });
+
+    // Like a folder in no repository: project installs at the root, not at
+    // the folder holding the .git file, and never goes further up.
+    it.each(crafted)('installs project at the root for %s', async (_, make) => {
+      await mkdir(outside());
+      await make();
+      await writeFile(join(root(), '.git'), `gitdir: ${outside()}\n`);
+      const app = join(root(), 'packages', 'app');
+      await mkdir(app, { recursive: true });
+      const result = await cli(['--ci', '--scope', 'project', '--root', app]);
+      expect(result).toMatchObject({ code: 0, err: [] });
+      expect((await lstat(join(app, CLAUDE))).isDirectory()).toBe(true);
+      await expect(lstat(join(root(), '.claude'))).rejects.toThrow();
+    });
   });
 
   it('refuses local outside a git repository', async () => {
@@ -256,6 +386,149 @@ describe('install skill', () => {
     const target = join(root(), CLAUDE);
     expect((await lstat(target)).isDirectory()).toBe(true);
     expect(Object.keys(await tree(SOURCE))).toContain('SKILL.md');
+  });
+
+  it.each([
+    ['copy', 'the copy', () => (faults.cp = noSpace())],
+    ['symlink', 'the link', () => (faults.symlink = noSpace())],
+    [
+      'copy',
+      'the swap',
+      () => {
+        // Only the new skill's rename into place: putting the old one back
+        // must work.
+        let failed = false;
+        faults.rename = (from, to) => {
+          if (failed || basename(to) !== 'configure-env') return undefined;
+          failed = true;
+          return noSpace();
+        };
+      },
+    ],
+  ])(
+    'keeps the old target when --force --mode %s fails at %s',
+    async (mode, _, fail) => {
+      const target = join(root(), CLAUDE);
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, 'stale.md'), 'old\n');
+      fail();
+      const result = await cli(['--ci', '--force', '--mode', mode]);
+      expect(result).toMatchObject({ code: 1, out: [] });
+      expect(result.err).toEqual([
+        `configure-env: cannot install ${CLAUDE}: ENOSPC`,
+      ]);
+      expect(await tree(target)).toEqual({
+        'stale.md': Buffer.from('old\n').toString('base64'),
+      });
+      expect(await readdir(join(root(), '.claude', 'skills'))).toEqual([
+        'configure-env',
+      ]);
+    },
+  );
+
+  it('leaves no half-written copy when the copy fails', async () => {
+    faults.cp = noSpace();
+    const result = await cli(['--ci']);
+    expect(result.code).toBe(1);
+    expect(await readdir(join(root(), '.claude', 'skills'))).toEqual([]);
+  });
+
+  it('leaves no temporary folder after replacing', async () => {
+    await cli(['--ci', '--mode', 'symlink']);
+    const result = await cli(['--ci', '--mode', 'copy', '--force']);
+    expect(result.code).toBe(0);
+    expect(await readdir(join(root(), '.claude', 'skills'))).toEqual([
+      'configure-env',
+    ]);
+  });
+
+  it('reports the agents installed before one that fails', async () => {
+    await gitInit();
+    // A file where the folder should be: placing the second agent fails.
+    await writeFile(join(root(), '.agents'), '');
+    const result = await cli([
+      '--ci',
+      '--scope',
+      'local',
+      '--agent',
+      'claude',
+      '--agent',
+      'agents',
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.out).toEqual([
+      `installed  ${CLAUDE} (copy)`,
+      'excluded   /.claude/skills/configure-env in .git/info/exclude',
+    ]);
+    expect(result.err).toHaveLength(1);
+    expect(result.err[0]).toMatch(
+      /^configure-env: cannot install \.agents\/skills\/configure-env: E[A-Z]+$/,
+    );
+    expect(await tree(join(root(), CLAUDE))).toEqual(await tree(SOURCE));
+    // Only the installed skill is excluded.
+    expect(
+      await readFile(join(root(), '.git', 'info', 'exclude'), 'utf8'),
+    ).toBe('/.claude/skills/configure-env\n');
+  });
+
+  it('prints one failed JSON document holding the installed agents', async () => {
+    await writeFile(join(root(), '.agents'), '');
+    const result = await cli([
+      '--json',
+      '--agent',
+      'claude',
+      '--agent',
+      'agents',
+    ]);
+    expect(result).toMatchObject({ code: 1, err: [] });
+    expect(result.out).toHaveLength(1);
+    expect(JSON.parse(result.out[0]!)).toEqual({
+      command: 'install',
+      ok: false,
+      source: SOURCE,
+      skills: [
+        {
+          agent: 'claude',
+          scope: 'project',
+          mode: 'copy',
+          path: join(root(), CLAUDE),
+          status: 'installed',
+          replaced: false,
+        },
+      ],
+      errors: [
+        {
+          kind: 'file',
+          path: AGENTS,
+          message: expect.stringMatching(
+            /^cannot install \.agents\/skills\/configure-env: E[A-Z]+$/,
+          ),
+        },
+      ],
+    });
+  });
+
+  it('reports the installed skill when the exclude file cannot be written', async () => {
+    const gitDir = await gitInit();
+    // A file where the info folder should be.
+    await writeFile(join(gitDir, 'info'), '');
+    const result = await cli([
+      '--ci',
+      '--scope',
+      'local',
+      '--agent',
+      'claude',
+      '--agent',
+      'agents',
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.out).toEqual([`installed  ${CLAUDE} (copy)`]);
+    expect(result.err).toEqual([
+      `configure-env: cannot update ${join(gitDir, 'info', 'exclude')}: ENOTDIR`,
+      `${CLAUDE} was installed; add /.claude/skills/configure-env to it yourself`,
+    ]);
+    // The run stops there: the next agent is not installed.
+    await expect(lstat(join(root(), AGENTS))).rejects.toThrow();
   });
 
   it('leaves an identical link unchanged', async () => {

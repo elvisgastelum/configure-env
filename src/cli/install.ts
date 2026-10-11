@@ -1,13 +1,17 @@
 // `configure-env install skill`: installs the agent skill the package ships,
 // for the user or the project, as a symlink or a copy.
 
+import { randomBytes } from 'node:crypto';
 import {
   cp,
   lstat,
   mkdir,
   readFile,
   readlink,
+  realpath,
+  rename,
   rm,
+  stat,
   symlink,
   unlink,
   writeFile,
@@ -20,6 +24,7 @@ import {
   CliError,
   type Context,
   contextOf,
+  displayPath,
   GLOBAL_OPTIONS,
   usageError,
 } from './common.ts';
@@ -86,26 +91,64 @@ interface Repository {
   common: string;
 }
 
+/** A `.git` that leads to no git dir: no usable repository. */
+interface Unusable {
+  dotGit: string;
+}
+
+/** Whether `dir` is a git dir: a folder holding a HEAD file. */
+const isGitDir = (dir: string) =>
+  stat(join(dir, 'HEAD')).then(
+    (stats) => stats.isFile(),
+    () => false,
+  );
+
+const samePath = async (a: string, b: string) =>
+  (await realpath(a).catch(() => a)) === (await realpath(b).catch(() => b));
+
+/**
+ * Whether the git dir `gitDir` names the `.git` file of `top` back, as git
+ * writes it: a worktree's `gitdir` file holds the path of that file, a
+ * submodule's config its work tree (`core.worktree`).
+ */
+async function pointsBack(gitDir: string, top: string): Promise<boolean> {
+  const back = await readFile(join(gitDir, 'gitdir'), 'utf8').catch(
+    () => undefined,
+  );
+  if (back !== undefined)
+    return samePath(resolve(gitDir, back.trim()), join(top, '.git'));
+  const config = await readFile(join(gitDir, 'config'), 'utf8').catch(() => '');
+  const worktree = config.match(/^\s*worktree\s*=\s*(.+?)\s*$/m);
+  return worktree ? samePath(resolve(gitDir, worktree[1]!), top) : false;
+}
+
 /**
  * The git repository `dir` is in, read from the files, without running git:
  * the nearest `.git` folder, or `.git` file (`gitdir: <path>`, as a worktree
- * or a submodule has), and the `commondir` a worktree's git dir names.
+ * or a submodule has), and the `commondir` a worktree's git dir names. A
+ * `.git` file is trusted only when its git dir names it back and every git
+ * dir it leads to holds HEAD; else the nearest `.git` is unusable, and the
+ * search stops there, as git does.
  */
-async function findRepository(dir: string): Promise<Repository | undefined> {
+async function findRepository(
+  dir: string,
+): Promise<Repository | Unusable | undefined> {
   for (let top = dir; ; top = dirname(top)) {
     const dotGit = join(top, '.git');
     const stats = await lstat(dotGit).catch(() => undefined);
-    if (stats?.isDirectory()) return { top, common: dotGit };
+    if (stats?.isDirectory())
+      return (await isGitDir(dotGit)) ? { top, common: dotGit } : { dotGit };
     if (stats?.isFile()) {
       const line = (await readFile(dotGit, 'utf8')).match(/^gitdir:\s*(.+)$/m);
-      if (line) {
-        const gitDir = resolve(top, line[1]!.trim());
-        const common = await readFile(join(gitDir, 'commondir'), 'utf8').then(
-          (text) => resolve(gitDir, text.trim()),
-          () => gitDir,
-        );
-        return { top, common };
-      }
+      if (!line) return { dotGit };
+      const gitDir = resolve(top, line[1]!.trim());
+      if (!(await isGitDir(gitDir)) || !(await pointsBack(gitDir, top)))
+        return { dotGit };
+      const common = await readFile(join(gitDir, 'commondir'), 'utf8').then(
+        (text) => resolve(gitDir, text.trim()),
+        () => gitDir,
+      );
+      return (await isGitDir(common)) ? { top, common } : { dotGit };
     }
     if (dirname(top) === top) return undefined;
   }
@@ -150,24 +193,64 @@ async function occupant(
     : 'other';
 }
 
-/** Copies or links the skill at `target`, removing what is there first. */
+/** Removes `path`: a link goes, never what it points at. */
+async function remove(path: string): Promise<void> {
+  const existing = await lstat(path).catch(() => undefined);
+  if (existing?.isSymbolicLink()) await unlink(path);
+  else if (existing) await rm(path, { recursive: true, force: true });
+}
+
+/** A free path next to `path`, on the same file system so it renames. */
+const sibling = (path: string) =>
+  join(dirname(path), `.configure-env-${randomBytes(6).toString('hex')}`);
+
+/**
+ * Copies or links the skill at `target`, replacing what is there. The new
+ * one is made next to it and renamed into place, so a failure leaves the
+ * old one, never half a copy or nothing.
+ */
 async function place(target: string, mode: Mode): Promise<Status> {
-  const existing = await lstat(target).catch(() => undefined);
-  // A link goes, never what it points at.
-  if (existing?.isSymbolicLink()) await unlink(target);
-  else if (existing) await rm(target, { recursive: true, force: true });
   await mkdir(dirname(target), { recursive: true });
-  if (mode === 'symlink') {
-    // A junction needs no privilege on Windows.
-    await symlink(
-      SKILL_SOURCE,
-      target,
-      process.platform === 'win32' ? 'junction' : 'dir',
-    );
-    return 'linked';
+  const fresh = sibling(target);
+  try {
+    if (mode === 'symlink')
+      // A junction needs no privilege on Windows.
+      await symlink(
+        SKILL_SOURCE,
+        fresh,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+    else await cp(SKILL_SOURCE, fresh, { recursive: true });
+    if (!(await lstat(target).catch(() => undefined)))
+      await rename(fresh, target);
+    else {
+      const old = sibling(target);
+      await rename(target, old);
+      try {
+        await rename(fresh, target);
+      } catch (error) {
+        await rename(old, target);
+        throw error;
+      }
+      // The skill is in place: a leftover old one is only clutter.
+      await remove(old).catch(() => undefined);
+    }
+  } catch (error) {
+    await remove(fresh).catch(() => undefined);
+    throw error;
   }
-  await cp(SKILL_SOURCE, target, { recursive: true });
-  return 'installed';
+  return mode === 'symlink' ? 'linked' : 'installed';
+}
+
+/** One installed skill, as `--json` prints it. */
+interface Installed {
+  agent: Agent;
+  scope: Scope;
+  mode: Mode;
+  path: string;
+  status: Status;
+  replaced: boolean;
+  exclude?: { file: string; entry: string; status: ExcludeStatus };
 }
 
 interface Choices {
@@ -275,10 +358,16 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
   const context = await contextOf(io, options);
   const { prompts } = context;
   const interactive = !context.ci && !context.json && io.isTTY;
-  const repository = await findRepository(context.root);
+  const found = await findRepository(context.root);
+  // An unusable .git counts as no repository: project installs at the root.
+  const repository = found && 'common' in found ? found : undefined;
   if (given.scope === 'local' && !repository)
     throw usageError(
-      `--scope local needs a git repository: ${context.root} is in none`,
+      `--scope local needs a git repository: ${
+        found && 'dotGit' in found
+          ? `${found.dotGit} does not lead to one`
+          : `${context.root} is in none`
+      }`,
       'pass --scope project to install it for the project anyway',
     );
 
@@ -308,17 +397,47 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
     targets.push({ agent, path, shown, found });
   }
 
-  const skills = [];
+  const skills: Installed[] = [];
   const lines: string[] = [];
+  const document = (ok: boolean) => ({
+    command: 'install',
+    ok,
+    source: SKILL_SOURCE,
+    skills,
+  });
+  /**
+   * Fails the run at `path` with exit 1, after reporting the skills already
+   * installed, which stay.
+   */
+  const fail = (path: string, failure: string[]) => {
+    if (!context.json) {
+      if (interactive && lines.length) prompts.log.success(lines.join('\n'));
+      else lines.forEach((line) => io.stdout(line));
+      throw new CliError(1, failure);
+    }
+    io.stdout(
+      JSON.stringify({
+        ...document(false),
+        errors: [
+          {
+            kind: 'file',
+            path: displayPath(io.cwd, path),
+            message: failure.join('; '),
+          },
+        ],
+      }),
+    );
+    return 1;
+  };
+  const why = (error: unknown) =>
+    (error as NodeJS.ErrnoException).code ?? (error as Error).message;
+
   for (const { agent, path, shown, found } of targets) {
     let status: Status = 'unchanged';
     try {
       if (found !== 'same') status = await place(path, mode);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      throw new CliError(1, [
-        `cannot install ${shown}: ${code ?? (error as Error).message}`,
-      ]);
+      return fail(path, [`cannot install ${shown}: ${why(error)}`]);
     }
     const placed = { status, replaced: found === 'other' };
     const suffix = placed.replaced ? `${mode}, replaced` : mode;
@@ -334,9 +453,9 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
     try {
       excluded = await exclude(file, entry);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      throw new CliError(1, [
-        `cannot update ${file}: ${code ?? (error as Error).message}`,
+      skills.push(skill);
+      return fail(file, [
+        `cannot update ${file}: ${why(error)}`,
         `${shown} was installed; add ${entry} to it yourself`,
       ]);
     }
@@ -347,15 +466,7 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
     skills.push({ ...skill, exclude: { file, entry, status: excluded } });
   }
 
-  if (context.json)
-    io.stdout(
-      JSON.stringify({
-        command: 'install',
-        ok: true,
-        source: SKILL_SOURCE,
-        skills,
-      }),
-    );
+  if (context.json) io.stdout(JSON.stringify(document(true)));
   else if (interactive) prompts.outro(lines.join('\n'));
   else lines.forEach((line) => io.stdout(line));
   return 0;

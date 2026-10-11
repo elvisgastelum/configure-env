@@ -363,8 +363,13 @@ symlink links to the package's folder, which follows package upgrades but
 breaks when that folder goes away (an npx cache, a removed node_modules).
 
 A path that exists is never replaced without --force (exit 2), except a
-symlink to the same folder, reported unchanged. --force removes it first;
-a symlink is removed, never what it points at.
+symlink to the same folder, reported unchanged. --force builds the new one
+next to it and swaps it in, so a failure keeps the old one; a symlink is
+removed, never what it points at. A run that fails part-way exits 1 and
+still prints the skills it installed, which stay.
+
+local needs a .git folder, or a .git file whose git dir names it back (a
+worktree or a submodule); any other .git counts as no repository.
 
 In a terminal it asks for the scope, the mode and the agents the options
 leave out; with --ci, --json or no terminal they default to project, copy
