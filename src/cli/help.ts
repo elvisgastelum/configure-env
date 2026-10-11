@@ -80,7 +80,7 @@ need, shows the plan and asks before writing. With --ci (or CI=true, or
 --json) it never prompts: each value comes from --set, else the
 environment variable of the same name, else the schema default; a required
 variable with none, or a broken rule between variables (requiredUnless,
-conflictsWith, distinctFrom), is an error and nothing is written.
+conflictsWith, distinctFrom, within), is an error and nothing is written.
 
 Template files (template: true, or a path ending in .example, .sample or
 .template) take only their values entries and the defaults: never --set,
@@ -322,8 +322,8 @@ Changes nothing. Checks the current values of every schema file (or the
 --file paths): a missing file, lines that are not valid entries, required
 keys that are not set, values that break their variable's rules, and
 broken rules between variables (requiredUnless, conflictsWith,
-distinctFrom), and protected values that no longer match the ones the
-state recorded. It reads the state, never writes it. A
+distinctFrom, within), and protected values that no longer match the
+ones the state recorded. It reads the state, never writes it. A
 key the schema does not list for the file is a warning, an error with
 --strict. Template files hold placeholders, so only their lines and the
 presence of each key are checked. Exits 1 on any error; messages never

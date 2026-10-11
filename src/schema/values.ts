@@ -9,8 +9,10 @@ import {
   type RuleField,
   type VariableSpec,
   ruleNames,
+  ruleValue,
 } from './definition.ts';
 import {
+  contains,
   formatNetwork,
   hasHostBits,
   networkOf,
@@ -276,6 +278,31 @@ export function maskValue(
 }
 
 /**
+ * Whether `raw`, a value of an address or cidr variable, lies inside the
+ * network of `targetRaw`, a cidr value: a block must sit wholly inside it,
+ * and a different family never does. Undefined when either value is not set
+ * or not valid for its variable, which its own check reports.
+ */
+export function isWithin(
+  spec: VariableSpec,
+  raw: string,
+  target: VariableSpec,
+  targetRaw: string,
+): boolean | undefined {
+  if (target.type !== 'cidr' || !raw || !targetRaw) return undefined;
+  if (!validateValue(spec, raw).ok || !validateValue(target, targetRaw).ok)
+    return undefined;
+  const outer = parseCidr(targetRaw, target.family);
+  if (!outer.ok) return undefined;
+  if (spec.type === 'cidr') {
+    const inner = parseCidr(raw, spec.family);
+    return inner.ok ? contains(outer.network, inner.network) : undefined;
+  }
+  const address = parseAddress(raw);
+  return address ? contains(outer.network, address) : undefined;
+}
+
+/**
  * A rule between variables that a file's values break. `others` are the
  * variables the rule names that the file lists; the message names them, never
  * a value.
@@ -319,7 +346,7 @@ export function checkRules(
     const spec = variables[key];
     if (!spec) continue;
     const named = (field: RuleField) =>
-      ruleNames(spec[field]).filter((other) => listed.has(other));
+      ruleNames(ruleValue(spec, field)).filter((other) => listed.has(other));
 
     const alternatives = named('requiredUnless');
     if (alternatives.length && !isSet(key) && !alternatives.some(isSet))
@@ -350,6 +377,21 @@ export function checkRules(
           key,
           others: [other],
           message: `must differ from ${other}`,
+        });
+    }
+    for (const other of named('within')) {
+      const inside = isWithin(
+        spec,
+        valueOf(key) ?? '',
+        variables[other]!,
+        valueOf(other) ?? '',
+      );
+      if (inside === false)
+        problems.push({
+          rule: 'within',
+          key,
+          others: [other],
+          message: `must be within ${other}`,
         });
     }
   }

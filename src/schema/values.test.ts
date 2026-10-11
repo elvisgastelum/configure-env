@@ -652,3 +652,86 @@ describe('checkRules', () => {
     ]);
   });
 });
+
+describe('checkRules within', () => {
+  const variables = {
+    SUBNET: spec({ type: 'cidr' }),
+    SUBNET4: spec({ type: 'cidr', family: 'ipv4' }),
+    ADDRESS: spec({ type: 'ip', within: 'SUBNET' }),
+    ADDRESS4: spec({ type: 'ipv4', within: 'SUBNET' }),
+    ADDRESS6: spec({ type: 'ipv6', within: 'SUBNET' }),
+    BLOCK: spec({ type: 'cidr', within: 'SUBNET' }),
+    SECRET: spec({ type: 'ip', secret: true, within: 'SUBNET' }),
+  };
+  const rules = (values: Record<string, string>) =>
+    checkRules(variables, Object.keys(values), (key) => values[key]);
+  const outside = (key: string) => [
+    {
+      rule: 'within',
+      key,
+      others: ['SUBNET'],
+      message: 'must be within SUBNET',
+    },
+  ];
+
+  it.each([
+    ['ADDRESS4', '172.30.250.10', '172.30.250.0/24'],
+    ['ADDRESS4', '172.30.250.0', '172.30.250.0/24'],
+    ['ADDRESS4', '172.30.250.255', '172.30.250.0/24'],
+    ['ADDRESS4', '8.8.8.8', '0.0.0.0/0'],
+    ['ADDRESS4', '10.1.2.3', '10.1.2.3/32'],
+    ['ADDRESS6', 'fd00::10', 'fd00::/8'],
+    ['ADDRESS6', '2001:db8::1', '2001:db8::/32'],
+    ['ADDRESS', '::ffff:10.0.0.1', '::ffff:0:0/96'],
+    ['ADDRESS', '172.30.250.10', '172.30.250.99/24'],
+    ['BLOCK', '172.30.250.128/25', '172.30.250.0/24'],
+    ['BLOCK', '172.30.250.0/24', '172.30.250.0/24'],
+    ['BLOCK', 'fd00:1::/32', 'fd00::/16'],
+  ])('passes %s=%j within %j', (key, value, subnet) => {
+    expect(rules({ [key]: value, SUBNET: subnet })).toEqual([]);
+  });
+
+  it.each([
+    ['ADDRESS4', '172.30.251.10', '172.30.250.0/24'],
+    ['ADDRESS4', '10.1.2.4', '10.1.2.3/32'],
+    ['ADDRESS6', 'fd01::10', 'fd00::/16'],
+    ['ADDRESS', '10.0.0.1', 'fd00::/8'],
+    ['ADDRESS', 'fd00::1', '10.0.0.0/8'],
+    ['BLOCK', '172.30.0.0/16', '172.30.250.0/24'],
+    ['BLOCK', '172.30.251.0/24', '172.30.250.0/24'],
+    ['BLOCK', 'fd00::/8', '10.0.0.0/8'],
+  ])('fails %s=%j outside %j, naming keys only', (key, value, subnet) => {
+    const problems = rules({ [key]: value, SUBNET: subnet });
+    expect(problems).toEqual(outside(key));
+    expect(ruleKeys(problems[0]!)).toEqual([key]);
+    const text = JSON.stringify(problems);
+    expect(text).not.toContain(value);
+    expect(text).not.toContain(subnet);
+  });
+
+  it('applies only when both values are set and valid', () => {
+    expect(rules({ ADDRESS4: '', SUBNET: '10.0.0.0/8' })).toEqual([]);
+    expect(rules({ ADDRESS4: '172.16.0.1', SUBNET: '' })).toEqual([]);
+    expect(rules({ ADDRESS4: '172.16.0.1' })).toEqual([]);
+    expect(rules({ ADDRESS4: 'nope', SUBNET: '10.0.0.0/8' })).toEqual([]);
+    expect(rules({ ADDRESS4: '172.16.0.1', SUBNET: '10.0.0.0' })).toEqual([]);
+    expect(rules({ ADDRESS4: 'fd00::1', SUBNET: '10.0.0.0/8' })).toEqual([]);
+  });
+
+  it('never echoes a secret value', () => {
+    const problems = rules({ SECRET: '192.168.7.7', SUBNET: '10.0.0.0/8' });
+    expect(problems).toEqual(outside('SECRET'));
+    expect(JSON.stringify(problems)).not.toMatch(/192\.168|10\.0/);
+  });
+
+  it('checks a target of one family', () => {
+    const only4 = {
+      ...variables,
+      ADDRESS: spec({ type: 'ip', within: 'SUBNET4' }),
+    };
+    const values = { ADDRESS: '10.0.0.1', SUBNET4: '10.0.0.0/8' };
+    expect(
+      checkRules(only4, Object.keys(values), (key) => values[key as 'ADDRESS']),
+    ).toEqual([]);
+  });
+});

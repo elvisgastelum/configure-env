@@ -5,8 +5,8 @@
 // Every object is strict, so a misspelled key is an error, not ignored.
 
 import { z } from 'zod';
-import { CIDR_FAMILIES } from './ip.ts';
-import { validateValue } from './values.ts';
+import { CIDR_FAMILIES, type CidrFamily } from './ip.ts';
+import { isWithin, unquoteValue, validateValue } from './values.ts';
 
 export const SCHEMA_VERSION = 1;
 
@@ -61,14 +61,26 @@ export function encodedLength(encoding: Encoding, bytes: number): number {
 /** One variable name, or a non-empty list of them. */
 const variableNames = z.union([variableName, z.array(variableName).min(1)]);
 
-/** The fields that name other variables: the rules between variables. */
+/**
+ * The fields that name other variables: the rules between variables.
+ * `within` is an option of the address and cidr types only.
+ */
 export const RULE_FIELDS = [
   'requiredUnless',
   'conflictsWith',
   'distinctFrom',
+  'within',
 ] as const;
 
 export type RuleField = (typeof RULE_FIELDS)[number];
+
+/** `within`, for the address and cidr types. */
+const within = {
+  within: variableName.optional().meta({
+    description:
+      'A cidr variable: when both are set, the value (an address, or a whole block) must lie inside its network.',
+  }),
+};
 
 /** The fields every variable type shares. */
 const common = {
@@ -217,24 +229,28 @@ const ipv4Variable = z.strictObject({
   type: z.literal('ipv4'),
   ...common,
   ...valueFields(z.string()),
+  ...within,
 });
 
 const ipv6Variable = z.strictObject({
   type: z.literal('ipv6'),
   ...common,
   ...valueFields(z.string()),
+  ...within,
 });
 
 const ipVariable = z.strictObject({
   type: z.literal('ip'),
   ...common,
   ...valueFields(z.string()),
+  ...within,
 });
 
 const cidrVariable = z.strictObject({
   type: z.literal('cidr'),
   ...common,
   ...valueFields(z.string()),
+  ...within,
   family: z.enum(CIDR_FAMILIES).default('any').meta({
     description:
       'The address family the block must be: ipv4, ipv6, or any for either.',
@@ -432,6 +448,13 @@ export const protectedReason = (spec: VariableSpec) =>
 export const ruleNames = (names: string | readonly string[] | undefined) =>
   names === undefined ? [] : typeof names === 'string' ? [names] : [...names];
 
+/** The names a rule field holds; undefined on a type without the field. */
+export const ruleValue = (
+  spec: VariableSpec,
+  field: RuleField,
+): string | readonly string[] | undefined =>
+  (spec as Partial<Record<RuleField, string | readonly string[]>>)[field];
+
 /** Checks the names the rule fields hold: declared, not the variable itself. */
 function checkRules(
   schema: z.output<typeof envSchemaObject>,
@@ -441,7 +464,7 @@ function checkRules(
   ctx: Ctx,
 ) {
   for (const field of RULE_FIELDS) {
-    const names = spec[field];
+    const names = ruleValue(spec, field);
     if (names === undefined) continue;
     ruleNames(names).forEach((other, index) => {
       const at =
@@ -461,6 +484,108 @@ function checkRules(
       [...path, 'requiredUnless'],
       'requiredUnless cannot be combined with required: true',
     );
+}
+
+/** The family a variable's addresses or blocks take. */
+function familyOf(spec: VariableSpec): CidrFamily {
+  switch (spec.type) {
+    case 'ipv4':
+    case 'ipv6':
+      return spec.type;
+    case 'cidr':
+      return spec.family;
+    default:
+      return 'any';
+  }
+}
+
+/**
+ * Checks `within`: it names a cidr variable whose family can hold the
+ * variable's, and the variable's `default` and `example` lie inside the
+ * target's `default` when it has one. A name checkRules refuses is skipped,
+ * and so is a value that is not valid, which checkValues reports.
+ */
+function checkWithin(
+  schema: z.output<typeof envSchemaObject>,
+  name: string,
+  spec: VariableSpec,
+  path: Path,
+  ctx: Ctx,
+) {
+  const target = ruleValue(spec, 'within');
+  if (typeof target !== 'string' || target === name) return;
+  const targetSpec = schema.variables[target];
+  if (!targetSpec) return;
+  if (targetSpec.type !== 'cidr') {
+    issue(ctx, [...path, 'within'], `${target} is not a cidr variable`);
+    return;
+  }
+  const family = familyOf(spec);
+  if (
+    family !== 'any' &&
+    targetSpec.family !== 'any' &&
+    family !== targetSpec.family
+  ) {
+    issue(
+      ctx,
+      [...path, 'within'],
+      `${target} holds ${targetSpec.family} blocks only, so ${name} can never be within it`,
+    );
+    return;
+  }
+  if (targetSpec.default === undefined) return;
+  for (const field of ['default', 'example'] as const) {
+    const value = spec[field];
+    if (value === undefined) continue;
+    if (isWithin(spec, String(value), targetSpec, targetSpec.default) === false)
+      issue(
+        ctx,
+        [...path, field],
+        `invalid ${field}: ${name} must be within the default of ${target}`,
+      );
+  }
+}
+
+/**
+ * Checks `within` over the values each template writes: its `values`, else
+ * the defaults. A template takes nothing else, so its values are known here;
+ * a pair the defaults alone make is checkWithin's. A value that is not valid
+ * for its type is a placeholder, and not checked.
+ */
+function checkTemplateValues(
+  schema: z.output<typeof envSchemaObject>,
+  ctx: Ctx,
+) {
+  schema.files.forEach((file, index) => {
+    const literals = file.values;
+    if (!literals || !isTemplate(file)) return;
+    const held =
+      file.variables === '*' ? Object.keys(schema.variables) : file.variables;
+    const written = (key: string) => {
+      const literal = literals[key];
+      if (literal !== undefined) return unquoteValue(literal);
+      const value = schema.variables[key]?.default;
+      return value === undefined ? undefined : String(value);
+    };
+    for (const name of held) {
+      const spec = schema.variables[name];
+      if (!spec) continue;
+      const target = ruleValue(spec, 'within');
+      if (typeof target !== 'string' || !held.includes(target)) continue;
+      const targetSpec = schema.variables[target];
+      const given = literals[name] !== undefined;
+      if (!targetSpec || (!given && literals[target] === undefined)) continue;
+      const value = written(name);
+      const targetValue = written(target);
+      if (value === undefined || targetValue === undefined) continue;
+      if (isWithin(spec, value, targetSpec, targetValue) === false)
+        issue(
+          ctx,
+          ['files', index, 'values', given ? name : target],
+          `${name} must be within ${target}`,
+        );
+    }
+  });
 }
 
 function checkFiles(schema: z.output<typeof envSchemaObject>, ctx: Ctx) {
@@ -509,11 +634,13 @@ export const envSchema = envSchemaObject
       const path = ['variables', name];
       if (checkOptions(spec, path, ctx)) checkValues(spec, path, ctx);
       checkRules(schema, name, spec, path, ctx);
+      checkWithin(schema, name, spec, path, ctx);
       // A protected value is a secret: masked, never echoed, never committed.
       if (spec.protected !== undefined && !spec.secret)
         issue(ctx, [...path, 'protected'], 'protected needs secret: true');
     }
     checkFiles(schema, ctx);
+    checkTemplateValues(schema, ctx);
   })
   .meta({
     title: 'configure-env schema v1',

@@ -353,6 +353,178 @@ describe('parseSchema', () => {
     });
   });
 
+  describe('within', () => {
+    /** A schema with APP_SUBNET and WEB_ADDRESS, edited by `edit`. */
+    const network = (
+      web: Record<string, unknown>,
+      subnet: Record<string, unknown> = {},
+      files: unknown[] = [],
+    ) => {
+      const result = parseSchema({
+        version: 1,
+        variables: {
+          APP_SUBNET: {
+            type: 'cidr',
+            family: 'ipv4',
+            default: '172.30.250.0/24',
+            ...subnet,
+          },
+          WEB_ADDRESS: { type: 'ipv4', within: 'APP_SUBNET', ...web },
+          NAME: { type: 'string' },
+        },
+        files,
+      });
+      return result.ok ? [] : result.errors;
+    };
+
+    it('accepts a default and example inside the target default', () => {
+      expect(
+        network({ default: '172.30.250.10', example: '172.30.250.20' }),
+      ).toEqual([]);
+      expect(network({ type: 'ip', default: '172.30.250.10' })).toEqual([]);
+      expect(network({ type: 'cidr', default: '172.30.250.128/25' })).toEqual(
+        [],
+      );
+    });
+
+    it('rejects a default or example outside the target default, naming both keys and no value', () => {
+      const errors = network({
+        default: '172.30.251.10',
+        example: '10.0.0.1',
+      });
+      expect(errors).toEqual([
+        {
+          path: 'variables.WEB_ADDRESS.default',
+          message:
+            'invalid default: WEB_ADDRESS must be within the default of APP_SUBNET',
+        },
+        {
+          path: 'variables.WEB_ADDRESS.example',
+          message:
+            'invalid example: WEB_ADDRESS must be within the default of APP_SUBNET',
+        },
+      ]);
+      expect(JSON.stringify(errors)).not.toMatch(/172\.30|10\.0/);
+      expect(
+        paths(network({ type: 'cidr', default: '172.30.0.0/16' })),
+      ).toEqual(['variables.WEB_ADDRESS.default']);
+    });
+
+    it('skips the check without a target default or with an invalid value', () => {
+      expect(network({ default: '10.0.0.1' }, { default: undefined })).toEqual(
+        [],
+      );
+      expect(paths(network({ default: '300.0.0.1' }))).toEqual([
+        'variables.WEB_ADDRESS.default',
+      ]);
+      expect(
+        paths(network({ default: '10.0.0.1' }, { default: '172.30.250.0' })),
+      ).toEqual(['variables.APP_SUBNET.default']);
+    });
+
+    it.each([
+      [
+        'an undeclared target',
+        { within: 'NOPE' },
+        'NOPE is not declared in variables',
+      ],
+      [
+        'the variable itself',
+        { within: 'WEB_ADDRESS' },
+        'must not name the variable itself',
+      ],
+      [
+        'a target that is not cidr',
+        { within: 'NAME' },
+        'NAME is not a cidr variable',
+      ],
+      [
+        'a target of the other family',
+        { type: 'ipv6' },
+        'APP_SUBNET holds ipv4 blocks only, so WEB_ADDRESS can never be within it',
+      ],
+      [
+        'a cidr target of the other family',
+        { type: 'cidr', family: 'ipv6' },
+        'APP_SUBNET holds ipv4 blocks only, so WEB_ADDRESS can never be within it',
+      ],
+    ])('rejects %s', (_label, web, message) => {
+      expect(network(web)).toEqual([
+        { path: 'variables.WEB_ADDRESS.within', message },
+      ]);
+    });
+
+    it.each(['string', 'host', 'port'])('is not an option of %s', (type) => {
+      expect(paths(network({ type, default: undefined }, {}, []))).toEqual([
+        'variables.WEB_ADDRESS',
+      ]);
+    });
+
+    it('rejects a list of names', () => {
+      expect(paths(network({ within: ['APP_SUBNET'] }))).toEqual([
+        'variables.WEB_ADDRESS.within',
+      ]);
+    });
+
+    describe('template values', () => {
+      const template = (values: Record<string, string>, extra = {}) =>
+        network({}, {}, [
+          {
+            path: '.env.example',
+            policy: 'generate',
+            variables: '*',
+            values,
+            ...extra,
+          },
+        ]);
+
+      it('checks the values a template writes, with the defaults', () => {
+        expect(template({ WEB_ADDRESS: '172.30.250.10' })).toEqual([]);
+        const errors = template({ WEB_ADDRESS: '172.30.251.10' });
+        expect(errors).toEqual([
+          {
+            path: 'files[0].values.WEB_ADDRESS',
+            message: 'WEB_ADDRESS must be within APP_SUBNET',
+          },
+        ]);
+        expect(JSON.stringify(errors)).not.toContain('172.30');
+        expect(
+          paths(
+            template({ APP_SUBNET: '10.0.0.0/8', WEB_ADDRESS: '172.30.250.9' }),
+          ),
+        ).toEqual(['files[0].values.WEB_ADDRESS']);
+        expect(paths(template({ APP_SUBNET: '10.0.0.0/8' }))).toEqual([]);
+      });
+
+      it('reports under the target when only its value is given', () => {
+        const errors = network({ default: '172.30.250.10' }, {}, [
+          {
+            path: '.env.example',
+            policy: 'generate',
+            variables: '*',
+            values: { APP_SUBNET: '10.0.0.0/8' },
+          },
+        ]);
+        expect(errors).toEqual([
+          {
+            path: 'files[0].values.APP_SUBNET',
+            message: 'WEB_ADDRESS must be within APP_SUBNET',
+          },
+        ]);
+      });
+
+      it('skips placeholders, files that are not templates and files without both keys', () => {
+        expect(template({ WEB_ADDRESS: '<web address>' })).toEqual([]);
+        expect(template({ WEB_ADDRESS: '10.0.0.1' }, { path: '.env' })).toEqual(
+          [],
+        );
+        expect(
+          template({ WEB_ADDRESS: '10.0.0.1' }, { variables: ['WEB_ADDRESS'] }),
+        ).toEqual([]);
+      });
+    });
+  });
+
   describe('protected', () => {
     const withX = (x: Record<string, unknown>) =>
       errorsFor((schema) => {
