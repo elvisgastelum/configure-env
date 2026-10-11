@@ -1,0 +1,90 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, CopyCode, DocTable, SpacingScale, WidthScale } from '../docs';
+import { CONTAINER, MUTED_BAND, SECTION_RHYTHM, TYPE } from '../recipes';
+import { LAYOUT_WIDTHS, SPACING } from '../tokens';
+
+<Meta title="Design System/Spacing & Layout" />
+
+# Spacing & Layout
+
+Tailwind's 0.25rem spacing scale handles everything inside a component. Three named steps on top of it set the page's frame: the gutter and the rhythm between sections.
+
+## Named spacing
+
+<SpacingScale entries={SPACING} />
+
+## Layout widths
+
+<WidthScale entries={LAYOUT_WIDTHS} />
+
+## Layout recipes
+
+<DocTable
+  minWidth="36rem"
+  headers={['Recipe', 'Classes', 'Used for']}
+  rows={[
+    [
+      '`CONTAINER`',
+      <CopyCode>{CONTAINER}</CopyCode>,
+      'The page column every section sits in.',
+    ],
+    [
+      '`SECTION_RHYTHM`',
+      <CopyCode>{SECTION_RHYTHM}</CopyCode>,
+      'Vertical room between page sections: 5rem, 8rem from md.',
+    ],
+    [
+      '`MUTED_BAND`',
+      <CopyCode>{MUTED_BAND}</CopyCode>,
+      'A tinted band that sets a section apart.',
+    ],
+  ]}
+/>
+
+A section put together from the three recipes, at real size (the band spans this page; the column is capped at 72rem with the gutter on both sides):
+
+<div
+  className={`sb-unstyled my-6 overflow-hidden rounded-xl border border-border ${MUTED_BAND} ${SECTION_RHYTHM}`}
+>
+  <div className={CONTAINER}>
+    <div className="rounded-lg border-2 border-dashed border-primary/40 p-4">
+      <p className={TYPE.eyebrow}>Section</p>
+      <p className={TYPE.sectionTitle}>Content sits in the container</p>
+      <p className={`${TYPE.lead} mt-2`}>
+        The dashed box is the column; the space above and below is the section
+        rhythm.
+      </p>
+    </div>
+  </div>
+</div>
+
+## Common gaps
+
+Gaps inside components come from Tailwind's scale. The ones the site uses most:
+
+<DocTable
+  minWidth="32rem"
+  headers={['Gap', 'Size', 'Typical use']}
+  rows={[
+    [
+      '`gap-1 / gap-1.5`',
+      '0.25 / 0.375rem',
+      'Icon and label inside a button or link.',
+    ],
+    ['`gap-2`', '0.5rem', 'Chips, inline groups.'],
+    ['`gap-3`', '0.75rem', 'Stacked list items (FAQ questions, options).'],
+    ['`gap-4`', '1rem', 'Heading stacks, card content, CTA rows.'],
+    ['`gap-6`', '1.5rem', 'Card grids.'],
+    ['`gap-8 / gap-10`', '2 / 2.5rem', 'Blocks within a section.'],
+    [
+      '`gap-12 / gap-16`',
+      '3 / 4rem',
+      'Columns of a two-column section on large screens.',
+    ],
+  ]}
+/>
+
+<Callout>
+  The section sample uses `md:` breakpoints, which follow this preview's width.
+</Callout>

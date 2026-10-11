@@ -1,0 +1,65 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, CopyCode, OutlineGrid } from '../docs';
+import { CARD_OUTLINE, FOCUS_RING } from '../recipes';
+import { BORDERS, RINGS } from '../tokens';
+
+<Meta title="Design System/Borders & Rings" />
+
+# Borders & Rings
+
+Borders draw structure; rings (box-shadow outlines) draw state and card edges without shifting layout. Both use the `border`, `input` and `ring` colors, often at an opacity.
+
+<Callout>
+  Samples follow the Theme switch in the toolbar. Hover the samples marked
+  "Hover me", and Tab to the focus sample to see the ring.
+</Callout>
+
+## Borders
+
+Every element gets a 1px `border-border` in the base layer, so `border` alone draws the default line.
+
+<OutlineGrid entries={BORDERS} kind="border" />
+
+## Rings
+
+<OutlineGrid entries={RINGS} kind="ring" />
+
+## Focus ring
+
+`FOCUS_RING` is the house keyboard focus style for anything interactive. Pair it with `outline-none` so the browser's default outline does not double it.
+
+<div className="sb-unstyled my-6 flex flex-wrap items-center gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground">
+  <button
+    type="button"
+    className={`rounded-full border border-border bg-background px-4 py-2 text-sm font-medium outline-none ${FOCUS_RING}`}
+  >
+    Tab to me
+  </button>
+  <CopyCode>{FOCUS_RING}</CopyCode>
+</div>
+
+## Card outline
+
+`CARD_OUTLINE` draws a card's faint edge on any surface, light or dark, because it tints the foreground instead of using a fixed grey.
+
+<div className="sb-unstyled my-6 grid gap-4 sm:grid-cols-2">
+  <div
+    className={`rounded-2xl bg-card p-5 text-card-foreground ${CARD_OUTLINE}`}
+  >
+    <p className="font-semibold">On the page</p>
+    <p className="text-sm text-muted-foreground">A card with the outline.</p>
+  </div>
+  <div className="rounded-2xl bg-muted/40 p-4">
+    <div
+      className={`rounded-2xl bg-card p-5 text-card-foreground ${CARD_OUTLINE}`}
+    >
+      <p className="font-semibold">On a muted band</p>
+      <p className="text-sm text-muted-foreground">
+        Same outline, same contrast.
+      </p>
+    </div>
+  </div>
+</div>
+
+<CopyCode>{CARD_OUTLINE}</CopyCode>

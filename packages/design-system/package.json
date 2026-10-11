@@ -1,0 +1,72 @@
+{
+  "name": "@configure-env/design-system",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    "./theme.css": "./src/theme.css",
+    "./tokens": "./src/tokens.ts",
+    "./recipes": "./src/recipes.ts",
+    "./utils": "./src/lib/utils.ts",
+    "./theme": "./src/theme/theme.ts",
+    "./theme/use-theme-preference": "./src/theme/use-theme-preference.ts",
+    "./motion/tokens": "./src/motion/tokens.ts",
+    "./motion/use-scrolled": "./src/motion/use-scrolled.ts",
+    "./motion/*": "./src/motion/*.tsx",
+    "./components/*": "./src/components/*.tsx",
+    "./storybook/docs.css": "./.storybook/docs.css",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --project unit",
+    "test:storybook": "vitest run --project 'storybook-*'",
+    "storybook": "storybook dev -p 6007",
+    "build-storybook": "storybook build"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.8.0",
+    "@fontsource-variable/geist": "5.3.0",
+    "class-variance-authority": "0.7.1",
+    "cmdk": "1.1.1",
+    "cn": "0.4.0",
+    "lucide-react": "1.53.0",
+    "motion": "14.0.0",
+    "shadcn": "4.21.4",
+    "sonner": "2.0.8",
+    "tw-animate-css": "1.4.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.6.1",
+    "@storybook/addon-docs": "10.6.1",
+    "@storybook/addon-vitest": "10.6.1",
+    "@storybook/react-vite": "10.6.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "@vitest/browser": "5.0.3",
+    "@vitest/browser-playwright": "5.0.3",
+    "jsdom": "30.1.2",
+    "playwright": "1.64.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "storybook": "10.6.1",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,35 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, ColorGroupTable, OpacityScale } from '../docs';
+import { COLOR_GROUPS, OPACITY } from '../tokens';
+
+<Meta title="Design System/Colors" />
+
+# Colors
+
+Every color is an oklch custom property on `:root` that switches with the theme. Use it as a Tailwind color (`bg-card`, `text-muted-foreground`, `border-border`) or as `var(--name)` in CSS.
+
+<Callout title="Light, dark and current">
+  **Light** and **Dark** show the literal value from `theme.css`, each on its
+  own theme's page background. **Current** uses the live variable, so it follows
+  the Theme switch in the toolbar.
+</Callout>
+
+{COLOR_GROUPS.map((group) => (
+
+  <section key={group.id}>
+    <h2 id={`colors-${group.id}`}>{group.label}</h2>
+    <p>{group.description}</p>
+    <ColorGroupTable group={group} />
+  </section>
+))}
+
+## Brand vs primary
+
+`brand` is the source indigo; `primary` (and `primary-foreground`) are aliases of it, so they are always the same color. Components use `primary` for actions, links and eyebrows, following shadcn's naming; decorative glows mix `brand` with transparency. Change `--brand` and both follow.
+
+## Opacity modifiers
+
+Tints are written as Tailwind opacity modifiers on a color (`bg-muted/40`, `ring-ring/50`, `shadow-primary/20`). These are the steps in use.
+
+<OpacityScale entries={OPACITY} />

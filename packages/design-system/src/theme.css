@@ -1,0 +1,222 @@
+/*
+ * The design system's theme: fonts, colors (light and dark), radius,
+ * spacing, easing, keyframes, shadows, the base layer and the generic
+ * motion CSS. Import it right after Tailwind in the app's stylesheet:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@configure-env/design-system/theme.css';
+ */
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+/* Self-hosted (bundled into /assets/), so the CSP's font-src 'self' holds. */
+@import '@fontsource-variable/geist';
+
+/* The package's own class strings (components, recipes) generate utilities. */
+@source './';
+
+/*
+ * Theme: with no pick, the page follows the OS through
+ * `prefers-color-scheme`, in CSS alone, so there is nothing to flash before
+ * the app's script runs (the CSP forbids an inline head script). An explicit
+ * pick (`theme/theme.ts`) puts `.light` or `.dark` on <html>, which wins
+ * over the media query.
+ */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+@theme static {
+  --font-body: 'Geist Variable', sans-serif;
+  --font-heading: 'Geist Variable', sans-serif;
+  /* Horizontal page padding and the vertical rhythm between page sections. */
+  --spacing-gutter: 1.5rem;
+  --spacing-section: 5rem;
+  --spacing-section-lg: 8rem;
+  /* The highlighted pricing plan: a brand hairline with a soft brand glow. */
+  --shadow-highlight: 0 0 0 1px var(--primary), 0 0 32px -4px var(--primary);
+  /* The contact form's current step: a faint brand halo around its dot. */
+  --shadow-halo: 0 0 0 6px color-mix(in oklch, var(--primary) 18%, transparent);
+  /* The site's easing, `EASE_OUT` in motion/tokens.ts. */
+  --ease-site: cubic-bezier(0.22, 1, 0.36, 1);
+  /* The hero's glow drifting into place on load (transform and opacity). */
+  --animate-hero-glow: hero-glow 2.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes hero-glow {
+    from {
+      opacity: 0;
+      transform: translate3d(0, -6%, 0) scale(0.85);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-body);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: light;
+  /*
+   * Brand accent: a deep indigo. White text on it is about 6:1 (WCAG AA for
+   * any size); it doubles as `--primary` so buttons and links carry it.
+   */
+  --brand: oklch(0.49 0.2 268);
+  --brand-foreground: oklch(0.99 0 0);
+  /* Neutrals lean slightly toward the brand hue. */
+  --background: oklch(0.995 0.002 268);
+  --foreground: oklch(0.17 0.02 268);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.17 0.02 268);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.17 0.02 268);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.96 0.01 268);
+  --secondary-foreground: oklch(0.25 0.03 268);
+  /* Muted text stays at 4.5:1 or more on the background and on cards. */
+  --muted: oklch(0.965 0.006 268);
+  --muted-foreground: oklch(0.47 0.02 268);
+  --accent: oklch(0.95 0.025 268);
+  --accent-foreground: oklch(0.3 0.12 268);
+  /* Darker than upstream's 0.577 so destructive text keeps 4.5:1 on its own
+     10% tint (the destructive button and badge). */
+  --destructive: oklch(0.505 0.213 27.518);
+  --border: oklch(0.91 0.01 268);
+  --input: oklch(0.91 0.01 268);
+  --ring: oklch(0.55 0.18 268);
+  --radius: 0.75rem;
+
+  /* Written once through the `dark` variant above (class or media query). */
+  @variant dark {
+    color-scheme: dark;
+    --brand: oklch(0.74 0.14 268);
+    --brand-foreground: oklch(0.17 0.04 268);
+    --background: oklch(0.15 0.015 268);
+    --foreground: oklch(0.97 0.005 268);
+    --card: oklch(0.19 0.018 268);
+    --card-foreground: oklch(0.97 0.005 268);
+    --popover: oklch(0.19 0.018 268);
+    --popover-foreground: oklch(0.97 0.005 268);
+    --secondary: oklch(0.25 0.02 268);
+    --secondary-foreground: oklch(0.97 0.005 268);
+    --muted: oklch(0.23 0.018 268);
+    --muted-foreground: oklch(0.74 0.02 268);
+    --accent: oklch(0.27 0.05 268);
+    --accent-foreground: oklch(0.92 0.04 268);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.74 0.14 268);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/*
+ * Page changes run as view transitions; the app starts them with the
+ * transition types `page` plus `forward` or `back`. Every browser with the
+ * API gets a short crossfade. Browsers that also support transition types
+ * slide the new page in from the side it sits on, `forward` from the right
+ * and `back` from the left.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
+  animation-timing-function: var(--ease-site);
+}
+
+html:active-view-transition-type(forward) {
+  --page-shift: 2rem;
+}
+
+html:active-view-transition-type(back) {
+  --page-shift: -2rem;
+}
+
+html:active-view-transition-type(forward, back)::view-transition-old(root) {
+  animation: page-out 0.25s var(--ease-site) both;
+}
+
+html:active-view-transition-type(forward, back)::view-transition-new(root) {
+  animation: page-in 0.4s var(--ease-site) both;
+}
+
+@keyframes page-out {
+  to {
+    opacity: 0;
+    translate: calc(var(--page-shift) * -1) 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    translate: var(--page-shift) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

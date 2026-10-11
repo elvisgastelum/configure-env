@@ -636,6 +636,8 @@ Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `
 
 The repo is a pnpm workspace: the published package lives in `packages/cli`, the engine it is built on (schema, values, dotenv, plan, apply, check, the protected state and the per-key edits behind `set` and `unset`) in the private `packages/core` (`@configure-env/core`), and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
 
+`packages/design-system` (`@configure-env/design-system`) is the private, source-only design system for the planned web portal; see [its README](packages/design-system/README.md).
+
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
 | `pnpm dev`             | run the CLI from source with tsx                                     |
@@ -651,11 +653,14 @@ The repo is a pnpm workspace: the published package lives in `packages/cli`, the
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |
+| `pnpm storybook`       | start the design system's Storybook on port 6007                     |
+| `pnpm build-storybook` | build the design system's Storybook to `packages/design-system/storybook-static/` |
+| `pnpm test:storybook`  | run every story in headless Chromium, light and dark, failing on axe violations |
 | `pnpm changeset`       | describe a change for the next release                               |
 
 The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
-CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`.
+CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`. A third job builds the design system's Storybook and runs `pnpm test:storybook`.
 
 `dist/` is built, never committed; packing and publishing build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/`, `schema/`, this README, the license and the changelog, and no tests or fixtures. `@configure-env/core` is private and never published: the build inlines it, so the published package depends only on zod and @clack/prompts, and `pnpm smoke` fails if the tarball names a workspace package.
 

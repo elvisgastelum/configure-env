@@ -1,0 +1,8 @@
+/*
+ * The stylesheet every story and docs page renders with: Tailwind, the
+ * design system's theme (its `@source` makes the package's class strings
+ * generate utilities) and the docs chrome that follows the theme.
+ */
+@import 'tailwindcss';
+@import '../src/theme.css';
+@import './docs.css';

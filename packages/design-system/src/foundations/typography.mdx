@@ -1,0 +1,49 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, FontFamilies, TypeRecipes, TypeScale } from '../docs';
+import {
+  FONT_FAMILIES,
+  FONT_SIZES,
+  FONT_WEIGHTS,
+  TRACKING,
+  TYPE_RECIPES,
+} from '../tokens';
+
+<Meta title="Design System/Typography" />
+
+# Typography
+
+One self-hosted variable font, Geist, for headings and running text. Headings are tight and balanced; leads are muted and pretty-wrapped.
+
+## Text recipes
+
+Use a `TYPE` recipe instead of composing sizes and weights by hand:
+
+```tsx
+import { TYPE } from '../recipes';
+
+<h2 className={TYPE.sectionTitle}>Services</h2>;
+```
+
+<Callout>
+  Recipes grow at breakpoints (`sm:`, `md:`, `lg:`), which follow this preview's
+  width; widen the window to see the larger steps.
+</Callout>
+
+<TypeRecipes recipes={TYPE_RECIPES} />
+
+## Font families
+
+<FontFamilies entries={FONT_FAMILIES} />
+
+## Sizes
+
+<TypeScale entries={FONT_SIZES} base="font-medium tracking-tight" />
+
+## Weights
+
+<TypeScale entries={FONT_WEIGHTS} base="text-xl" />
+
+## Tracking and leading
+
+<TypeScale entries={TRACKING} base="text-2xl font-semibold" />
