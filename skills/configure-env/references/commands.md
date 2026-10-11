@@ -4,7 +4,7 @@
 
 ## Global options
 
-Every command takes them.
+Every command takes them, except `install`, which takes only `--root`, `--ci`, `--json`, `--no-color` and `-h` (any other option exits 2).
 
 | Option | Meaning |
 | --- | --- |
@@ -28,6 +28,7 @@ Every command takes them.
 | `init` | schema, `.gitignore` | `--from <file>`, `--force` | writes `env.schema.json` (`$schema` set) inferred from `--from` or `.env.example` (types, comments, defaults; policy merge), else empty. An existing schema exits 2 without `--force`. Adds `.configure-env/` to `.gitignore`. `--ci` keeps the inferred types. |
 | `set` | one file, state | `KEY=VALUE…`, `--prompt KEY`, `--generate KEY`, `--stdin KEY`, `--create`, `--allow-unknown`, `--allow-template`, `--replace-protected KEY` | edits keys in place (keeps `export`, spacing, inline comment), appends missing ones with their schema comment; every other byte and the file's mode stay. One invalid value or broken rule writes nothing (exit 1). A key not in the file's variables exits 1 without `--allow-unknown`; a missing file exits 1 without `--create` (created with the schema `mode`). `--prompt` needs a terminal (exit 2 with `--ci`/`--json`); a `KEY=VALUE` for the same key wins over it. A key given two other ways exits 2. Status per key: `updated`, `added`, `unchanged`. |
 | `get` | nothing | `KEY`, `--reveal` | prints one value unquoted. Unset key exits 1. A secret exits 1 unless `--reveal`; with `--json` it is masked. Agents never pass `--reveal`. |
+| `install skill` | skill folders, `.git/info/exclude` | `--scope project\|local\|user`, `--mode copy\|symlink`, `--agent claude\|agents` (repeatable), `--force` | installs the shipped `skills/configure-env` at `.claude/skills/configure-env` (`claude`, default) or `.agents/skills/configure-env` (`agents`) under: `project`, the git top level of the root, else the root (to commit); `local`, the same folder with its path added once to `.git/info/exclude` (exit 2 outside a git repository); `user`, the home folder. `copy` copies the folder (a fresh clone keeps it); `symlink` links to the package's folder (a junction on Windows; follows upgrades, breaks when an npx cache or `node_modules` goes). Every target is checked first: one that exists exits 2 and installs nothing, unless `--force`, which removes it (a link, never what it points at), or it is a symlink to the same folder (`unchanged`). With `--ci`, `--json` or no terminal, missing choices default to `project`, `copy`, `claude`. Status per skill: `installed`, `linked`, `unchanged`; `(…, replaced)` with `--force`; `excluded` when `local` added the entry. Ask before `--scope user` or `--force`. |
 | `unset` | one file, state | `KEY…`, `--allow-template`, `--replace-protected KEY` | removes keys, plus the comment above only when it is exactly the schema comment, and the blank line that set them apart (no doubled, leading or trailing blank is left). Status `removed`, or `absent` (exit 0). Rules between variables are not checked. |
 
 `set`, `get` and `unset` work on `--file`, else the only non-template schema file; with several, `--file` is required (exit 2, listing them). `set` and `unset` edit a template only with `--allow-template`.
@@ -77,10 +78,11 @@ Errors never hold a value. Error `kind`: `value` (a value breaks its rules or a 
 - `apply`: `{ command, ok, errors, files: [{ path, policy, action, status, addedKeys, prunedKeys, written, reason?, error?, mode?: { from, to } }], deferred, replaced?: [{ file, key }], warnings?: [string] }`. `action`: `create`, `update`, `mode`, `unchanged`, `skip`; `reason`: `exists`, `refused`, `loosens`. `deferred` lists keys written empty in written files; `[]` when nothing was written. A failure before writing prints the same document, exit 1 or 2.
 - `check`: `{ command, ok, drift, errors, files: [{ path, policy, status, drift, missingKeys, unknownKeys, invalid: [{ key, message, shown }], rules: [{ rule, key, others, message }], invalidLines, protected: [{ kind, key, message, reason? }], mode?: { actual, expected }, error? }] }`; `status`: `current`, `missing`, `differs`, `missing-keys`, `refused`.
 - `validate`: `{ command, ok, files: [{ path, template, exists, ok, errors, warnings }] }`; each problem has `key` or `line`, `message`, `keys` for a conflict, `kind: "protected"` (with `reason`) for a mismatch.
-- `list`: `[{ file, key, set, valid, error, value | masked, description, unknown }]`; `valid` is `null` when not checked.
-- `set`: `{ command, ok, file, keys: [{ key, status, value | masked, replaced? }] }`; `unset`: same with `{ key, status, replaced? }`.
+- `list`: `[{ file, key, set, valid, error?, value | masked, description, unknown? }]`; `valid` is `null` when not checked; `unknown: true` only for a key the schema does not list for the file.
+- `set`: `{ command, ok, file, keys: [{ key, status, value | masked, replaced? }] }`; `unset`: same with `{ key, status, replaced? }`. A lock or state failure before writing (`keys: []`, nothing written) or a failed state write after the file prints it with `ok: false` and `errors: [{ kind: "file", path, message }]`, exit 1; other failures go to stderr only.
 - `init`: `{ command, ok, schema, from, variables, gitignore }`; `gitignore`: `created`, `added`, `present`.
 - `get`: `{ key, set, value | masked }`; `{ key, set: false }` (exit 1) when unset.
+- `install`: `{ command, ok, source, skills: [{ agent, scope, mode, path, status, replaced, exclude?: { file, entry, status } }] }`; `path`, `source` and `exclude.file` are absolute; `exclude` only with `--scope local`, its `status` `added` or `present`.
 
 Other usage errors (no schema, an unknown option) go to stderr only.
 
@@ -90,5 +92,5 @@ Other usage errors (no schema, an unknown option) go to stderr only.
 | --- | --- |
 | 0 | ok |
 | 1 | drift, an invalid value or schema, a broken rule, a mode not loosened, a held lock, or a failed write |
-| 2 | usage: a bad option, no schema (run `init`), no terminal without `--ci`, `init` over a schema without `--force`, a misused key, a change to a protected value |
+| 2 | usage: a bad option, no schema (run `init`), no terminal without `--ci`, `init` over a schema or `install` over an existing skill without `--force`, `install --scope local` outside a git repository, a misused key, a change to a protected value |
 | 130 | cancelled |

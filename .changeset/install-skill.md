@@ -10,3 +10,4 @@
 - In a terminal it asks for the missing choices; with `--ci`, `--json` or no terminal they default to project, copy and claude.
 - An existing skill exits 2 unless `--force`, except a symlink to the same folder, reported `unchanged`. `--force` removes a link without following it.
 - Text output `installed  .claude/skills/configure-env (copy)`, `linked` or `unchanged`; with `--json`, `{ "command": "install", "ok", "source", "skills" }`.
+- The agent skill documents `install skill` and asks before `--scope user` or `--force`; its command reference adds the `install` JSON, the `set`/`unset` state-failure JSON and the `install` exit codes.

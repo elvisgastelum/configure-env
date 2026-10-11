@@ -1,10 +1,10 @@
 ---
 name: configure-env
-description: "Trigger: set up or configure env, .env files, add/change an env variable, secrets, env.schema.json, configure-env. Edit env files safely through the configure-env CLI."
+description: "Trigger: set up or configure env, .env files, add/change an env variable, secrets, env.schema.json, configure-env, install this skill. Edit env files safely through the configure-env CLI."
 license: MIT
 metadata:
   author: "elvisgastelum"
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Activation Contract
@@ -26,6 +26,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 - Never write real values into a template (`*.example`, `*.sample`, `*.template`); never pass `--allow-template` with a secret. Never stage or commit a non-template env file.
 - Ask before `init --force`, `unset` of a secret, rotating a secret (`unset`, then `--generate`), or `--allow-unknown`.
 - Never pass `--replace-protected` without asking the user; a `protected` exit 2 means restore the value from a backup, not replace it.
+- Ask before `install skill --scope user` (writes under the home folder) or `install skill --force` (replaces the installed folder or link).
 - Mark every credential `"secret": true` in the schema, and give the real env file `"mode": "600"`.
 
 ## Decision Gates
@@ -46,6 +47,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 | Mode drift reported by check | `apply --ci --file <path>` (chmod only; never loosens; on `mode not loosened`, ask the user) |
 | `protected` exit 2 | ask the user; to restore after a deletion, pipe the backup into `set --ci --create --file .env --stdin KEY` |
 | State lock held (exit 1) | retry once; `left by process …`: ask the user to remove the lock |
+| Install or update this skill | `install skill --ci --scope project\|local --mode copy\|symlink --agent claude\|agents`; an existing copy exits 2: update it with `--force` (ask first); a symlink follows package upgrades |
 
 ## Execution Steps
 
@@ -60,5 +62,5 @@ Report each file and key with the CLI's status (`created`, `added`, `updated`, `
 
 ## References
 
-- `references/commands.md` — every command and flag, secrets, rules between variables, protected values, mode drift, JSON output and exit codes.
+- `references/commands.md` — every command and flag (`install skill` included), secrets, rules between variables, protected values, mode drift, JSON output and exit codes.
 - `references/schema.md` — the schema format, file policies, `mode` and templates.
