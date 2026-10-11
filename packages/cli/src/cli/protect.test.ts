@@ -5,8 +5,7 @@ import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getValue, parseDotenv } from '../engine/dotenv.ts';
-import { updateState } from '../engine/state.ts';
+import { getValue, parseDotenv, updateState } from '@configure-env/core';
 import {
   KEY_A,
   KEY_B,

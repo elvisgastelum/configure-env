@@ -1,14 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_ID } from './definition.ts';
 import {
   JSON_SCHEMA_PATH,
+  SCHEMA_ID,
   buildJsonSchema,
+  loadSchema,
   renderJsonSchema,
-} from './json-schema.ts';
-import { loadSchema } from './load.ts';
+} from '@configure-env/core';
 
-const repo = new URL('../../', import.meta.url);
+// This package commits the generated schema and the example.
+const repo = new URL('../', import.meta.url);
 
 describe('the published JSON Schema', () => {
   it('is up to date with the zod definition (run `pnpm schema:generate`)', async () => {

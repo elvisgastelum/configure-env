@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import { SCHEMA_ID, envSchema } from './definition.ts';
 
-/** Where the generated schema is committed, relative to the repo root. */
+/** Where the generated schema is committed, relative to packages/cli. */
 export const JSON_SCHEMA_PATH = 'schema/env.schema.v1.json';
 
 /** The JSON Schema object, `$id` first after `$schema`. */

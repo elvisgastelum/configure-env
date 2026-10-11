@@ -2,29 +2,27 @@
 // place, keeping every other byte, or print one.
 
 import {
-  getValue,
-  parseDotenv,
-  removeEntry,
-  setValue,
-  appendLines,
-  serialize,
-} from '../engine/dotenv.ts';
-import { fileRules } from '../engine/check.ts';
-import { commentLines, entryComment, groupChanges } from '../engine/plan.ts';
-import {
-  VARIABLE_NAME,
-  isTemplate,
   type EnvSchema,
   type FileSpec,
+  VARIABLE_NAME,
   type VariableSpec,
-} from '../schema/definition.ts';
-import {
+  appendLines,
+  commentLines,
+  entryComment,
+  fileRules,
   formatValue,
+  getValue,
+  groupChanges,
+  isTemplate,
   maskValue,
+  parseDotenv,
+  removeEntry,
   ruleKeys,
+  serialize,
+  setValue,
   unquoteValue,
   validateValue,
-} from '../schema/values.ts';
+} from '@configure-env/core';
 import { ask } from './apply.ts';
 import {
   CliError,

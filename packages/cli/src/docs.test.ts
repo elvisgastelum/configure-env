@@ -15,7 +15,7 @@ import {
   DEFAULT_STATE_PATH,
   LOCK_WAIT_MS,
   SALT_BYTES,
-} from './engine/state.ts';
+} from '@configure-env/core';
 import { REPO_ROOT } from './cli/test-helpers.ts';
 
 // README.md lives at the repo root; the skill docs live in this package.

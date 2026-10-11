@@ -1,6 +1,6 @@
 // `configure-env check`: reports drift and invalid values; writes nothing.
 
-import { checkDrift } from '../engine/check.ts';
+import { checkDrift } from '@configure-env/core';
 import {
   displayPath,
   contextOf,

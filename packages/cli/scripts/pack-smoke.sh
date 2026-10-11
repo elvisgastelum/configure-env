@@ -52,8 +52,10 @@ expect() {
 }
 
 echo "== pack"
-(cd "$package_dir" && npm pack --silent --pack-destination "$work" >"$work/pack.txt")
-tarball="$work/$(tail -n 1 "$work/pack.txt")"
+# pnpm packs as `pnpm release` (changeset publish) publishes: it replaces the
+# `workspace:` ranges, which npm would leave in the manifest.
+(cd "$package_dir" && pnpm pack --pack-destination "$work" >"$work/pack.txt")
+tarball="$(ls "$work"/*.tgz)"
 if [ -e "$package_dir/README.md" ] || [ -e "$package_dir/LICENSE" ]; then
   fail 'postpack removed the README and LICENSE copies'
 else
@@ -72,6 +74,21 @@ if grep -Eq '\.test\.|test-helpers|fixtures|^package/src/' <<<"$contents"; then
   fail 'the tarball holds sources, tests or fixtures'
 else
   pass 'the tarball holds no sources, tests or fixtures'
+fi
+
+# @configure-env/core is private: the build inlines it, so neither the
+# manifest nor the code may name it or any other workspace package.
+out="$(tar -xzOf "$tarball" package/package.json)"
+if grep -q 'workspace:' <<<"$out"; then
+  fail 'the manifest holds a workspace: range'
+else
+  pass 'the manifest holds no workspace: range'
+fi
+if tar -xzOf "$tarball" $(grep -E '^package/dist/.*\.(js|d\.ts)$' <<<"$contents") |
+  grep -q '@configure-env/'; then
+  fail 'the build imports a workspace package'
+else
+  pass 'the build inlines the workspace packages'
 fi
 
 echo "== install"

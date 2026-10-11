@@ -2,17 +2,19 @@
 // schema file they work on, reading it, and writing it back atomically.
 
 import { readFile, realpath } from 'node:fs/promises';
-import { applyPlan } from '../engine/apply.ts';
-import { type DotenvDocument, parseDotenv } from '../engine/dotenv.ts';
-import { resolveTarget } from '../engine/paths.ts';
-import { type FilePlan, fileKeys } from '../engine/plan.ts';
 import {
+  type DotenvDocument,
   type EnvSchema,
+  type FilePlan,
   type FileSpec,
   type VariableSpec,
+  applyPlan,
+  fileKeys,
   isTemplate,
-} from '../schema/definition.ts';
-import { maskValue } from '../schema/values.ts';
+  maskValue,
+  parseDotenv,
+  resolveTarget,
+} from '@configure-env/core';
 import { CliError, type Context, usageError } from './common.ts';
 
 /**
