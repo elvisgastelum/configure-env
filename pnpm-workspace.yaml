@@ -1,5 +1,8 @@
-# A single package, no `packages:` list. pnpm reads its build-script policy
-# from this file, so it stays for that alone.
+packages:
+  - apps/*
+  - packages/*
+
+# tsx works with the prebuilt platform binary; the esbuild postinstall only
+# re-checks it, and pnpm 12 refuses unapproved build scripts.
 allowBuilds:
-  # tsx works with the prebuilt platform binary; the postinstall only re-checks it.
   esbuild: false

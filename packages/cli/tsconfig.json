@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // tsx runs the sources directly; tsc only type-checks them.
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "scripts"]
+}

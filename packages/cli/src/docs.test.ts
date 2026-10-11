@@ -17,8 +17,15 @@ import {
   SALT_BYTES,
 } from './engine/state.ts';
 
+// README.md lives at the repo root; the skill docs live in this package.
 const doc = (path: string) =>
-  readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+  readFileSync(
+    new URL(
+      path === 'README.md' ? '../../../README.md' : `../${path}`,
+      import.meta.url,
+    ),
+    'utf8',
+  );
 
 const KIB = STDIN_MAX_BYTES / 1024;
 const SECONDS = STDIN_IDLE_MS / 1000;
