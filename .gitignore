@@ -24,3 +24,7 @@ coverage/
 
 # Packed tarballs from `npm pack` / `pnpm smoke`
 *.tgz
+
+# Copied from the repo root by packages/cli's `prepack`, removed by `postpack`
+packages/cli/README.md
+packages/cli/LICENSE

@@ -1,0 +1,81 @@
+{
+  "name": "@elvisgastelum/configure-env",
+  "version": "0.0.0",
+  "description": "Configure, check and edit env files from a schema, interactively or in CI",
+  "keywords": [
+    "env",
+    "dotenv",
+    "environment",
+    "configuration",
+    "cli",
+    "schema",
+    "env-file",
+    "validation",
+    "ci"
+  ],
+  "license": "MIT",
+  "author": "Elvis Gastelum",
+  "homepage": "https://github.com/elvisgastelum/configure-env#readme",
+  "bugs": {
+    "url": "https://github.com/elvisgastelum/configure-env/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elvisgastelum/configure-env.git"
+  },
+  "type": "module",
+  "sideEffects": [
+    "./dist/cli.js"
+  ],
+  "bin": {
+    "configure-env": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema.json": "./schema/env.schema.v1.json",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "schema",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "schema:generate": "tsx scripts/generate-json-schema.ts",
+    "schema:check": "tsx scripts/generate-json-schema.ts --check",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "prepack": "npm run build && node scripts/pack-docs.mjs copy",
+    "postpack": "node scripts/pack-docs.mjs remove",
+    "smoke": "bash scripts/pack-smoke.sh",
+    "link:local": "pnpm build && npm link",
+    "unlink:local": "npm unlink --global @elvisgastelum/configure-env"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}
