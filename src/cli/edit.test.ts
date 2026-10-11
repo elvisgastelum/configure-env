@@ -1,6 +1,13 @@
 // set, get and unset: single-variable edits that keep every other byte.
 
-import { chmod, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
@@ -666,7 +673,7 @@ describe('unset', () => {
     await seed(content);
     const r = await cli(['unset', 'TOKEN']);
     expect(r).toMatchObject({ code: 0, out: ['TOKEN: removed'] });
-    expect(await read('app.env')).toBe('PORT=1\n\nMODE=dev\n');
+    expect(await read('app.env')).toBe('PORT=1\nMODE=dev\n');
     expect(await modeOf('app.env')).toBe(0o640);
   });
 
@@ -682,7 +689,7 @@ describe('unset', () => {
   it('removes a schema comment only when it is attached', async () => {
     await seed('# The port.\n\nPORT=1\n');
     await cli(['unset', 'PORT']);
-    expect(await read('app.env')).toBe('# The port.\n\n');
+    expect(await read('app.env')).toBe('# The port.\n');
   });
 
   it('keeps a longer comment block that only ends with the schema comment', async () => {
@@ -726,6 +733,90 @@ describe('unset', () => {
     expect(r.code).toBe(0);
     expect(await read('app.env.example')).toBe('');
   });
+});
+
+describe('unset cleans up the blank lines', () => {
+  /** Comments, groups and a header, as apply writes them. */
+  const CLEAN_SCHEMA = {
+    version: 1,
+    variables: {
+      PORT: { type: 'port', default: 3000, group: 'web', comment: 'HTTP port' },
+      HOST: { type: 'string', default: 'localhost', group: 'web' },
+      API_TOKEN: {
+        type: 'string',
+        secret: true,
+        group: 'auth',
+        comment: 'tok',
+      },
+      MODE: {
+        type: 'enum',
+        values: ['dev', 'prod'],
+        default: 'dev',
+        group: 'auth',
+      },
+      DEBUG: { type: 'boolean', default: false },
+    },
+    files: [
+      {
+        path: '.env',
+        policy: 'create-only',
+        header: 'App settings',
+        variables: '*',
+      },
+    ],
+  };
+  const useSchema = (schema: unknown) =>
+    writeFile(path('env.schema.json'), JSON.stringify(schema));
+  const without = (key: string) => ({
+    ...CLEAN_SCHEMA,
+    variables: Object.fromEntries(
+      Object.entries(CLEAN_SCHEMA.variables).filter(([name]) => name !== key),
+    ),
+  });
+
+  it('removes the blank line the block was set apart by', async () => {
+    await useSchema({
+      version: 1,
+      variables: {
+        PORT: { type: 'port', comment: 'HTTP port' },
+        API_TOKEN: { type: 'string', secret: true, comment: 'tok' },
+        DEBUG: { type: 'boolean' },
+      },
+      files: [{ path: '.env', policy: 'create-only', variables: '*' }],
+    });
+    await writeFile(
+      path('.env'),
+      '# HTTP port\nPORT=3000\n\n# tok\nAPI_TOKEN=x\nDEBUG=false\n',
+    );
+    expect((await cli(['unset', 'API_TOKEN'])).code).toBe(0);
+    expect(await read('.env')).toBe('# HTTP port\nPORT=3000\nDEBUG=false\n');
+  });
+
+  it('keeps CRLF line endings', async () => {
+    await seed('MODE=dev\r\n\r\n# The port.\r\nPORT=1\r\nDEBUG=true\r\n');
+    await cli(['unset', 'PORT']);
+    expect(await read('app.env')).toBe('MODE=dev\r\nDEBUG=true\r\n');
+  });
+
+  it('keeps a comment that is not the schema comment, with its blank line', async () => {
+    await seed('MODE=dev\n\n# mine\nPORT=1\n');
+    await cli(['unset', 'PORT']);
+    expect(await read('app.env')).toBe('MODE=dev\n\n# mine\n');
+  });
+
+  it.each(Object.keys(CLEAN_SCHEMA.variables))(
+    'leaves what a fresh apply writes without %s',
+    async (key) => {
+      await useSchema(CLEAN_SCHEMA);
+      await cli(['apply', '--ci']);
+      expect((await cli(['unset', key])).code).toBe(0);
+      const unset = await read('.env');
+      await rm(path('.env'));
+      await useSchema(without(key));
+      await cli(['apply', '--ci']);
+      expect(unset).toBe(await read('.env'));
+    },
+  );
 });
 
 describe('help', () => {
@@ -849,6 +940,6 @@ describe('set and unset with rules between variables', () => {
       `SM_MASTER_KEY_FILE=\n\n# required unless SM_MASTER_KEY_FILE is set\nSM_MASTER_KEY=${KEY_A}\n`,
     );
     await cli(['unset', '--file', '.env', 'SM_MASTER_KEY']);
-    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=\n\n');
+    expect(await read('.env')).toBe('SM_MASTER_KEY_FILE=\n');
   });
 });

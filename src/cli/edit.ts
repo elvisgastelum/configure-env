@@ -10,7 +10,7 @@ import {
   serialize,
 } from '../engine/dotenv.ts';
 import { fileRules } from '../engine/check.ts';
-import { commentLines, entryComment } from '../engine/plan.ts';
+import { commentLines, entryComment, groupChanges } from '../engine/plan.ts';
 import {
   VARIABLE_NAME,
   isTemplate,
@@ -634,6 +634,7 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
       file.doc,
       key,
       comment ? commentLines(comment) : [],
+      groupChanges(schema),
     );
     report.push({ key, status: removed ? 'removed' : 'absent' });
   }

@@ -269,32 +269,74 @@ export function removeKey(doc: DotenvDocument, key: string): boolean {
   return doc.lines.length !== before;
 }
 
+/** Whether a blank line between the entries `above` and `below` stays. */
+export type Separates = (above: string, below: string) => boolean;
+
+/**
+ * Removes lines `start` to `end` (a block: an entry and its comment), and
+ * the blank line that set it apart, so no blank line is left doubled,
+ * leading or trailing: the one above, unless the next line starts a block
+ * (a comment), the one above follows a comment (a header), or `separates`
+ * the entries around it; else at the start, the one below.
+ */
+function dropBlock(
+  doc: DotenvDocument,
+  start: number,
+  end: number,
+  separates: Separates,
+) {
+  doc.lines.splice(start, end - start + 1);
+  const blank = (index: number) => doc.lines[index]?.kind === 'blank';
+  const next = doc.lines[start];
+  if (start === 0) {
+    if (blank(0)) doc.lines.splice(0, 1);
+    return;
+  }
+  if (!blank(start - 1)) return;
+  const above = doc.lines[start - 2];
+  const drop =
+    !next ||
+    next.kind === 'blank' ||
+    (next.kind === 'entry' &&
+      above?.kind === 'entry' &&
+      !separates(above.key!, next.key!));
+  if (drop) doc.lines.splice(start - 1, 1);
+}
+
 /**
  * Removes every entry for `key`, each with its directly attached comment
  * block (the comment lines right above it) when that block is exactly
- * `comment`, as lines without line endings; any other comment stays. True
- * when there was an entry.
+ * `comment`, as lines without line endings, or with any such block for
+ * `'any'`; any other comment stays. The blank line that set the removed
+ * lines apart goes too (see dropBlock). True when there was an entry.
  */
 export function removeEntry(
   doc: DotenvDocument,
   key: string,
-  comment: readonly string[] = [],
+  comment: readonly string[] | 'any' = [],
+  separates: Separates = () => false,
 ): boolean {
-  const drop = new Set<number>();
   const isComment = (index: number) => doc.lines[index]?.kind === 'comment';
-  doc.lines.forEach((line, index) => {
-    if (line.kind !== 'entry' || line.key !== key) return;
-    drop.add(index);
-    const start = index - comment.length;
-    const attached =
-      comment.length > 0 &&
-      start >= 0 &&
-      !isComment(start - 1) &&
-      comment.every(
-        (raw, i) => isComment(start + i) && doc.lines[start + i]!.raw === raw,
-      );
-    if (attached) for (let i = start; i < index; i++) drop.add(i);
-  });
-  doc.lines = doc.lines.filter((_, index) => !drop.has(index));
-  return drop.size > 0;
+  let found = false;
+  for (;;) {
+    const index = doc.lines.findIndex(
+      (line) => line.kind === 'entry' && line.key === key,
+    );
+    if (index < 0) return found;
+    found = true;
+    let start = index;
+    if (comment === 'any') while (isComment(start - 1)) start--;
+    else {
+      const top = index - comment.length;
+      const attached =
+        comment.length > 0 &&
+        top >= 0 &&
+        !isComment(top - 1) &&
+        comment.every(
+          (raw, i) => isComment(top + i) && doc.lines[top + i]!.raw === raw,
+        );
+      if (attached) start = top;
+    }
+    dropBlock(doc, start, index, separates);
+  }
 }

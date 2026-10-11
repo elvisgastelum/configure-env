@@ -4,6 +4,7 @@ import {
   getValue,
   invalidLineNumbers,
   parseDotenv,
+  removeEntry,
   removeKey,
   serialize,
   setValue,
@@ -170,6 +171,82 @@ describe('removeKey', () => {
     expect(serialize(doc)).toBe('A=1\n');
     removeKey(doc, 'A');
     expect(serialize(doc)).toBe('');
+  });
+});
+
+describe('removeEntry', () => {
+  const removed = (
+    text: string,
+    key: string,
+    comment: readonly string[] | 'any',
+    separates?: (above: string, below: string) => boolean,
+  ) => {
+    const doc = parseDotenv(text);
+    removeEntry(doc, key, comment, separates);
+    return serialize(doc);
+  };
+
+  it('removes the block and the blank line above it', () => {
+    const text = '# HTTP port\nPORT=3000\n\n# tok\nAPI_TOKEN=x\nDEBUG=false\n';
+    expect(removed(text, 'API_TOKEN', ['# tok'])).toBe(
+      '# HTTP port\nPORT=3000\nDEBUG=false\n',
+    );
+  });
+
+  it('removes the first block and the blank line below it', () => {
+    const text = '# HTTP port\nPORT=3000\n\n# tok\nAPI_TOKEN=x\n';
+    expect(removed(text, 'PORT', ['# HTTP port'])).toBe('# tok\nAPI_TOKEN=x\n');
+  });
+
+  it('leaves no trailing blank line after the last block', () => {
+    const text = 'PORT=3000\n\n# tok\nAPI_TOKEN=x\n';
+    expect(removed(text, 'API_TOKEN', ['# tok'])).toBe('PORT=3000\n');
+  });
+
+  it('keeps one blank line between the blocks around it', () => {
+    const text = '# a\nA=1\n\n# b\nB=2\n\n# c\nC=3\n';
+    expect(removed(text, 'B', ['# b'])).toBe('# a\nA=1\n\n# c\nC=3\n');
+  });
+
+  it('keeps the blank line under a header', () => {
+    const text = '# header\n\n# a\nA=1\nB=2\n';
+    expect(removed(text, 'A', ['# a'])).toBe('# header\n\nB=2\n');
+  });
+
+  it('keeps a blank line the entries around it are separated by', () => {
+    const text = 'A=1\n\n# b\nB=2\nC=3\n';
+    expect(removed(text, 'B', ['# b'], () => true)).toBe('A=1\n\nC=3\n');
+    expect(removed(text, 'B', ['# b'])).toBe('A=1\nC=3\n');
+  });
+
+  it('keeps CRLF line endings', () => {
+    const text = 'PORT=3000\r\n\r\n# tok\r\nAPI_TOKEN=x\r\nDEBUG=false\r\n';
+    expect(removed(text, 'API_TOKEN', ['# tok'])).toBe(
+      'PORT=3000\r\nDEBUG=false\r\n',
+    );
+  });
+
+  it('keeps a hand-written blank layout outside the block', () => {
+    const text = 'A=1\n\n\nB=2\n\n# tok\nT=x\n\nC=3\n\n';
+    expect(removed(text, 'T', ['# tok'])).toBe('A=1\n\n\nB=2\n\nC=3\n\n');
+  });
+
+  it('keeps a comment that is not the given one, and its blank line', () => {
+    const text = 'A=1\n\n# mine\nB=2\n';
+    expect(removed(text, 'B', ['# b'])).toBe('A=1\n\n# mine\n');
+  });
+
+  it("removes any comment block directly above with 'any', never a detached one", () => {
+    const text = '# far\n\nA=1\n\n# one\n# two\nB=2\nC=3\n';
+    expect(removed(text, 'B', 'any')).toBe('# far\n\nA=1\nC=3\n');
+    expect(removed(text, 'A', 'any')).toBe('# far\n\n# one\n# two\nB=2\nC=3\n');
+  });
+
+  it('removes every entry of a repeated key', () => {
+    const doc = parseDotenv('A=1\n\nB=2\nA=3\n');
+    expect(removeEntry(doc, 'A')).toBe(true);
+    expect(serialize(doc)).toBe('B=2\n');
+    expect(removeEntry(doc, 'A')).toBe(false);
   });
 });
 

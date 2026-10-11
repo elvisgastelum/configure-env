@@ -125,6 +125,18 @@ export function entryComment(
 }
 
 /**
+ * Whether a blank line sets the entry `below` apart from `above`, as
+ * entryLines writes them: their groups differ.
+ */
+export function groupChanges(schema: EnvSchema) {
+  const group = (key: string) =>
+    Object.hasOwn(schema.variables, key)
+      ? schema.variables[key]!.group
+      : undefined;
+  return (above: string, below: string) => group(above) !== group(below);
+}
+
+/**
  * Validates the given values; each valid one in the form written after
  * `KEY=`. Errors name the rule, never the value.
  */
