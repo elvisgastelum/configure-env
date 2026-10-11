@@ -1,19 +1,14 @@
 // What the variable commands (set, get, unset, list, validate) share: which
-// schema file they work on, reading it, and writing it back atomically.
+// schema file they work on, and reading it.
 
-import { readFile, realpath } from 'node:fs/promises';
 import {
-  type DotenvDocument,
+  type EnvFile,
   type EnvSchema,
-  type FilePlan,
   type FileSpec,
   type VariableSpec,
-  applyPlan,
-  fileKeys,
   isTemplate,
   maskValue,
-  parseDotenv,
-  resolveTarget,
+  readEnvFile as readCoreFile,
 } from '@configure-env/core';
 import { CliError, type Context, usageError } from './common.ts';
 
@@ -51,79 +46,17 @@ export function chooseFile(
   return file;
 }
 
-/** A schema file as it is on disk now. */
-export interface EnvFile {
-  spec: FileSpec;
-  /** The real project root. */
-  root: string;
-  absolute: string;
-  exists: boolean;
-  /** The current permissions; absent when the file does not exist. */
-  mode?: number;
-  /** The current content; absent when the file does not exist. */
-  previous?: string;
-  /** The parsed content; empty when the file does not exist. */
-  doc: DotenvDocument;
-}
+export { type EnvFile, UNKNOWN_SPEC, variablesOf } from '@configure-env/core';
 
 /** Reads a schema file; a path that is not safe to use exits 1. */
 export async function readEnvFile(
   context: Context,
   spec: FileSpec,
 ): Promise<EnvFile> {
-  const root = await realpath(context.root);
-  const target = await resolveTarget(root, spec.path);
-  if (!target.ok) throw new CliError(1, [`${spec.path}: ${target.message}`]);
-  const previous = target.exists
-    ? await readFile(target.absolute, 'utf8')
-    : undefined;
-  return {
-    spec,
-    root,
-    absolute: target.absolute,
-    exists: target.exists,
-    ...(target.mode === undefined ? {} : { mode: target.mode }),
-    ...(previous === undefined ? {} : { previous }),
-    doc: parseDotenv(previous ?? ''),
-  };
+  const result = await readCoreFile(context.root, spec);
+  if (!result.ok) throw new CliError(1, [result.message]);
+  return result.file;
 }
-
-/**
- * Writes `content` atomically: an existing file keeps its mode, a new one
- * takes the schema's (else 644). A failed write exits 1.
- */
-export async function writeEnvFile(file: EnvFile, content: string) {
-  const { spec } = file;
-  const schemaMode = spec.mode ? Number.parseInt(spec.mode, 8) : undefined;
-  const plan: FilePlan = {
-    path: spec.path,
-    policy: spec.policy,
-    action: file.exists ? 'update' : 'create',
-    addedKeys: [],
-    mode: file.mode ?? schemaMode ?? 0o644,
-    content,
-    target: file.absolute,
-    ...(file.previous === undefined ? {} : { previous: file.previous }),
-  };
-  const [result] = await applyPlan({
-    root: file.root,
-    files: [plan],
-    errors: [],
-  });
-  if (!result?.ok)
-    throw new CliError(1, [`${spec.path}: not written: ${result?.error}`]);
-}
-
-/** A key that is not one of the file's variables: a plain string. */
-export const UNKNOWN_SPEC: VariableSpec = {
-  type: 'string',
-  required: false,
-  secret: false,
-};
-
-/** The file's variables in output order. */
-export const variablesOf = (schema: EnvSchema, file: FileSpec) =>
-  new Set(fileKeys(schema, file));
 
 /** `value` or `masked` for JSON output, by whether the variable is secret. */
 export const jsonValue = (spec: VariableSpec, value: string) =>
