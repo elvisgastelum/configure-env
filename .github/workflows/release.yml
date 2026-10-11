@@ -6,7 +6,8 @@
 #     pull request that bumps packages/cli/package.json and writes its
 #     CHANGELOG.md;
 #   - with none (that pull request was merged), publishes the version in
-#     packages/cli/package.json to npm with provenance and tags it on GitHub.
+#     packages/cli/package.json to npm with provenance and tags it on GitHub
+#     as @elvisgastelum/configure-env@X.Y.Z (the Changesets workspace format).
 #
 # Needs the NPM_TOKEN repository secret: an npm automation (or granular)
 # token that may publish @elvisgastelum/configure-env. See the README,

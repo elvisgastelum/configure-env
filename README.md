@@ -513,6 +513,8 @@ With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "d
 pnpm start -- apply --ci --schema packages/cli/examples/portfolio.env.schema.json --root ../my-project
 ```
 
+Run it from the repo root. `pnpm start` runs the CLI inside `packages/cli`, but relative `--schema` and `--root` paths resolve against the directory you ran `pnpm` from (`INIT_CWD`), so `../my-project` is a sibling of this checkout.
+
 ## CI usage
 
 In CI the real env files usually do not exist and the secrets are not at hand, so check the committed files: the templates. A create-only file that is missing is not drift, so `check` passes without it.
@@ -664,6 +666,8 @@ Versions and the changelog come from [Changesets](https://github.com/changesets/
 1. A pull request with a user-visible change adds a changeset: `pnpm changeset`, pick the bump, describe the change. It lands in `.changeset/`.
 2. To release, run the **Release** workflow by hand (Actions, Release, Run workflow, on `main`). It runs every check and the smoke test, then opens a `chore: release` pull request that bumps `packages/cli/package.json` and writes `packages/cli/CHANGELOG.md`.
 3. Merge that pull request and run the **Release** workflow again. With no changesets left, it publishes the version to npm with [provenance](https://docs.npmjs.com/generating-provenance-statements), tags it and creates the GitHub release.
+
+Releases are tagged `@elvisgastelum/configure-env@X.Y.Z` (for example `@elvisgastelum/configure-env@0.1.0`), the format Changesets gives a package in a workspace; the GitHub release takes the same name. Only this package is tagged: the workspace root and the internal `@configure-env/*` packages are private, and `.changeset/config.json` never versions or tags private packages.
 
 The workflow needs, once:
 
