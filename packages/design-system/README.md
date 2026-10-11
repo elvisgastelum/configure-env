@@ -46,9 +46,21 @@ Changes from upstream:
 | Tokens | `tokens.ts` | Typed catalog of every token (colors, radius, spacing, shadows, type, motion) that the Foundations docs render |
 | Recipes | `recipes.ts` | Shared class strings: `TYPE`, `CONTAINER`, `SECTION_RHYTHM`, `FOCUS_RING`, `ctaClassName()`, `INTERACTIVE_CARD`… |
 | Motion | `motion/` | `SiteMotionConfig`, `Reveal`/`RevealGroup`/`RevealItem`, `SlideIn`, `MaskedWords`, `PageEntrance`, `ScrollProgress`, `ActiveIndicator`, `CardSpotlight`, `useScrolled`, motion tokens |
-| Atoms | `components/atoms/` | `Button`, `Badge`, `Card`, `PageGlow` |
+| Atoms | `components/atoms/` | `Button`, `Badge`, `Card`, `PageGlow` (from upstream) and the portal primitives below |
 | Theme preference | `theme/` | System/light/dark pick stored in `localStorage` (`configure-env.theme`), `applyThemePreference`, `useThemePreference` |
 | Utilities | `lib/utils.ts` | `cn()` |
+
+## Portal primitives
+
+Added for the portal on top of the upstream copy. They come from the shadcn `base-nova` registry (built on `@base-ui/react`) and use the shared theme tokens, so they follow light and dark mode with the rest of the system. Each has stories, and the interactive ones have Vitest + Testing Library tests.
+
+| Group | Subpath under `./components/atoms/` | Exports |
+| --- | --- | --- |
+| Form controls | `input`, `textarea`, `label`, `field`, `input-group`, `separator` | `Input`, `Textarea`, `Label`, `Field`/`FieldLabel`/`FieldDescription`/`FieldError`/`FieldSet`…, `InputGroup`/`InputGroupAddon`/`InputGroupInput`…, `Separator` |
+| | `select`, `combobox` | `Select`/`SelectTrigger`/`SelectValue`/`SelectContent`/`SelectItem`…, `Combobox`/`ComboboxInput`/`ComboboxContent`/`ComboboxList`/`ComboboxItem`… |
+| | `switch`, `checkbox`, `number-input` | `Switch`, `Checkbox`, `NumberInput` (Base UI `NumberField`; the registry has no number input) |
+
+Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, and `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
 
 ## Consume it in a Vite + Tailwind v4 app
 
