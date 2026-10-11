@@ -1,6 +1,7 @@
 // The engine every configure-env surface shares: the schema and its values,
 // dotenv text, planning and applying files, checking them for drift, and the
-// protected variables' state. The published CLI bundles it; its public API
+// protected variables' state, and the per-key edits with their protected
+// checks. The published CLI bundles it; its public API
 // (packages/cli/src/index.ts) re-exports a chosen part of it.
 
 export * from './schema/definition.ts';
@@ -14,3 +15,6 @@ export * from './engine/dotenv.ts';
 export * from './engine/paths.ts';
 export * from './engine/plan.ts';
 export * from './engine/state.ts';
+export * from './edit/file.ts';
+export * from './edit/protect.ts';
+export * from './edit/edit.ts';

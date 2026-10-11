@@ -2,7 +2,7 @@
 // schema, and where values come from.
 
 import { stat } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import {
   DEFAULT_SCHEMA_PATH,
@@ -150,11 +150,7 @@ export interface Context {
   json: boolean;
 }
 
-/** A path for messages: relative to `cwd` when inside it, else absolute. */
-export function displayPath(cwd: string, path: string): string {
-  const rel = relative(cwd, path);
-  return !rel || rel.startsWith('..') || isAbsolute(rel) ? path : rel;
-}
+export { displayPath } from '@configure-env/core';
 
 /** Whether CI is set to anything but empty, `false` or `0`. */
 export const isCiEnv = (env: Io['env']) =>
