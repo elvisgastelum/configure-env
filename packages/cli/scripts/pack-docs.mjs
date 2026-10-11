@@ -1,6 +1,7 @@
 // README.md and LICENSE live at the repo root, where GitHub shows them; the
 // published package still ships them. `prepack` copies them next to this
-// package.json and `postpack` removes the copies (both are gitignored).
+// package.json and `postpack` removes the copies (both are gitignored). If a
+// pack fails before `postpack`, the next `build` removes the leftovers.
 //
 //   node scripts/pack-docs.mjs copy|remove
 

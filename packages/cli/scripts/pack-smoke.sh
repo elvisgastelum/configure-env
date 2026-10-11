@@ -53,6 +53,11 @@ expect() {
 echo "== pack"
 (cd "$repo" && npm pack --silent --pack-destination "$work" >"$work/pack.txt")
 tarball="$work/$(tail -n 1 "$work/pack.txt")"
+if [ -e "$repo/README.md" ] || [ -e "$repo/LICENSE" ]; then
+  fail 'postpack removed the README and LICENSE copies'
+else
+  pass 'postpack removed the README and LICENSE copies'
+fi
 version="$(node -p "require('$repo/package.json').version")"
 
 contents="$(tar -tzf "$tarball")"
