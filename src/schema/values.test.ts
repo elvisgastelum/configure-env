@@ -306,6 +306,142 @@ describe('validateValue', () => {
     });
   });
 
+  describe('ipv6', () => {
+    const ipv6 = spec({ type: 'ipv6' });
+
+    it.each([
+      '::1',
+      '::',
+      'fd00::10',
+      '2001:db8:0:0:0:0:0:1',
+      '::ffff:1.2.3.4',
+    ])('accepts %j', (raw) => {
+      expect(validateValue(ipv6, raw)).toEqual(ok(raw));
+    });
+
+    it.each([
+      '1.2.3.4',
+      '1::2::3',
+      'fe80::1%eth0',
+      '2001:db8::g',
+      'localhost',
+      '12345::',
+    ])('rejects %j', (raw) => {
+      expect(validateValue(ipv6, raw)).toEqual(fails(/IPv6/));
+    });
+  });
+
+  describe('ip', () => {
+    const ip = spec({ type: 'ip' });
+
+    it.each(['10.0.0.1', '::1', 'fd00::10'])('accepts %j', (raw) => {
+      expect(validateValue(ip, raw)).toEqual(ok(raw));
+    });
+
+    it.each(['256.0.0.1', '01.2.3.4', '1::2::3', 'fe80::1%eth0', 'host'])(
+      'rejects %j',
+      (raw) => {
+        expect(validateValue(ip, raw)).toEqual(fails(/IPv4 or IPv6/));
+      },
+    );
+  });
+
+  describe('cidr', () => {
+    const any = spec({ type: 'cidr' });
+    const v4 = spec({ type: 'cidr', family: 'ipv4' });
+    const v6 = spec({ type: 'cidr', family: 'ipv6' });
+
+    it('defaults to either family, not strict', () => {
+      expect(any).toMatchObject({ family: 'any', strict: false });
+    });
+
+    it.each([
+      '10.0.0.0/8',
+      '172.30.250.0/24',
+      '0.0.0.0/0',
+      '1.2.3.4/32',
+      '172.30.250.10/24',
+      'fd00::/8',
+      '2001:db8::1/128',
+      '::/0',
+    ])('accepts %j in either family', (raw) => {
+      expect(validateValue(any, raw)).toEqual(ok(raw));
+    });
+
+    it.each([
+      ['an octet over 255', '256.0.0.0/8'],
+      ['a leading zero in an octet', '010.0.0.0/8'],
+      ['no prefix', '10.0.0.0'],
+      ['an empty prefix', '10.0.0.0/'],
+      ['a non-numeric prefix', '10.0.0.0/x'],
+      ['a signed prefix', '10.0.0.0/+8'],
+      ['a leading zero in the prefix', '10.0.0.0/08'],
+      ['two prefixes', '10.0.0.0/8/8'],
+      ['no address', '/8'],
+      ['a hostname', 'localhost/8'],
+      ['an IPv6 zone', 'fe80::%eth0/64'],
+      ['spaces', ' 10.0.0.0/8'],
+    ])('rejects %s', (_label, raw) => {
+      expect(validateValue(any, raw)).toEqual(fails(/CIDR block/));
+    });
+
+    it('rejects a prefix over the address length', () => {
+      expect(validateValue(any, '10.0.0.0/33')).toEqual(fails(/at most 32/));
+      expect(validateValue(any, 'fd00::/129')).toEqual(fails(/at most 128/));
+      expect(validateValue(v4, '10.0.0.0/32')).toEqual(ok('10.0.0.0/32'));
+      expect(validateValue(v6, 'fd00::/128')).toEqual(ok('fd00::/128'));
+    });
+
+    it('rejects the other family', () => {
+      expect(validateValue(v4, 'fd00::/8')).toEqual(fails(/IPv4 CIDR block/));
+      expect(validateValue(v6, '10.0.0.0/8')).toEqual(fails(/IPv6 CIDR block/));
+      expect(validateValue(v4, '10.0.0.0/8')).toEqual(ok('10.0.0.0/8'));
+      expect(validateValue(v6, 'fd00::/8')).toEqual(ok('fd00::/8'));
+    });
+
+    describe('strict', () => {
+      const strict = spec({ type: 'cidr', strict: true });
+
+      it('accepts a network address', () => {
+        expect(validateValue(strict, '172.30.250.0/24')).toEqual(
+          ok('172.30.250.0/24'),
+        );
+        expect(validateValue(strict, 'fd00::/8')).toEqual(ok('fd00::/8'));
+        expect(validateValue(strict, '0.0.0.0/0')).toEqual(ok('0.0.0.0/0'));
+        expect(validateValue(strict, '1.2.3.4/32')).toEqual(ok('1.2.3.4/32'));
+      });
+
+      it('refuses host bits and suggests the network address', () => {
+        expect(validateValue(strict, '172.30.250.10/24')).toEqual({
+          ok: false,
+          error: 'host bits are set; use 172.30.250.0/24',
+        });
+        expect(validateValue(strict, '10.1.2.3/12')).toEqual({
+          ok: false,
+          error: 'host bits are set; use 10.0.0.0/12',
+        });
+        expect(validateValue(strict, '2001:db8:0:0:1::1/64')).toEqual({
+          ok: false,
+          error: 'host bits are set; use 2001:db8::/64',
+        });
+        expect(validateValue(strict, 'fd00:0:0:1::5/48')).toEqual({
+          ok: false,
+          error: 'host bits are set; use fd00::/48',
+        });
+      });
+
+      it('never derives the message from a secret value', () => {
+        const secret = spec({ type: 'cidr', strict: true, secret: true });
+        const result = validateValue(secret, '172.30.250.10/24');
+        expect(result).toEqual({
+          ok: false,
+          error: 'host bits are set; use the network address',
+        });
+        expect(JSON.stringify(result)).not.toContain('172.30');
+      });
+    });
+  });
+
   describe('port', () => {
     const port = spec({ type: 'port' });
 

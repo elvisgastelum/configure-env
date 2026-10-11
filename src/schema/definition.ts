@@ -5,6 +5,7 @@
 // Every object is strict, so a misspelled key is an error, not ignored.
 
 import { z } from 'zod';
+import { CIDR_FAMILIES } from './ip.ts';
 import { validateValue } from './values.ts';
 
 export const SCHEMA_VERSION = 1;
@@ -32,6 +33,9 @@ export const VARIABLE_TYPES = [
   'url',
   'host',
   'ipv4',
+  'ipv6',
+  'ip',
+  'cidr',
   'port',
 ] as const;
 
@@ -215,6 +219,32 @@ const ipv4Variable = z.strictObject({
   ...valueFields(z.string()),
 });
 
+const ipv6Variable = z.strictObject({
+  type: z.literal('ipv6'),
+  ...common,
+  ...valueFields(z.string()),
+});
+
+const ipVariable = z.strictObject({
+  type: z.literal('ip'),
+  ...common,
+  ...valueFields(z.string()),
+});
+
+const cidrVariable = z.strictObject({
+  type: z.literal('cidr'),
+  ...common,
+  ...valueFields(z.string()),
+  family: z.enum(CIDR_FAMILIES).default('any').meta({
+    description:
+      'The address family the block must be: ipv4, ipv6, or any for either.',
+  }),
+  strict: z.boolean().default(false).meta({
+    description:
+      'Refuse a block with host bits set, like 10.0.0.1/8: the address must be the network address.',
+  }),
+});
+
 const portVariable = z.strictObject({
   type: z.literal('port'),
   ...common,
@@ -234,6 +264,9 @@ export const variableSpec = z.discriminatedUnion(
     urlVariable,
     hostVariable,
     ipv4Variable,
+    ipv6Variable,
+    ipVariable,
+    cidrVariable,
     portVariable,
   ],
   { error: `type must be one of ${VARIABLE_TYPES.join(', ')}` },

@@ -39,6 +39,14 @@ const fullSchema = () => ({
     CONTACT: { type: 'email', default: 'you@example.com' },
     SITE: { type: 'url', protocols: ['https'], default: 'https://example.com' },
     CADDY: { type: 'ipv4', default: '192.168.1.70', allowEmpty: false },
+    CADDY_V6: { type: 'ipv6', default: 'fd00::70' },
+    UPSTREAM: { type: 'ip', example: '::1' },
+    APP_SUBNET: {
+      type: 'cidr',
+      family: 'ipv4',
+      strict: true,
+      default: '172.30.250.0/24',
+    },
   },
   files: [
     { path: '.env.example', policy: 'merge', variables: '*' },
@@ -165,6 +173,17 @@ describe('parseSchema', () => {
         { type: 'url', protocols: ['https'], default: 'http://x.io' },
       ],
       ['ipv4', { type: 'ipv4', default: '300.1.1.1' }],
+      ['ipv6', { type: 'ipv6', default: '10.0.0.1' }],
+      ['ip', { type: 'ip', default: '1::2::3' }],
+      ['cidr without a prefix', { type: 'cidr', default: '10.0.0.0' }],
+      [
+        'cidr of the other family',
+        { type: 'cidr', family: 'ipv6', default: '10.0.0.0/8' },
+      ],
+      [
+        'cidr with host bits',
+        { type: 'cidr', strict: true, default: '10.0.0.1/8' },
+      ],
       ['string too short', { type: 'string', minLength: 3, default: 'ab' }],
       ['string too long', { type: 'string', maxLength: 1, default: 'ab' }],
       ['string pattern', { type: 'string', pattern: '^a+$', default: 'b' }],
@@ -260,12 +279,30 @@ describe('parseSchema', () => {
         { type: 'string', encoding: 'hex', bytes: 16, maxLength: 31 },
         'maxLength',
       ],
+      ['an unknown cidr family', { type: 'cidr', family: 'ipv5' }, 'family'],
+      [
+        'a strict that is not a boolean',
+        { type: 'cidr', strict: 'yes' },
+        'strict',
+      ],
     ])('rejects %s', (_label, spec, field) => {
       const errors = errorsFor((schema) => {
         Object.assign(schema.variables, { X: spec });
       });
       expect(paths(errors)).toEqual([`variables.X.${field}`]);
     });
+  });
+
+  it.each([
+    ['family', 'ipv4', { family: 'ipv4' }],
+    ['family', 'ip', { family: 'any' }],
+    ['strict', 'ipv6', { strict: true }],
+    ['strict', 'string', { strict: false }],
+  ])('rejects %s on a %s variable', (_field, type, option) => {
+    const errors = errorsFor((schema) => {
+      Object.assign(schema.variables, { X: { type, ...option } });
+    });
+    expect(paths(errors)).toEqual(['variables.X']);
   });
 
   describe('rules between variables', () => {

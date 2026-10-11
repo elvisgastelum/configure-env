@@ -10,6 +10,13 @@ import {
   type VariableSpec,
   ruleNames,
 } from './definition.ts';
+import {
+  formatNetwork,
+  hasHostBits,
+  networkOf,
+  parseAddress,
+  parseCidr,
+} from './ip.ts';
 
 /** A typed variable value: a string, number or boolean by variable type. */
 export type VariableValue = string | number | boolean;
@@ -150,6 +157,23 @@ function coerce(spec: VariableSpec, raw: string): ValueResult {
         : invalid('must be a hostname or an IP address');
     case 'ipv4':
       return isIPv4(raw) ? valid(raw) : invalid('must be an IPv4 address');
+    case 'ipv6':
+      return parseAddress(raw)?.family === 6
+        ? valid(raw)
+        : invalid('must be an IPv6 address');
+    case 'ip':
+      return parseAddress(raw)
+        ? valid(raw)
+        : invalid('must be an IPv4 or IPv6 address');
+    case 'cidr': {
+      const result = parseCidr(raw, spec.family);
+      if (!result.ok) return invalid(result.error);
+      if (!spec.strict || !hasHostBits(result.network)) return valid(raw);
+      // The network address comes from the value: a secret one is not shown.
+      return invalid(
+        `host bits are set; use ${spec.secret ? 'the network address' : formatNetwork(networkOf(result.network))}`,
+      );
+    }
     case 'port': {
       const value = Number(raw);
       return /^\d+$/.test(raw) && value >= 1 && value <= 65535
