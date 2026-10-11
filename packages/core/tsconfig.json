@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Never built on its own: the packages that use it run its sources (tsx,
+    // Vitest) or bundle them (the published CLI). tsc only type-checks them.
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src"]
+}

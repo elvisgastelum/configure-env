@@ -31,6 +31,7 @@ import {
 } from './common.ts';
 import { INSTALL_HELP } from './help.ts';
 import type { Io } from './io.ts';
+import { PACKAGE_ROOT } from './package-root.ts';
 
 const { root, ci, json, help } = GLOBAL_OPTIONS;
 
@@ -49,12 +50,9 @@ const OPTIONS = {
 /** What `install` installs. */
 const SUBJECTS = ['skill'];
 
-/**
- * The skill folder the package ships: two levels up from src/cli and from
- * dist/cli alike.
- */
+/** The skill folder the package ships, next to its package.json. */
 export const SKILL_SOURCE = fileURLToPath(
-  new URL('../../skills/configure-env', import.meta.url),
+  new URL('skills/configure-env', PACKAGE_ROOT),
 );
 
 const SCOPES = ['user', 'project', 'local'] as const;

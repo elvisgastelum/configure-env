@@ -1,7 +1,7 @@
 // What a command run touches outside the file system: the output streams,
 // the environment, and the prompts. Tests replace all of it.
 
-import type { StateWriter } from '../engine/state.ts';
+import type { StateWriter } from '@configure-env/core';
 
 /** One option of a select or multiselect prompt. */
 export interface Choice<V> {

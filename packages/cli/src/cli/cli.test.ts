@@ -11,7 +11,7 @@ import {
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getValue, parseDotenv } from '../engine/dotenv.ts';
+import { getValue, parseDotenv } from '@configure-env/core';
 import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import {
   KEY_A,

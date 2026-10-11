@@ -9,9 +9,9 @@ import {
   VARIABLE_TYPES,
   type VariableSpec,
   filePathProblem,
-} from '../schema/definition.ts';
-import { parseSchema } from '../schema/load.ts';
-import { validateValue } from '../schema/values.ts';
+  parseSchema,
+  validateValue,
+} from '@configure-env/core';
 import {
   displayPath,
   CliError,

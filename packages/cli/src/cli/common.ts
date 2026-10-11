@@ -4,19 +4,23 @@
 import { stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
-import { fileRules } from '../engine/check.ts';
-import { parseDotenv } from '../engine/dotenv.ts';
-import { isInside } from '../engine/paths.ts';
-import type { FilePlan, PlanError, ValueError } from '../engine/plan.ts';
-import { fileKeys } from '../engine/plan.ts';
-import { DEFAULT_STATE_PATH } from '../engine/state.ts';
 import {
+  DEFAULT_SCHEMA_PATH,
+  DEFAULT_STATE_PATH,
   type EnvSchema,
+  type FilePlan,
   type FileSpec,
+  type PlanError,
+  type ValueError,
+  fileKeys,
+  fileRules,
+  isInside,
   isTemplate,
-} from '../schema/definition.ts';
-import { DEFAULT_SCHEMA_PATH, loadSchema } from '../schema/load.ts';
-import { ruleKeys, validateValue } from '../schema/values.ts';
+  loadSchema,
+  parseDotenv,
+  ruleKeys,
+  validateValue,
+} from '@configure-env/core';
 import type { Io, Prompts } from './io.ts';
 import { type ProtectedProblem, protectedLine } from './protect.ts';
 import { clackPrompts } from './prompts.ts';

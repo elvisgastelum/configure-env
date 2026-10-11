@@ -3,23 +3,21 @@
 // in the state is never silently replaced after the file lost it. The state
 // holds only salted HMACs of the values.
 
-import { fileKeys } from '../engine/plan.ts';
-import {
-  type State,
-  type StateChange,
-  loadState,
-  matchesFingerprint,
-  mergeState,
-  recorded,
-  recordedDay,
-  withStateLock,
-} from '../engine/state.ts';
 import {
   type EnvSchema,
   type FileSpec,
+  type State,
+  type StateChange,
+  fileKeys,
   isTemplate,
+  loadState,
+  matchesFingerprint,
+  mergeState,
   protectedReason,
-} from '../schema/definition.ts';
+  recorded,
+  recordedDay,
+  withStateLock,
+} from '@configure-env/core';
 import {
   CliError,
   type Context,

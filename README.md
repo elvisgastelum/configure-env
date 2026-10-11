@@ -286,7 +286,7 @@ The loader accepts a schema file saved with a UTF-8 byte order mark. A `host` wh
 
 The `$schema` line points editors such as VS Code at [`packages/cli/schema/env.schema.v1.json`](packages/cli/schema/env.schema.v1.json), which gives completion, hover docs and inline errors while editing. The same file ships in the package as `@elvisgastelum/configure-env/schema.json`, for tools that read it from `node_modules`. The JSON Schema checks the shape; the loader also checks what JSON Schema cannot express: defaults and examples against their type's rules, `bytes` without `encoding`, the names in the rules between variables, variable names in `files`, value overrides, and unique paths.
 
-The JSON Schema is generated from the zod definition in `packages/cli/src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
+The JSON Schema is generated from the zod definition in `packages/core/src/schema/definition.ts`. After changing the definition, run `pnpm schema:generate` and commit the result; a test and CI (`pnpm schema:check`) fail while it is stale.
 
 ## Usage
 
@@ -634,7 +634,7 @@ The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and 
 
 Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
 
-The repo is a pnpm workspace: the published package lives in `packages/cli`, and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
+The repo is a pnpm workspace: the published package lives in `packages/cli`, the engine it is built on (schema, values, dotenv, plan, apply, check and the protected state) in the private `packages/core` (`@configure-env/core`), and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
 
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
@@ -647,7 +647,7 @@ The repo is a pnpm workspace: the published package lives in `packages/cli`, and
 | `pnpm test`            | run the tests with Vitest                                            |
 | `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
-| `pnpm build`           | compile `packages/cli/src/` to `packages/cli/dist/` (JavaScript, declarations and source maps) |
+| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps) |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |
@@ -657,7 +657,7 @@ The global link points at this checkout's `packages/cli/dist/`, so run `pnpm lin
 
 CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package, runs `pnpm smoke` and `npm publish --dry-run`.
 
-`dist/` is built, never committed; `npm pack` and `npm publish` build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/`, `schema/`, this README, the license and the changelog, and no tests or fixtures.
+`dist/` is built, never committed; packing and publishing build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/`, `schema/`, this README, the license and the changelog, and no tests or fixtures. `@configure-env/core` is private and never published: the build inlines it, so the published package depends only on zod and @clack/prompts, and `pnpm smoke` fails if the tarball names a workspace package.
 
 ## Releasing
 

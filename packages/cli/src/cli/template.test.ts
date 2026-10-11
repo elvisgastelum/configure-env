@@ -4,7 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseDotenv, getValue } from '../engine/dotenv.ts';
+import { getValue, parseDotenv } from '@configure-env/core';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
 
 const dirs = useProject({

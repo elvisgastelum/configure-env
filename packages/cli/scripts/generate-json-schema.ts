@@ -4,10 +4,7 @@
 //   pnpm schema:check      exit 1 when the committed file is stale
 
 import { readFile, writeFile } from 'node:fs/promises';
-import {
-  JSON_SCHEMA_PATH,
-  renderJsonSchema,
-} from '../src/schema/json-schema.ts';
+import { JSON_SCHEMA_PATH, renderJsonSchema } from '@configure-env/core';
 
 const target = new URL(`../${JSON_SCHEMA_PATH}`, import.meta.url);
 const content = renderJsonSchema();
