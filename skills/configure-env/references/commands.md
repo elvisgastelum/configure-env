@@ -45,7 +45,7 @@ Every command takes them, except `install`, which takes only `--root`, `--ci`, `
 
 ## Rules between variables
 
-`requiredUnless`, `conflictsWith`, `distinctFrom` hold per file over its own keys, never in templates.
+`requiredUnless`, `conflictsWith`, `distinctFrom`, `within` hold per file over its own keys, never in template files (the loader checks a template's `within` values instead, exit 1 naming both keys). `within` applies only when both values are set and valid: `WEB_ADDRESS: must be within APP_SUBNET`.
 
 - `apply` and `set` refuse to write a file that breaks one, for rules naming a key they write (exit 1, `kind: "value"` with `keys` naming both). `set A_FILE= A=…` swaps an either-or pair in one call.
 - `--generate` of a key whose `conflictsWith` partner the same file would hold (kept, given, from the env or a default) exits 2 before any value is made.

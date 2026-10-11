@@ -28,6 +28,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 - Never pass `--replace-protected` without asking the user; a `protected` exit 2 means restore the value from a backup, not replace it.
 - Ask before `install skill --scope user` (writes under the home folder) or `install skill --force` (replaces the installed folder or link).
 - Mark every credential `"secret": true` in the schema, and give the real env file `"mode": "600"`.
+- Type IP settings as `ipv4`, `ipv6`, `ip` or `cidr`, never a hand-written `pattern`, and tie an address to its subnet with `within` (see `references/schema.md`).
 
 ## Decision Gates
 

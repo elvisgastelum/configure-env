@@ -104,6 +104,7 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `requiredUnless` | name or list | the variable is required unless one of these is set; not with `required: true` |
 | `conflictsWith` | name or list | the variable and one of these must not both be set                          |
 | `distinctFrom` | name or list | when the variable and one of these are both set, their values must differ      |
+| `within`      | name    | on `ipv4`, `ipv6`, `ip` and `cidr`: a `cidr` variable whose network the value must lie inside (see "Networks") |
 | `protected`   | `true` or `{ "reason" }` | once a file holds a value, never replace or remove it silently; needs `secret: true` (see "Protected variables") |
 
 `default` and `example` take the type's JSON type: a number for `number`, `integer` and `port`, a boolean for `boolean`, a string for the rest.
@@ -118,7 +119,10 @@ Every object is strict: an unknown or misspelled key is an error, not ignored. T
 | `email`   | an email address                                                           | none                                                  |
 | `url`     | an absolute URL                                                            | `protocols`, like `["https"]`; any scheme when absent |
 | `host`    | a hostname, or an IPv4 or IPv6 address                                     | none                                                  |
-| `ipv4`    | an IPv4 address                                                            | none                                                  |
+| `ipv4`    | an IPv4 address                                                            | `within`                                              |
+| `ipv6`    | an IPv6 address, without a zone (`%eth0`)                                  | `within`                                              |
+| `ip`      | an IPv4 or IPv6 address                                                    | `within`                                              |
+| `cidr`    | a CIDR block, `address/prefix`, like `10.0.0.0/8` or `fd00::/8`            | `family`, `strict`, `within`                          |
 | `port`    | a whole number from 1 to 65535                                             | none                                                  |
 
 `pattern` is a JavaScript regular expression in Unicode mode; `patternMessage` replaces the default error when a value does not match. An option of another type (say `minLength` on a `port`) is an error.
@@ -157,6 +161,29 @@ The rules hold per file, over that file's own variables: a name the file does no
 ```
 
 `validate` and `check` report them and exit 1, `list` shows them in the `VALID` column, and `apply` and `set` refuse to write a file that would break one (exit 1). In generated files, a `requiredUnless` variable's comment ends with `required unless X is set` (`X or Y` for several).
+
+### Networks
+
+`ipv4` takes four decimal octets, each at most 255, with no leading zero; `ipv6` takes the standard forms (`::1`, `fd00::10`, `::ffff:1.2.3.4`) but no zone; `ip` takes either. `cidr` takes an address and a decimal prefix length, with no sign or leading zero, at most 32 for IPv4 and 128 for IPv6. Its options:
+
+| Option   | Values                     | Meaning                                                                                       |
+| -------- | -------------------------- | --------------------------------------------------------------------------------------------- |
+| `family` | `ipv4`, `ipv6`, `any`      | the family the block must be; default `any`                                                   |
+| `strict` | boolean                    | refuse a block with host bits set, like `10.0.0.1/8`; default `false`                         |
+
+A strict error suggests the network address, `host bits are set; use 10.0.0.0/8`, except for a `secret` variable, whose error says only `use the network address`. `family` and `strict` on another type are schema errors.
+
+`within` ties an address, or a block, to a `cidr` variable's network:
+
+`"APP_SUBNET": {"type": "cidr", "family": "ipv4", "default": "172.30.250.0/24"}, "WEB_ADDRESS": {"type": "ipv4", "default": "172.30.250.10", "within": "APP_SUBNET"}`
+
+The address must lie inside the network; a `cidr` variable's whole block must, so its prefix is at least as long. A different family is never within. `within` names one declared `cidr` variable, never the variable itself; a target whose `family` can never match the variable's is a schema error. Like the other rules, it holds per file and only when both values are set and valid for their types, `validate`, `check` and `list` report it, and `apply` and `set` refuse a file that breaks it (exit 1), naming both keys and never a value:
+
+```text
+.env: WEB_ADDRESS: must be within APP_SUBNET
+```
+
+The loader checks the schema itself too: the variable's `default` and `example` against the target's `default` (`invalid default: WEB_ADDRESS must be within the default of APP_SUBNET`), and, in each template file holding both keys, the values the template writes, its `values` or else the defaults (`files[0].values.WEB_ADDRESS: WEB_ADDRESS must be within APP_SUBNET`). A template value that is not valid for its type is a placeholder and is not checked.
 
 ### Protected variables
 
