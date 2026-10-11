@@ -3,7 +3,7 @@
 // while this package is the one public package and private packages are never
 // tagged, so pin those settings and the documented format together.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const REPO = new URL('../../../', import.meta.url);
@@ -20,9 +20,22 @@ describe('release tags', () => {
   const cli = json('package.json', PACKAGE);
   const tag = `${String(cli.name)}@`;
 
-  it('publishes the cli as the public package', () => {
+  it('publishes the cli as the only public package', () => {
     expect(cli.name).toBe('@elvisgastelum/configure-env');
-    expect(cli.private).toBeUndefined();
+    expect(cli.private).not.toBe(true);
+    for (const group of ['apps', 'packages']) {
+      const dir = new URL(`${group}/`, REPO);
+      if (!existsSync(dir)) continue;
+      for (const name of readdirSync(dir)) {
+        const manifest = new URL(`${name}/package.json`, dir);
+        if (!existsSync(manifest)) continue;
+        const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as {
+          name?: string;
+          private?: boolean;
+        };
+        if (pkg.name !== cli.name) expect(pkg.private, pkg.name).toBe(true);
+      }
+    }
   });
 
   it('never versions or tags private packages', () => {
