@@ -5,8 +5,8 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { REPO_ROOT as REPO } from './cli/test-helpers.ts';
 
-const REPO = new URL('../../../', import.meta.url);
 const PACKAGE = new URL('../', import.meta.url);
 
 function json(path: string, base: URL): Record<string, unknown> {
