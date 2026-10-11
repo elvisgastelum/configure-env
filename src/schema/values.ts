@@ -380,10 +380,12 @@ export function checkRules(
         });
     }
     for (const other of named('within')) {
+      const target = variables[other];
+      if (!target) continue;
       const inside = isWithin(
         spec,
         valueOf(key) ?? '',
-        variables[other]!,
+        target,
         valueOf(other) ?? '',
       );
       if (inside === false)

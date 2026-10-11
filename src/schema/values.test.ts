@@ -734,4 +734,16 @@ describe('checkRules within', () => {
       checkRules(only4, Object.keys(values), (key) => values[key as 'ADDRESS']),
     ).toEqual([]);
   });
+
+  it('skips a target the variables do not declare', () => {
+    const missing = { ADDRESS: spec({ type: 'ip', within: 'NOWHERE' }) };
+    const values = { ADDRESS: '10.0.0.1', NOWHERE: '10.0.0.0/8' };
+    expect(
+      checkRules(
+        missing,
+        Object.keys(values),
+        (key) => values[key as 'ADDRESS'],
+      ),
+    ).toEqual([]);
+  });
 });
