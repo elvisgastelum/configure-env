@@ -3,9 +3,10 @@
 # packed-tarball smoke test, then:
 #
 #   - with changesets in .changeset/, opens or updates a "Version Packages"
-#     pull request that bumps package.json and writes CHANGELOG.md;
+#     pull request that bumps packages/cli/package.json and writes its
+#     CHANGELOG.md;
 #   - with none (that pull request was merged), publishes the version in
-#     package.json to npm with provenance and tags it on GitHub.
+#     packages/cli/package.json to npm with provenance and tags it on GitHub.
 #
 # Needs the NPM_TOKEN repository secret: an npm automation (or granular)
 # token that may publish @elvisgastelum/configure-env. See the README,
@@ -68,6 +69,6 @@ jobs:
           # version branch and opens its pull request with this token.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Only this step sees the npm token. Provenance comes from
-          # publishConfig.provenance in package.json.
+          # publishConfig.provenance in packages/cli/package.json.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
