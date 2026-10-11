@@ -10,7 +10,8 @@
 
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The package npm packs (packages/cli), not the repository root.
+package_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/configure-env-smoke.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
@@ -51,14 +52,14 @@ expect() {
 }
 
 echo "== pack"
-(cd "$repo" && npm pack --silent --pack-destination "$work" >"$work/pack.txt")
+(cd "$package_dir" && npm pack --silent --pack-destination "$work" >"$work/pack.txt")
 tarball="$work/$(tail -n 1 "$work/pack.txt")"
-if [ -e "$repo/README.md" ] || [ -e "$repo/LICENSE" ]; then
+if [ -e "$package_dir/README.md" ] || [ -e "$package_dir/LICENSE" ]; then
   fail 'postpack removed the README and LICENSE copies'
 else
   pass 'postpack removed the README and LICENSE copies'
 fi
-version="$(node -p "require('$repo/package.json').version")"
+version="$(node -p "require('$package_dir/package.json').version")"
 
 contents="$(tar -tzf "$tarball")"
 out="$contents"
@@ -156,12 +157,12 @@ cat >tsconfig.json <<JSON
     "strict": true,
     "noEmit": true,
     "types": ["node"],
-    "typeRoots": ["$repo/node_modules/@types"]
+    "typeRoots": ["$package_dir/node_modules/@types"]
   },
   "files": ["check-types.ts"]
 }
 JSON
-run 0 'the published types check' "$repo/node_modules/.bin/tsc" -p .
+run 0 'the published types check' "$package_dir/node_modules/.bin/tsc" -p .
 
 echo
 if ((failures)); then
