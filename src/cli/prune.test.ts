@@ -224,6 +224,7 @@ describe('apply --prune', () => {
 
 describe('apply --prune and an unusable state', () => {
   const KEPT = 'fingerprints of pruned keys were kept';
+  const UNREAD = `${STATE}: cannot be read (is not valid JSON); fingerprints of pruned keys, if any, were kept`;
   const corrupt = async () => {
     await mkdir(path('.configure-env'), { recursive: true });
     await writeFile(path(STATE), 'not json');
@@ -233,7 +234,7 @@ describe('apply --prune and an unusable state', () => {
     await cli(['apply', '--ci']);
     await corrupt();
     await useSchema(without('API_TOKEN', 'DEBUG'));
-    const warning = `${STATE}: cannot be read (is not valid JSON); ${KEPT}`;
+    const warning = UNREAD;
     const r = await cli(['apply', '--ci', '--prune', '--file', '.env']);
     expect(r).toMatchObject({
       code: 0,
@@ -253,6 +254,47 @@ describe('apply --prune and an unusable state', () => {
     );
     expect(document).toMatchObject({ ok: true, warnings: [warning] });
     expect(await read(STATE)).toBe('not json');
+  });
+
+  it('warns about nothing when the run prunes nothing', async () => {
+    await useSchema(without('API_TOKEN'));
+    await cli(['apply', '--ci']);
+    await corrupt();
+    const r = await cli(['apply', '--ci', '--prune']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(
+      json(await cli(['apply', '--ci', '--json', '--prune'])),
+    ).not.toHaveProperty('warnings');
+  });
+
+  it('warns in the terminal', async () => {
+    await cli(['apply', '--ci']);
+    await corrupt();
+    await useSchema(without('API_TOKEN', 'DEBUG'));
+    const { prompts, logs } = scriptedPrompts();
+    const r = await cli(['apply', '--prune'], { isTTY: true, prompts });
+    expect(r.code).toBe(0);
+    expect(logs).toContain(`warn: ${UNREAD}`);
+    expect(await read('.env')).toBe('# HTTP port\nPORT=3000\nLEVEL=info\n');
+  });
+
+  it('writes the env files when the state write fails, keeping the fingerprint', async () => {
+    await cli(['apply', '--ci', '--set', `API_TOKEN=${TOKEN}`]);
+    await useSchema(without('API_TOKEN'));
+    const r = await cli(['apply', '--ci', '--prune', '--file', '.env'], {
+      writeState: async () => {
+        throw new Error('disk full');
+      },
+    });
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['.env: pruned keys: API_TOKEN'],
+      err: [
+        `configure-env: warning: ${STATE}: not written (disk full); ${KEPT}`,
+      ],
+    });
+    expect(await read('.env')).not.toContain('API_TOKEN');
+    expect(Object.keys(await fingerprints())).toEqual(['.env']);
   });
 
   it('keeps failing when the schema protects a variable', async () => {

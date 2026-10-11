@@ -138,24 +138,31 @@ export async function loadRunState(
   return { path: context.statePath, state };
 }
 
-/** The warning of a state a best-effort run could not use. */
+/**
+ * The warning of a state a best-effort run could not use. `known`: the run
+ * knows pruned keys had fingerprints; a state it could not read cannot tell.
+ */
 const keptWarning = (
   { io }: Context,
   path: string,
   verb: string,
   message: string,
+  known = true,
 ) => {
   const shown = displayPath(io.cwd, path);
   const reason = message.startsWith(`${path}: `)
     ? message.slice(path.length + 2)
     : message;
-  return `${shown}: ${verb} (${reason}); fingerprints of pruned keys were kept`;
+  const kept = known
+    ? 'fingerprints of pruned keys were kept'
+    : 'fingerprints of pruned keys, if any, were kept';
+  return `${shown}: ${verb} (${reason}); ${kept}`;
 };
 
 /**
  * The state of a run that reads it only to forget the fingerprints of pruned
  * keys, when the schema protects nothing: a state that cannot be read is a
- * warning, and the run goes on without it.
+ * warning, for a run that prunes a key, and the run goes on without it.
  */
 export async function loadForgetState(
   context: Context,
@@ -168,6 +175,7 @@ export async function loadForgetState(
         context.statePath,
         'cannot be read',
         result.message,
+        false,
       ),
     };
   return { run: { path: context.statePath, state: result.state } };

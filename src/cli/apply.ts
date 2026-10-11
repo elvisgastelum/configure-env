@@ -121,7 +121,6 @@ async function applyWith(
     replace: replaceKeys(schema, options['replace-protected']),
     prune,
     bestEffort: prune && !protectsAny(schema),
-    warnings: [],
   };
   if (context.ci || context.json) {
     checkGenerated(schema, context.files, generated);
@@ -137,14 +136,14 @@ async function applyWith(
  * The protected variables' state of a run, its --replace-protected keys and
  * whether it prunes (--prune). `bestEffort`: the schema protects nothing, so
  * the state is read only to forget pruned keys' fingerprints, and a state
- * the run cannot use is one of the `warnings`.
+ * it cannot read is `unread`, a warning when the run prunes a key.
  */
 interface Guard {
   run: RunState | undefined;
   replace: ReadonlySet<string>;
   prune: boolean;
   bestEffort: boolean;
-  warnings: string[];
+  unread?: string;
 }
 
 /** Reads the run's state into the guard (see Guard). */
@@ -159,7 +158,7 @@ async function loadGuardState(
   }
   const { run, warning } = await loadForgetState(context);
   guard.run = run;
-  if (warning) guard.warnings.push(warning);
+  if (warning) guard.unread = warning;
 }
 
 /**
@@ -252,11 +251,24 @@ function writeRun(
   );
 }
 
-/** The warnings of a run: reading its state, then writing it. */
-const warningsOf = (guard: Guard, written: { warning?: string }) => [
-  ...guard.warnings,
-  ...(written.warning ? [written.warning] : []),
-];
+/**
+ * The warnings of a run: a state it could not read, when it pruned a key in
+ * a file it wrote, then one it could not write.
+ */
+const warningsOf = (
+  guard: Guard,
+  plan: Plan,
+  results: readonly ApplyResult[],
+  written: { warning?: string },
+) => {
+  const pruned = plan.files.some(
+    (file, i) => file.prunedKeys?.length && results[i]?.written,
+  );
+  return [
+    ...(guard.unread && pruned ? [guard.unread] : []),
+    ...(written.warning ? [written.warning] : []),
+  ];
+};
 
 const replacedLines = (replaced: readonly Replaced[]) =>
   replaced.map(({ file, key }) => `${file}: replaced protected ${key}`);
@@ -543,7 +555,7 @@ async function applyUnattended(
     return error.code;
   }
   const { value: results, replaced, stateError } = written;
-  const warnings = warningsOf(guard, written);
+  const warnings = warningsOf(guard, plan, results, written);
   // A file left with a looser mode than the schema's still drifts.
   const loosened = loosenedErrors(plan);
   const ok =
@@ -836,7 +848,9 @@ async function applyInteractive(
     plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
   );
   if (stateError) prompts.log.error(stateError.join('\n'));
-  warningsOf(guard, written).forEach((line) => prompts.log.warn(line));
+  warningsOf(guard, plan, results, written).forEach((line) =>
+    prompts.log.warn(line),
+  );
   const failed = results.filter((result) => !result.ok);
   if (failed.length) {
     progress.error(`${failed.length} of ${results.length} files failed`);
