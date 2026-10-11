@@ -4,8 +4,7 @@
 
 import { isIPv4 } from 'node:net';
 import { z } from 'zod';
-import { parseDotenv } from '../engine/dotenv.ts';
-import type { VariableType } from '../schema/definition.ts';
+import { type VariableType, parseDotenv } from '@configure-env/core';
 
 /** A variable as `init` writes it into the schema. */
 export interface InferredVariable {

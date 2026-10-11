@@ -1,16 +1,20 @@
 // `configure-env apply`: writes the env files, in the TUI or unattended.
 
-import { type ApplyResult, applyPlan } from '../engine/apply.ts';
-import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import {
+  type ApplyResult,
+  type EnvSchema,
   type FilePlan,
   type Plan,
   type PlanError,
+  type VariableSpec,
+  applyPlan,
+  fileRules,
+  getValue,
+  maskValue,
+  parseDotenv,
   planChanges,
-} from '../engine/plan.ts';
-import { fileRules } from '../engine/check.ts';
-import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
-import { maskValue, validateValue } from '../schema/values.ts';
+  validateValue,
+} from '@configure-env/core';
 import {
   CliError,
   displayPath,

@@ -1,17 +1,7 @@
 {
-  // Emits dist/ for npm: the sources compiled one module per file, with
-  // declarations and source maps. tsconfig.json stays the no-emit checker.
+  // What tsdown builds dist/ from, declarations included: the sources, never
+  // the tests. tsconfig.json stays the checker.
   "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "noEmit": false,
-    "rootDir": "src",
-    "outDir": "dist",
-    "declaration": true,
-    "sourceMap": true,
-    "inlineSources": true,
-    // Imports name the .ts files; the emitted ones import .js.
-    "rewriteRelativeImportExtensions": true
-  },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/test-helpers.ts", "src/fixtures"]
+  "exclude": ["src/**/*.test.ts", "src/**/test-helpers.ts"]
 }

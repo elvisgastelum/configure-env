@@ -1,6 +1,6 @@
 // The programmatic API: load a schema, plan and apply its files, check them
 // for drift, edit dotenv text, and read or write the protected variables'
-// state. The CLI is built on the same functions.
+// state. The CLI is built on the same functions, from @configure-env/core.
 // See the README, "Programmatic API".
 
 export {
@@ -8,8 +8,8 @@ export {
   loadSchema,
   parseSchema,
   parseSchemaText,
-} from './schema/load.ts';
-export type { SchemaError, SchemaResult } from './schema/load.ts';
+} from '@configure-env/core';
+export type { SchemaError, SchemaResult } from '@configure-env/core';
 
 export {
   ENCODINGS,
@@ -22,7 +22,7 @@ export {
   envSchema,
   isTemplate,
   protectedReason,
-} from './schema/definition.ts';
+} from '@configure-env/core';
 export type {
   Encoding,
   EnvSchema,
@@ -31,7 +31,7 @@ export type {
   RuleField,
   VariableSpec,
   VariableType,
-} from './schema/definition.ts';
+} from '@configure-env/core';
 
 export {
   checkRules,
@@ -40,14 +40,14 @@ export {
   ruleKeys,
   unquoteValue,
   validateValue,
-} from './schema/values.ts';
+} from '@configure-env/core';
 export type {
   RuleProblem,
   ValueResult,
   VariableValue,
-} from './schema/values.ts';
+} from '@configure-env/core';
 
-export { planChanges, validateValues } from './engine/plan.ts';
+export { planChanges, validateValues } from '@configure-env/core';
 export type {
   FileAction,
   FilePlan,
@@ -55,12 +55,16 @@ export type {
   PlanError,
   PlanOptions,
   ValueError,
-} from './engine/plan.ts';
+} from '@configure-env/core';
 
-export { applyPlan } from './engine/apply.ts';
-export type { ApplyFs, ApplyOptions, ApplyResult } from './engine/apply.ts';
+export { applyPlan } from '@configure-env/core';
+export type { ApplyFs, ApplyOptions, ApplyResult } from '@configure-env/core';
 
-export { checkDrift, fileRules, protectedMismatches } from './engine/check.ts';
+export {
+  checkDrift,
+  fileRules,
+  protectedMismatches,
+} from '@configure-env/core';
 export type {
   CheckOptions,
   DriftReport,
@@ -68,7 +72,7 @@ export type {
   FileDrift,
   InvalidValue,
   ProtectedMismatch,
-} from './engine/check.ts';
+} from '@configure-env/core';
 
 export {
   DEFAULT_STATE_PATH,
@@ -82,13 +86,13 @@ export {
   removeFingerprint,
   updateState,
   writeState,
-} from './engine/state.ts';
+} from '@configure-env/core';
 export type {
   Fingerprint,
   State,
   StateChange,
   StateResult,
-} from './engine/state.ts';
+} from '@configure-env/core';
 
 export {
   appendLines,
@@ -100,13 +104,13 @@ export {
   removeKey,
   serialize,
   setValue,
-} from './engine/dotenv.ts';
+} from '@configure-env/core';
 export type {
   DotenvDocument,
   DotenvLine,
   Eol,
   LineKind,
-} from './engine/dotenv.ts';
+} from '@configure-env/core';
 
 export { main } from './cli/main.ts';
 export type { Io, Prompts } from './cli/io.ts';

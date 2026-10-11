@@ -2,14 +2,14 @@
 // value never passes through argv, a prompt or whoever runs the command.
 
 import { randomBytes } from 'node:crypto';
-import { fileKeys } from '../engine/plan.ts';
 import {
   type EnvSchema,
   type FileSpec,
   type VariableSpec,
+  fileKeys,
   ruleNames,
-} from '../schema/definition.ts';
-import { validateValue } from '../schema/values.ts';
+  validateValue,
+} from '@configure-env/core';
 import { keyError } from './common.ts';
 
 /** The length of a generated value, unless minLength or maxLength says otherwise. */

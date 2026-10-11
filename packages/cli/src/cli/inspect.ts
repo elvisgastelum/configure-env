@@ -3,24 +3,21 @@
 
 import {
   type DotenvDocument,
-  getValue,
-  invalidLineNumbers,
-  keysOf,
-} from '../engine/dotenv.ts';
-import { fileRules, protectedMismatches } from '../engine/check.ts';
-import type { State } from '../engine/state.ts';
-import { fileKeys } from '../engine/plan.ts';
-import {
   type EnvSchema,
   type FileSpec,
-  isTemplate,
-} from '../schema/definition.ts';
-import {
   type RuleProblem,
+  type State,
+  fileKeys,
+  fileRules,
+  getValue,
+  invalidLineNumbers,
+  isTemplate,
+  keysOf,
+  protectedMismatches,
   ruleKeys,
   unquoteValue,
   validateValue,
-} from '../schema/values.ts';
+} from '@configure-env/core';
 import {
   type Context,
   contextOf,

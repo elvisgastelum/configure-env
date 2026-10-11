@@ -11,6 +11,12 @@ export function isInside(root: string, path: string): boolean {
   return !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
 }
 
+/** A path for messages: relative to `cwd` when inside it, else absolute. */
+export function displayPath(cwd: string, path: string): string {
+  const rel = relative(cwd, path);
+  return !rel || rel.startsWith('..') || isAbsolute(rel) ? path : rel;
+}
+
 export type Target =
   | { ok: true; absolute: string; exists: boolean; mode?: number }
   | { ok: false; message: string };

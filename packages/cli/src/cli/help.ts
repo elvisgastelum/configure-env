@@ -2,13 +2,14 @@
 
 import { readFileSync } from 'node:fs';
 import { GENERATED_LENGTH, MIN_GENERATED_LENGTH } from './generate.ts';
+import { PACKAGE_ROOT } from './package-root.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './stdin.ts';
 
 /** The package version, from package.json. */
 export const VERSION: string = (
-  JSON.parse(
-    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
-  ) as { version: string }
+  JSON.parse(readFileSync(new URL('package.json', PACKAGE_ROOT), 'utf8')) as {
+    version: string;
+  }
 ).version;
 
 const GLOBAL = `Global options:

@@ -2,29 +2,20 @@
 // place, keeping every other byte, or print one.
 
 import {
-  getValue,
-  parseDotenv,
-  removeEntry,
-  setValue,
-  appendLines,
-  serialize,
-} from '../engine/dotenv.ts';
-import { fileRules } from '../engine/check.ts';
-import { commentLines, entryComment, groupChanges } from '../engine/plan.ts';
-import {
-  VARIABLE_NAME,
-  isTemplate,
+  type EditContext,
+  type EditFailure,
+  type EnvFile,
   type EnvSchema,
   type FileSpec,
-  type VariableSpec,
-} from '../schema/definition.ts';
-import {
-  formatValue,
+  type RunState,
+  VARIABLE_NAME,
+  getValue,
+  isTemplate,
   maskValue,
-  ruleKeys,
-  unquoteValue,
-  validateValue,
-} from '../schema/values.ts';
+  parsePairs,
+  setValues,
+  unsetValues,
+} from '@configure-env/core';
 import { ask } from './apply.ts';
 import {
   CliError,
@@ -41,24 +32,18 @@ import { checkConflict, generateKeys, generateValue } from './generate.ts';
 import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
-  type ProtectedProblem,
-  type RunState,
-  checksOf,
   confirmReplacements,
   loadRunState,
-  protectVerdict,
   protectedError,
   replaceKeys,
-  writeProtected,
+  stateError,
 } from './protect.ts';
 import {
-  type EnvFile,
   UNKNOWN_SPEC,
   chooseFile,
   jsonValue,
   readEnvFile,
   variablesOf,
-  writeEnvFile,
 } from './target.ts';
 
 const CANCELLED = 130;
@@ -68,71 +53,64 @@ function cancelled(context: { prompts: { cancel(message?: string): void } }) {
   return CANCELLED;
 }
 
+/** The core's view of a run: the schema, the state it read, and its io. */
+const editContext = (
+  context: Context,
+  schema: EnvSchema,
+  run: RunState | undefined,
+): EditContext => ({
+  schema,
+  run,
+  cwd: context.io.cwd,
+  writeState: context.io.writeState,
+});
+
 /**
- * Writes the file and records the protected values it holds; under the
- * state's lock when the run has anything to settle with it, so the state
- * never learns a value that was not written. `allowed` are the keys
- * --replace-protected may replace: all of them unattended, else those
- * confirmed. A lock it cannot get writes nothing and exits 1, with --json
- * as the command's document. A state write that fails after the file is
- * returned as `stateError`.
+ * Asks a person to confirm the replacements; unattended (--ci or --json)
+ * there is no question, and every --replace-protected key may be replaced.
  */
-async function writeAndRecord(
+const confirmOf = (context: Context) =>
+  context.ci || context.json
+    ? undefined
+    : (keys: string[]) => confirmReplacements(context, keys);
+
+/**
+ * An edit that wrote nothing, as the CLI reports it: a cancel exits 130, a
+ * protected refusal 2, anything else 1. A lock or state it could not get is
+ * printed as the command's document with --json.
+ */
+function failed(
   context: Context,
   command: string,
-  schema: EnvSchema,
-  file: EnvFile,
-  run: RunState | undefined,
-  allowed: ReadonlySet<string>,
-  write: boolean,
-): Promise<number | { replaced: Set<string>; stateError?: string[] }> {
-  const { spec, doc } = file;
-  const before = parseDotenv(file.previous ?? '');
-  try {
-    const result = await writeProtected(
-      context,
-      schema,
-      run,
-      {
-        checks: checksOf(
-          schema,
-          spec,
-          (key) => getValue(before, key),
-          (key) => getValue(doc, key),
-        ),
-        files: [{ spec, valueOf: (key) => getValue(doc, key) }],
-        replace: allowed,
-        hints: [`nothing was written to ${spec.path}`],
-      },
-      async () => {
-        if (write) await writeEnvFile(file, serialize(doc));
-        return {
-          value: undefined,
-          done: [spec.path],
-          written: write ? [spec.path] : [],
-        };
-      },
-    );
-    return {
-      replaced: new Set(result.replaced.map((entry) => entry.key)),
-      ...(result.stateError ? { stateError: result.stateError } : {}),
-    };
-  } catch (error) {
-    const errors = error instanceof CliError ? error.errors : undefined;
-    if (!context.json || errors?.[0]?.kind !== 'file') throw error;
-    context.io.stdout(
-      JSON.stringify({ command, ok: false, file: spec.path, keys: [], errors }),
-    );
-    return (error as CliError).code;
+  file: string,
+  failure: EditFailure,
+): number {
+  const hint = `nothing was written to ${file}`;
+  switch (failure.kind) {
+    case 'cancelled':
+      return cancelled(context);
+    case 'invalid':
+      throw new CliError(1, [...failure.messages, hint]);
+    case 'protected':
+      throw protectedError(failure.problems, hint);
+    case 'write':
+      throw new CliError(1, [failure.message]);
+    case 'state': {
+      const error = stateError(failure.path, failure.lines);
+      if (!context.json) throw error;
+      context.io.stdout(
+        JSON.stringify({
+          command,
+          ok: false,
+          file,
+          keys: [],
+          errors: error.errors,
+        }),
+      );
+      return error.code;
+    }
   }
 }
-
-/** The keys --replace-protected may replace: all unattended, else those confirmed. */
-const allowedKeys = (
-  context: Context,
-  replace: ReadonlySet<string>,
-  confirmed: ReadonlySet<string>,
-) => (context.ci || context.json ? replace : confirmed);
 
 /**
  * The end of a set or unset run: with --json, its document, `ok` false and
@@ -214,35 +192,6 @@ const SET_OPTIONS = {
   'replace-protected': { type: 'string', multiple: true },
 } as const;
 
-type SetStatus = 'updated' | 'added' | 'unchanged';
-
-/** `KEY=VALUE` pairs in order; a later pair for a key replaces an earlier one. */
-function parsePairs(positionals: readonly string[]): Map<string, string> {
-  const pairs = new Map<string, string>();
-  for (const pair of positionals) {
-    const at = pair.indexOf('=');
-    if (at < 1) throw usageError(`set takes KEY=VALUE, got ${pair}`);
-    const key = pair.slice(0, at);
-    checkName(key);
-    pairs.delete(key);
-    pairs.set(key, pair.slice(at + 1));
-  }
-  return pairs;
-}
-
-/** The comment lines above a new key, as the engine writes them. */
-function newEntryLines(
-  schema: EnvSchema,
-  file: FileSpec,
-  key: string,
-  written: string,
-): string[] {
-  const comment = variablesOf(schema, file).has(key)
-    ? entryComment(schema, file, key)
-    : undefined;
-  return [...(comment ? commentLines(comment) : []), `${key}=${written}`];
-}
-
 /**
  * What the stdin reader returns. A failure of its own (EIO, say) exits 1
  * with its reason, which never holds the input.
@@ -266,19 +215,15 @@ function checkExists(file: EnvFile, create: boolean) {
     ]);
 }
 
-/** Appends a key: after a blank line when it has a comment and follows lines. */
-function appendKey(file: EnvFile, lines: string[]) {
-  const separate = lines.length > 1 && file.doc.lines.length > 0;
-  appendLines(file.doc, separate ? ['', ...lines] : lines);
-}
-
 export async function setCommand(args: string[], io: Io): Promise<number> {
   const { values: options, positionals } = parseCommandArgs(args, SET_OPTIONS);
   if (options.help) {
     io.stdout(SET_HELP);
     return 0;
   }
-  const pairs = parsePairs(positionals);
+  const parsed = parsePairs(positionals);
+  if (!parsed.ok) throw usageError(parsed.message);
+  const { pairs } = parsed;
   const promptKeys = (options.prompt ?? []).filter((key) => !pairs.has(key));
   promptKeys.forEach(checkName);
   if ((options.stdin?.length ?? 0) > 1)
@@ -402,112 +347,21 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     pairs.set(key, generateValue(key, specFor(schema, spec, key)!));
   }
 
-  // Validate everything before touching the file: one bad value writes nothing.
-  const written = new Map<
-    string,
-    { spec: VariableSpec; text: string; plain: string }
-  >();
-  const errors: string[] = [];
-  for (const [key, raw] of pairs) {
-    const variable = specFor(schema, spec, key);
-    if (variable && kept.has(key)) {
-      // A kept value is checked like any other, and never shown: it may be
-      // the secret the file already holds.
-      const result = validateValue(variable, raw);
-      if (!result.ok) {
-        errors.push(`${key}: ${result.error}; unset it to generate a new one`);
-        continue;
-      }
-      // `raw` is the value the file holds: equal to it, the entry reports
-      // unchanged and its line is never rewritten, so no formatting applies.
-      written.set(key, { spec: variable, text: raw, plain: raw });
-      continue;
-    }
-    if (!variable) {
-      const text = formatValue(UNKNOWN_SPEC, raw);
-      written.set(key, { spec: UNKNOWN_SPEC, text, plain: raw });
-      continue;
-    }
-    const result = validateValue(variable, raw);
-    if (!result.ok) {
-      errors.push(`${key}: ${result.error}`);
-      continue;
-    }
-    const text = formatValue(variable, result.value);
-    written.set(key, { spec: variable, text, plain: unquoteValue(text) });
-  }
-  if (errors.length)
-    throw new CliError(1, [...errors, `nothing was written to ${spec.path}`]);
-
-  if (!file.exists && spec.header)
-    appendLines(file.doc, [...commentLines(spec.header), '']);
-  const report: {
-    key: string;
-    status: SetStatus;
-    spec: VariableSpec;
-    plain: string;
-  }[] = [];
-  const refused: ProtectedProblem[] = [];
-  const replaced = new Set<string>();
-  for (const [key, { spec: variable, text, plain }] of written) {
-    const current = getValue(file.doc, key);
-    const verdict = protectVerdict(
-      schema,
-      run?.state,
-      spec,
-      key,
-      current,
-      plain,
-      replace,
-    );
-    if (verdict.action === 'refuse') {
-      refused.push(verdict.problem);
-      continue;
-    }
-    if (verdict.action === 'replace') replaced.add(key);
-    let status: SetStatus;
-    if (current === undefined) {
-      appendKey(file, newEntryLines(schema, spec, key, text));
-      status = 'added';
-    } else if (current === plain) status = 'unchanged';
-    else {
-      setValue(file.doc, key, text);
-      status = 'updated';
-    }
-    // A piped value is masked even for a key not marked secret: it came
-    // from a secret manager, and the output may land in an agent's log.
-    const shown = key === stdinKey ? { ...variable, secret: true } : variable;
-    report.push({ key, status, spec: shown, plain });
-  }
-  if (refused.length)
-    throw protectedError(refused, `nothing was written to ${spec.path}`);
-  // The rules between variables, over the values the file would hold: one
-  // that names a key this run sets and breaks writes nothing.
-  const broken = fileRules(schema, spec, file.doc).filter((problem) =>
-    [problem.key, ...problem.others].some((key) => written.has(key)),
-  );
-  if (broken.length)
-    throw new CliError(1, [
-      ...broken.map(
-        (problem) => `${ruleKeys(problem).join(', ')}: ${problem.message}`,
-      ),
-      `nothing was written to ${spec.path}`,
-    ]);
-  if (!(await confirmReplacements(context, [...replaced])))
-    return cancelled(context);
-  const outcome = await writeAndRecord(
-    context,
-    'set',
-    schema,
+  const result = await setValues(
+    editContext(context, schema, run),
     file,
-    run,
-    allowedKeys(context, replace, replaced),
-    report.some((entry) => entry.status !== 'unchanged'),
+    pairs,
+    { replace, kept, confirm: confirmOf(context) },
   );
-  if (typeof outcome === 'number') return outcome;
-  const { stateError } = outcome;
-  replaced.clear();
-  outcome.replaced.forEach((key) => replaced.add(key));
+  if (!result.ok) return failed(context, 'set', spec.path, result);
+  const replaced = new Set(result.replaced);
+  // A piped value is masked even for a key not marked secret: it came
+  // from a secret manager, and the output may land in an agent's log.
+  const report = result.keys.map((entry) =>
+    entry.key === stdinKey
+      ? { ...entry, spec: { ...entry.spec, secret: true } }
+      : entry,
+  );
 
   return finish(
     context,
@@ -528,7 +382,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ),
       ...replacedLines(replaced),
     ],
-    stateError,
+    result.stateError,
   );
 }
 
@@ -602,69 +456,28 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
   const replace = replaceKeys(schema, options['replace-protected']);
   const run = await loadRunState(context, schema);
   const file = await readEnvFile(context, spec);
-  const keys = new Set(positionals);
-  // Every protected key is checked before any is removed.
-  const refused: ProtectedProblem[] = [];
-  const replaced = new Set<string>();
-  for (const key of keys) {
-    const current = getValue(file.doc, key);
-    if (current === undefined) continue;
-    const verdict = protectVerdict(
-      schema,
-      run?.state,
-      spec,
-      key,
-      current,
-      undefined,
-      replace,
-    );
-    if (verdict.action === 'refuse') refused.push(verdict.problem);
-    if (verdict.action === 'replace') replaced.add(key);
-  }
-  if (refused.length)
-    throw protectedError(refused, `nothing was written to ${spec.path}`);
-  if (!(await confirmReplacements(context, [...replaced])))
-    return cancelled(context);
-
-  const report: { key: string; status: 'removed' | 'absent' }[] = [];
-  for (const key of keys) {
-    const known = specFor(schema, spec, key) !== undefined;
-    const comment = known ? entryComment(schema, spec, key) : undefined;
-    const removed = removeEntry(
-      file.doc,
-      key,
-      comment ? commentLines(comment) : [],
-      groupChanges(schema),
-    );
-    report.push({ key, status: removed ? 'removed' : 'absent' });
-  }
-  const outcome = await writeAndRecord(
-    context,
-    'unset',
-    schema,
+  const result = await unsetValues(
+    editContext(context, schema, run),
     file,
-    run,
-    allowedKeys(context, replace, replaced),
-    report.some((entry) => entry.status === 'removed'),
+    positionals,
+    { replace, confirm: confirmOf(context) },
   );
-  if (typeof outcome === 'number') return outcome;
-  const { stateError } = outcome;
-  replaced.clear();
-  outcome.replaced.forEach((key) => replaced.add(key));
+  if (!result.ok) return failed(context, 'unset', spec.path, result);
+  const replaced = new Set(result.replaced);
 
   return finish(
     context,
     {
       command: 'unset',
       file: spec.path,
-      keys: report.map((entry) =>
+      keys: result.keys.map((entry) =>
         replaced.has(entry.key) ? { ...entry, replaced: true } : entry,
       ),
     },
     [
-      ...report.map(({ key, status }) => `${key}: ${status}`),
+      ...result.keys.map(({ key, status }) => `${key}: ${status}`),
       ...replacedLines(replaced),
     ],
-    stateError,
+    result.stateError,
   );
 }

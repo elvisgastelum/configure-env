@@ -1,9 +1,13 @@
 // How plans, results and drift read, as plain lines and as JSON.
 
-import type { ApplyResult } from '../engine/apply.ts';
-import type { FileDrift } from '../engine/check.ts';
-import { type FilePlan, formatMode, loosens } from '../engine/plan.ts';
-import { ruleKeys } from '../schema/values.ts';
+import {
+  type ApplyResult,
+  type FileDrift,
+  type FilePlan,
+  formatMode,
+  loosens,
+  ruleKeys,
+} from '@configure-env/core';
 import { protectedLine } from './protect.ts';
 
 /** `644 → 600`: the file's mode before and after the run. */

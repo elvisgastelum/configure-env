@@ -13,8 +13,9 @@ import { useTempRoot } from './test-helpers.ts';
 
 const temp = useTempRoot();
 
+// The example lives with the CLI, which documents it.
 const SCHEMA_PATH = fileURLToPath(
-  new URL('../../examples/portfolio.env.schema.json', import.meta.url),
+  new URL('../../../cli/examples/portfolio.env.schema.json', import.meta.url),
 );
 const PRODUCTION = 'deploy/.env.production.example';
 const EXAMPLE = '.env.example';
