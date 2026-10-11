@@ -1,0 +1,126 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, CopyCode, DocTable } from '../docs';
+
+<Meta title="Design System/Introduction" />
+
+# Design system
+
+The visual language of the configure-env portal, copied from elvisgastelum.com and named and documented in one place. Every token on these pages is read from the typed catalog in `src/tokens.ts`, and every sample renders with the package's own CSS, so what you see here is what ships.
+
+## Principles
+
+<DocTable
+  minWidth="32rem"
+  headers={['Principle', 'What it means in practice']}
+  rows={[
+    [
+      'One indigo brand',
+      'A deep indigo (hue 268) carries buttons, links, eyebrows and glows. `primary` is an alias of `brand`.',
+    ],
+    [
+      'Neutrals that lean to the brand',
+      'Every grey is an oklch color with a little chroma at hue 268, so surfaces feel of a piece with the brand.',
+    ],
+    [
+      'Accessible contrast',
+      'Text pairs keep WCAG AA (4.5:1 or more) in both themes; focus is always visible.',
+    ],
+    [
+      'Motion that never holds the reader back',
+      'Short durations (0.4 to 0.8s), one ease-out curve, transform and opacity only. Content is never hidden waiting on an animation.',
+    ],
+    [
+      'Reduced motion respected',
+      'With the OS setting on, reveals render in place, scroll effects stay still and CSS transitions turn off.',
+    ],
+  ]}
+/>
+
+## Use it in code
+
+Tokens are CSS custom properties and Tailwind utilities; recipes are class strings you pass to `className`.
+
+<DocTable
+  minWidth="36rem"
+  headers={['You need', 'Import or class']}
+  rows={[
+    [
+      'Shared class recipes (`TYPE`, `CTA_GLOW`, `FOCUS_RING`, `CONTAINER`, …)',
+      <CopyCode>
+        {
+          "import { TYPE, FOCUS_RING } from '@configure-env/design-system/recipes';"
+        }
+      </CopyCode>,
+    ],
+    [
+      'The token catalog (for docs and tooling)',
+      <CopyCode>
+        {"import { COLOR_GROUPS } from '@configure-env/design-system/tokens';"}
+      </CopyCode>,
+    ],
+    [
+      'Motion tokens in components',
+      <CopyCode>
+        {
+          "import { DURATION, EASE_OUT } from '@configure-env/design-system/motion/tokens';"
+        }
+      </CopyCode>,
+    ],
+    ['A color', <CopyCode>bg-primary text-primary-foreground</CopyCode>],
+    [
+      'A color in custom CSS',
+      <CopyCode>{'color: var(--muted-foreground);'}</CopyCode>,
+    ],
+  ]}
+/>
+
+<Callout title="Tailwind sees source text">
+  Recipes are plain string literals so Tailwind's scanner finds every class.
+  Never assemble a class name from pieces at runtime; combine whole recipes with
+  `cn()`.
+</Callout>
+
+## Theme and language
+
+Use the toolbar above the canvas:
+
+- **Theme** (contrast icon): System, Light or Dark. It sets the class on the preview's `<html>`, exactly as the site's theme toggle does, and repaints these docs pages too.
+- **Language** (globe icon): Español (MX) or English (US), for components with translated text.
+
+The theme variables live on the root element only, so a page cannot show both themes at once with live colors. The Colors page shows both themes from the literal values instead; every other sample follows the toolbar.
+
+## Pages
+
+<DocTable
+  minWidth="32rem"
+  headers={['Page', 'What it covers']}
+  rows={[
+    [
+      'Colors',
+      'Every theme color, light and dark side by side, and the opacity modifiers in use.',
+    ],
+    [
+      'Typography',
+      'The font, sizes, weights, tracking and the `TYPE` text recipes.',
+    ],
+    [
+      'Spacing & Layout',
+      'The named spacing, layout widths and the container and section recipes.',
+    ],
+    ['Radius', 'The radius scale derived from `--radius`.'],
+    [
+      'Borders & Rings',
+      'Border widths and tints, rings, the focus ring and the card outline.',
+    ],
+    [
+      'Shadows & Elevation',
+      'The shadow scale, brand-tinted shadows, the CTA glow and the stacking layers.',
+    ],
+    ['Effects', 'Blurs, radial glows and the page glow.'],
+    [
+      'Motion',
+      'Easing, durations, springs, keyframes, view transitions and live demos of every primitive.',
+    ],
+  ]}
+/>

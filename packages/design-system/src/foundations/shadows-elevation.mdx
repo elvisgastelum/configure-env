@@ -1,0 +1,43 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, CopyCode, ShadowGrid, ZIndexStack } from '../docs';
+import { CTA_GLOW, ctaClassName } from '../recipes';
+import { SHADOWS, Z_INDEX } from '../tokens';
+
+<Meta title="Design System/Shadows & Elevation" />
+
+# Shadows & Elevation
+
+Shadows are soft and used sparingly: Tailwind's scale for lift, a brand tint (`shadow-primary/…`) for anything that belongs to the brand, and two named shadows for one-off highlights.
+
+<Callout>
+  Samples follow the Theme switch in the toolbar. Brand tints (`primary/…`) are
+  shown on `shadow-lg`, and the header hairline on `shadow-sm`, because a tint
+  needs a shadow to color.
+</Callout>
+
+## Shadow scale
+
+<ShadowGrid entries={SHADOWS} />
+
+## CTA glow
+
+`CTA_GLOW` gives the primary call to action a brand glow that grows as the pointer arrives. Hover the button.
+
+<div className="sb-unstyled my-6 flex flex-wrap items-center gap-6 rounded-xl border border-border bg-background p-8">
+  <a href="#cta-glow" className={ctaClassName('default', CTA_GLOW)}>
+    Get a quote
+  </a>
+  <CopyCode>{CTA_GLOW}</CopyCode>
+</div>
+
+## Stacking layers
+
+Only four z-index steps are in use. Decorations sit behind the page (`-z-10` inside an `isolate` parent), and only the header and overlays rise above it.
+
+<ZIndexStack entries={Z_INDEX} />
+
+<Callout title="Keep decorations contained">
+  A `-z-10` layer needs a parent that is `relative isolate`; otherwise it can
+  slip behind the page background and disappear.
+</Callout>

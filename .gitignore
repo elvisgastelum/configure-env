@@ -28,3 +28,6 @@ coverage/
 # Copied from the repo root by packages/cli's `prepack`, removed by `postpack`
 packages/cli/README.md
 packages/cli/LICENSE
+
+# Storybook static build
+storybook-static/

@@ -1,0 +1,30 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { Callout, CopyCode, RADIUS_BASE_PX, RadiusScale } from '../docs';
+import { RADIUS, RADIUS_BASE } from '../tokens';
+
+<Meta title="Design System/Radius" />
+
+# Radius
+
+Every rounded corner scales from one base, `--radius`. Change it and the whole site follows, keeping the steps in proportion.
+
+<div className="sb-unstyled my-6 flex flex-wrap items-center gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground">
+  <span className="block size-16 rounded-lg border-2 border-primary/60 bg-accent" />
+  <span className="flex flex-col items-start gap-1 text-sm">
+    <span className="font-medium">
+      Base: {RADIUS_BASE.name} · {RADIUS_BASE_PX}px
+    </span>
+    <CopyCode>{RADIUS_BASE.value}</CopyCode>
+    <span className="text-muted-foreground">{RADIUS_BASE.description}</span>
+  </span>
+</div>
+
+## Scale
+
+<RadiusScale tokens={RADIUS} />
+
+<Callout>
+  Sizes in px assume the browser's default 16px root. Pills (`rounded-full`) use
+  an infinite radius, so they stay round at any height.
+</Callout>

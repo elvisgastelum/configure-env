@@ -1,0 +1,159 @@
+import { Canvas, Meta } from '@storybook/addon-docs/blocks';
+
+import {
+  Callout,
+  DocTable,
+  EaseCurve,
+  MotionTokenTable,
+  SpringTable,
+  TokenTable,
+} from '../docs';
+import {
+  CSS_DURATIONS,
+  CSS_EASINGS,
+  EASE_OUT,
+  KEYFRAMES,
+  VIEW_TRANSITIONS,
+} from '../tokens';
+import * as MotionStories from './motion.stories';
+
+<Meta of={MotionStories} />
+
+# Motion
+
+Motion explains what changed and where things came from, then gets out of the way. One curve, short durations, and only transform and opacity, so nothing reflows and nothing waits.
+
+<Callout title="Reduced motion">
+  Every story is wrapped in `SiteMotionConfig` (`reducedMotion="user"`). With
+  the OS "reduce motion" setting on, reveals render in place, scroll-linked
+  effects stay still, the spotlight is off, and the CSS transitions and
+  keyframes marked `motion-safe:` do not run.
+</Callout>
+
+## Easing
+
+`EASE_OUT` (ease-out-quint) starts quick and settles softly. The same curve is `--ease-site` in CSS. Tailwind's own `ease-out` is still used by some transitions; it is gentler at the start and is a known inconsistency, kept because unifying it is a visible change.
+
+<EaseCurve
+  curves={[
+    {
+      label: 'EASE_OUT / --ease-site',
+      points: EASE_OUT,
+      className: 'text-primary',
+    },
+    {
+      label: "Tailwind's ease-out",
+      points: [0, 0, 0.2, 1],
+      className: 'text-muted-foreground',
+      dashed: true,
+    },
+  ]}
+/>
+
+<TokenTable entries={CSS_EASINGS} />
+
+## Motion tokens
+
+From `motion/tokens.ts`, used by the motion components.
+
+<MotionTokenTable />
+
+## Springs
+
+<SpringTable />
+
+## CSS durations
+
+<TokenTable entries={CSS_DURATIONS} />
+
+## Keyframes
+
+<TokenTable entries={KEYFRAMES} />
+
+## Page view transitions
+
+Page changes run as view transitions: a 0.3s crossfade everywhere, and a directional slide where transition types are supported (the old page leaves in 0.25s, the new one arrives in 0.4s, shifted by ±2rem). They are off under reduced motion. They need real navigation, so try them on the site.
+
+<TokenTable entries={VIEW_TRANSITIONS} />
+
+## Live demos
+
+Use **Replay** to play an entrance again. Open a story on its own (from the sidebar) to see it full size.
+
+### Reveal
+
+Fades in with a 24px slide from its `direction` when it scrolls into view, once. Reduced motion: rendered in place.
+
+<Canvas of={MotionStories.RevealDirections} />
+
+### RevealGroup
+
+Reveals its items one `STAGGER` (0.08s) apart. Reduced motion: all items in place.
+
+<Canvas of={MotionStories.RevealGroupStagger} />
+
+### MaskedWords
+
+Words rise out of a clipping mask, one `WORD_STAGGER` apart; it needs a parent (here a `RevealGroup`) that drives hidden to visible. Reduced motion: words in place.
+
+<Canvas of={MotionStories.MaskedWordsHeadline} />
+
+### PageEntrance
+
+A short fade and 8px rise when a page mounts. Reduced motion: off.
+
+<Canvas of={MotionStories.PageEntranceDemo} />
+
+### SlideIn
+
+Paired cards slide in from their sides as the page scrolls and play back when it scrolls up. Active only from 768px wide; on one column and under reduced motion the cards stay in place. Scroll this page past the demo, or open the story on its own.
+
+<Canvas of={MotionStories.SlideInPair} />
+
+### CardSpotlight
+
+A brand glow that follows the pointer across a card. Its host card needs `relative isolate overflow-hidden group/card`. Mouse or trackpad only; off under reduced motion.
+
+<Canvas of={MotionStories.CardSpotlightDemo} />
+
+### ActiveIndicator
+
+The pill glides to the selected item through a shared `layoutId`. Its button needs `relative isolate`. Reduced motion: it jumps.
+
+<Canvas of={MotionStories.ActiveIndicatorNav} />
+
+### ScrollProgress
+
+A 2px bar fixed along the top of the window that fills with the scroll, smoothed by a spring. On this page it tracks the whole docs page; open the story on its own for a clean view. Reduced motion: it tracks the scroll exactly, without the spring.
+
+<Canvas of={MotionStories.ScrollProgressDemo} />
+
+### Hero glow keyframe
+
+`motion-safe:animate-hero-glow`: the glow drifts down and grows into place over 2.4s on load; the side glow starts 300ms later. Reduced motion: shown in place.
+
+<Canvas of={MotionStories.HeroGlow} />
+
+### Hover and press
+
+`ctaClassName` lifts a CTA 2px on hover and presses it to 98% when tapped; `INTERACTIVE_CARD` lifts a card 4px with a brand shadow and ring; arrows nudge 2px. Reduced motion: colors and shadows still change, nothing moves.
+
+<Canvas of={MotionStories.HoverAndPress} />
+
+<DocTable
+  minWidth="36rem"
+  headers={['Recipe', 'Motion', 'Timing']}
+  rows={[
+    [
+      '`ctaClassName`',
+      'Lift `-translate-y-0.5` on hover, `scale-[0.98]` when pressed',
+      '200ms, `ease-out`',
+    ],
+    [
+      '`INTERACTIVE_CARD`',
+      'Lift `-translate-y-1`, `shadow-lg shadow-primary/10`, `ring-primary/40`',
+      '300ms, `ease-out`',
+    ],
+    ['Arrow nudge', '`group-hover:translate-x-0.5`', '200ms, `ease-out`'],
+  ]}
+/>

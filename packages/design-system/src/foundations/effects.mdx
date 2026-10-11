@@ -1,0 +1,44 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+import { PageGlow } from '../components/atoms/page-glow';
+
+import { BlurGrid, Callout, CopyCode, GlowGrid } from '../docs';
+import { BLUR, GLOWS } from '../tokens';
+
+<Meta title="Design System/Effects" />
+
+# Effects
+
+Soft brand glows behind page tops and a light frost on bars that float over content. Effects are decorative only: they are hidden from assistive technology and never carry meaning.
+
+<Callout>
+  Glows mix the live `--brand` and `--primary` with transparency, so they follow
+  the Theme switch in the toolbar.
+</Callout>
+
+## Blur
+
+<BlurGrid entries={BLUR} />
+
+## Radial glows
+
+Each glow is a `closest-side` radial gradient from a brand tint to transparent. Shown here without the blur the site adds on top (`blur-2xl` / `blur-3xl`).
+
+<GlowGrid entries={GLOWS} />
+
+## PageGlow
+
+The `PageGlow` atom places the page glow behind a page's heading, plus a smaller one at the bottom right from `md`. Its parent must be `relative isolate`.
+
+<div className="sb-unstyled relative isolate my-6 grid h-80 place-items-center overflow-hidden rounded-2xl border border-border bg-background">
+  <PageGlow />
+  <p className="text-3xl font-semibold tracking-tight text-foreground">
+    A page title
+  </p>
+</div>
+
+<CopyCode>
+  {
+    "import { PageGlow } from '@configure-env/design-system/components/atoms/page-glow';"
+  }
+</CopyCode>
