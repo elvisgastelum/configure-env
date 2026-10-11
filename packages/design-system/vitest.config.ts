@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
@@ -6,6 +8,28 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 const configDir = fileURLToPath(new URL('./.storybook', import.meta.url));
+const srcDir = fileURLToPath(new URL('./src', import.meta.url));
+
+/**
+ * Every bare package import in `src`, so Vite pre-bundles them all before
+ * the first story runs. A dependency it found mid-run would make it
+ * re-optimize and reload the browser, failing the files in flight; with a
+ * warm cache Vite skips its own scan, so the list is built here.
+ */
+function storyDependencies(): string[] {
+  const specifiers = new Set<string>();
+  const files = readdirSync(srcDir, { recursive: true, encoding: 'utf8' });
+  for (const file of files) {
+    if (!/\.tsx?$/.test(file) || /\.test\.tsx?$/.test(file)) continue;
+    const text = readFileSync(join(srcDir, file), 'utf8');
+    for (const [, specifier] of text.matchAll(/from '([^'.][^']*)'/g)) {
+      if (specifier && !specifier.startsWith('@storybook/')) {
+        specifiers.add(specifier);
+      }
+    }
+  }
+  return [...specifiers].sort();
+}
 
 /*
  * Every story runs in headless Chromium once per theme. The Storybook
@@ -18,11 +42,9 @@ const storybookProject = (theme: 'light' | 'dark') => ({
   define: {
     'import.meta.env.STORYBOOK_THEME': JSON.stringify(theme),
   },
-  // Pre-bundle every dependency the stories reach before the first test,
-  // so Vite never re-optimizes and reloads the browser mid-run (a cold CI
-  // cache would otherwise fail the first files).
   optimizeDeps: {
     entries: ['src/**/*.stories.tsx', '.storybook/preview.tsx'],
+    include: storyDependencies(),
   },
   test: {
     name: `storybook-${theme}`,

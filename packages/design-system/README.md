@@ -47,6 +47,7 @@ Changes from upstream:
 | Recipes | `recipes.ts` | Shared class strings: `TYPE`, `CONTAINER`, `SECTION_RHYTHM`, `FOCUS_RING`, `ctaClassName()`, `INTERACTIVE_CARD`… |
 | Motion | `motion/` | `SiteMotionConfig`, `Reveal`/`RevealGroup`/`RevealItem`, `SlideIn`, `MaskedWords`, `PageEntrance`, `ScrollProgress`, `ActiveIndicator`, `CardSpotlight`, `useScrolled`, motion tokens |
 | Atoms | `components/atoms/` | `Button`, `Badge`, `Card`, `PageGlow` (from upstream) and the portal primitives below |
+| Molecules | `components/molecules/` | Portal compositions built from the atoms (see below) |
 | Theme preference | `theme/` | System/light/dark pick stored in `localStorage` (`configure-env.theme`), `applyThemePreference`, `useThemePreference` |
 | Utilities | `lib/utils.ts` | `cn()` |
 
@@ -61,6 +62,9 @@ Added for the portal on top of the upstream copy. They come from the shadcn `bas
 | | `switch`, `checkbox`, `number-input` | `Switch`, `Checkbox`, `NumberInput` (Base UI `NumberField`; the registry has no number input) |
 | Overlays | `dialog`, `sheet`, `drawer` | `Dialog`/`DialogTrigger`/`DialogContent`/`DialogTitle`…, `Sheet`/`SheetContent` (`side`)…, `Drawer`/`DrawerContent`… (swipe to dismiss) |
 | | `popover`, `tooltip`, `dropdown-menu` | `Popover`/`PopoverTrigger`/`PopoverContent`…, `Tooltip`/`TooltipProvider`/`TooltipTrigger`/`TooltipContent`, `DropdownMenu`/`DropdownMenuItem`/`DropdownMenuCheckboxItem`/`DropdownMenuSub`… |
+| Navigation and data | `tabs`, `table`, `kbd` | `Tabs`/`TabsList` (`variant`)/`TabsTrigger`/`TabsContent`, `Table`/`TableHeader`/`TableRow`/`TableCell`…, `Kbd`/`KbdGroup` |
+| | `empty`, `skeleton`, `spinner` | `Empty`/`EmptyHeader`/`EmptyMedia`/`EmptyTitle`/`EmptyDescription`/`EmptyContent` (the empty state), `Skeleton`, `Spinner` |
+| | `../molecules/code-block` | `CodeBlock`: code with a copy button (`copyLabel`, `copiedLabel`, `onCopyError`) that announces the copy |
 
 Changes from the registry sources: imports are relative (`../../lib/utils`, `./button`), the registry's icon placeholders are `lucide-react` icons, `ComboboxInput` names its icon-only buttons (`triggerLabel`, `clearLabel`) so they pass axe, and the `Dialog` and `Sheet` close buttons take `closeLabel` instead of a hard-coded "Close". Overlay stories include an `Open` story (hidden from the docs page) so the a11y checks cover the open popup, not just its trigger. Icon-only controls take their accessible names as props with English defaults; pass translated copy.
 
