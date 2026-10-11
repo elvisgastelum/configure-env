@@ -319,6 +319,7 @@ describe('apply --prune and an unusable state', () => {
     // One line, the failure: no warning in stdout or stderr.
     expect(r.out).toHaveLength(1);
     expect(r.out[0]).toMatch(`${LONG}: failed (ENAMETOOLONG`);
+    expect(r.out.join('\n')).not.toMatch(/warn/i);
     expect(r.err).toEqual([]);
     const document = await cli(['apply', '--ci', '--json', '--prune']);
     expect(document.code).toBe(1);
