@@ -15,3 +15,6 @@ allowBuilds:
   esbuild: false
   # Usage telemetry pulled in by @nestjs/swagger's swagger-ui-dist; never run.
   '@scarf/scarf': false
+  # msw's postinstall only refreshes a mockServiceWorker.js listed in a
+  # package.json; the portal commits its worker (apps/web/.storybook/public).
+  msw: false

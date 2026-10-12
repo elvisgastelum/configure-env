@@ -8,7 +8,15 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  globalIgnores(['.atl/', '**/dist/', '**/coverage/', '**/storybook-static/']),
+  globalIgnores([
+    '.atl/',
+    '**/dist/',
+    '**/coverage/',
+    '**/storybook-static/',
+    // Generated: TanStack Router's route tree and msw's service worker.
+    'apps/web/src/routeTree.gen.ts',
+    'apps/web/.storybook/public/mockServiceWorker.js',
+  ]),
   js.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -17,15 +25,30 @@ export default defineConfig(
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['packages/design-system/**'],
+    files: ['packages/design-system/**', 'apps/web/**'],
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ['packages/design-system/**/*.{ts,tsx}'],
+    files: ['packages/design-system/**/*.{ts,tsx}', 'apps/web/**/*.{ts,tsx}'],
     extends: [
       reactHooks.configs.flat['recommended-latest'],
       reactRefresh.configs.vite,
     ],
+  },
+  {
+    // TanStack Router's file routes export their `Route` beside components.
+    files: ['apps/web/src/routes/**/*.tsx'],
+    rules: {
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowExportNames: ['Route'] },
+      ],
+    },
+  },
+  {
+    // The build config and the Node test that serves the built portal.
+    files: ['apps/web/vite.config.ts', 'apps/web/test/**'],
+    languageOptions: { globals: globals.node },
   },
   {
     // shadcn atoms export cva `*Variants` beside components, and Storybook
@@ -35,6 +58,9 @@ export default defineConfig(
       'packages/design-system/src/components/atoms/**/*.tsx',
       'packages/design-system/.storybook/**/*.{ts,tsx}',
       'packages/design-system/**/*.stories.tsx',
+      'apps/web/.storybook/**/*.{ts,tsx}',
+      'apps/web/**/*.stories.tsx',
+      'apps/web/src/test/**/*.{ts,tsx}',
     ],
     rules: { 'react-refresh/only-export-components': 'off' },
   },

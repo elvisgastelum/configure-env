@@ -1,0 +1,15 @@
+{
+  // The build config and the Node test that serves the built portal from
+  // the API, whose Nest sources use TypeScript's legacy decorators.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["vite.config.ts", "test"]
+}
