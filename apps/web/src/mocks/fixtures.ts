@@ -234,3 +234,44 @@ export function manyVariables(count: number): Variables['variables'] {
  */
 export const secretValue = (file: string, key: string) =>
   `${key.toLowerCase()}-from-${file.replace(/^\./, '')}`;
+
+/** More variables, one per editable type, all in `.env`. */
+export const typedVariables: Variables['variables'] = [
+  {
+    name: 'DEBUG',
+    spec: { type: 'boolean', required: false, secret: false, group: 'App' },
+    files: [{ file: '.env', status: 'set', value: 'false' }],
+  },
+  {
+    name: 'WORKERS',
+    spec: {
+      type: 'integer',
+      required: false,
+      secret: false,
+      group: 'App',
+      min: 1,
+      max: 64,
+    },
+    files: [{ file: '.env', status: 'set', value: '4' }],
+  },
+  {
+    name: 'RATIO',
+    spec: { type: 'number', required: false, secret: false, group: 'App' },
+    files: [{ file: '.env', status: 'set', value: '0.5' }],
+  },
+  {
+    name: 'ADMIN_EMAIL',
+    spec: { type: 'email', required: false, secret: false, group: 'App' },
+    files: [{ file: '.env', status: 'set', value: 'ops@example.com' }],
+  },
+  {
+    name: 'RELEASE_NAME',
+    spec: { type: 'string', required: false, secret: false, group: 'App' },
+    files: [{ file: '.env', status: 'set', value: 'blue' }],
+  },
+  {
+    name: 'SESSION_KEY',
+    spec: { type: 'string', required: false, secret: true, group: 'App' },
+    files: [{ file: '.env', status: 'masked', value: '••••••••' }],
+  },
+];

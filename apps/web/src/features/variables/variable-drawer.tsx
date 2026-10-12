@@ -41,6 +41,8 @@ export function VariableDrawer({
   variable,
   files,
   all,
+  editing,
+  onEditingChange,
   onNavigate,
   onClose,
 }: {
@@ -49,6 +51,9 @@ export function VariableDrawer({
   files: readonly FileInfo[];
   /** Every declared variable: a rule's name links only to these. */
   all: readonly Variable[];
+  /** The file whose value is being edited. */
+  editing?: string;
+  onEditingChange: (file?: string) => void;
   onNavigate: (name: string) => void;
   onClose: () => void;
 }) {
@@ -70,6 +75,8 @@ export function VariableDrawer({
             variable={variable}
             files={files}
             all={all}
+            editing={editing}
+            onEditingChange={onEditingChange}
             onNavigate={onNavigate}
           />
         )}
@@ -82,11 +89,15 @@ function DrawerBody({
   variable,
   files,
   all,
+  editing,
+  onEditingChange,
   onNavigate,
 }: {
   variable: Variable;
   files: readonly FileInfo[];
   all: readonly Variable[];
+  editing?: string;
+  onEditingChange: (file?: string) => void;
   onNavigate: (name: string) => void;
 }) {
   const { t } = useTranslation();
@@ -184,7 +195,13 @@ function DrawerBody({
           )}
         </dl>
 
-        <ValueMatrix variable={variable} files={files} all={all} />
+        <ValueMatrix
+          variable={variable}
+          files={files}
+          all={all}
+          editing={editing}
+          onEditingChange={onEditingChange}
+        />
       </div>
     </>
   );

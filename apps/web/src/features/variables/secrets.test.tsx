@@ -49,7 +49,6 @@ describe('secrets', () => {
 
     expect(await within(row('DB_PASSWORD')).findByText(PASSWORD)).toBeVisible();
     expect(requests).toEqual([{ file: '.env', key: 'DB_PASSWORD' }]);
-    server.events.removeAllListeners();
   });
 
   it('hides a revealed value again on demand', async () => {

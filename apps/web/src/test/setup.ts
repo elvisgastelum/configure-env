@@ -6,6 +6,7 @@ import {
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import { resetMockState } from '../mocks/store';
 import { server } from './server';
 
 // Motion's animations finish at once, so tests see final states.
@@ -85,5 +86,9 @@ Element.prototype.hasPointerCapture ??= () => false;
 
 // The API, through msw. An unhandled request fails the test.
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  server.events.removeAllListeners();
+  resetMockState();
+});
 afterAll(() => server.close());

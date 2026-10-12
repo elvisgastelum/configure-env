@@ -58,6 +58,8 @@ function VariablesBrowser({ focus }: { focus?: string }) {
   const [sort, setSort] = useState<SortOrder>('schema');
   const [selected, setSelected] = useState<string | undefined>(focus);
   const [opened, setOpened] = useState<string | undefined>(focus);
+  // The value being edited: a file of the opened variable.
+  const [editing, setEditing] = useState<string>();
   const [lastFocus, setLastFocus] = useState(focus);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -67,14 +69,16 @@ function VariablesBrowser({ focus }: { focus?: string }) {
     if (focus) {
       setSelected(focus);
       setOpened(focus);
+      setEditing(undefined);
     }
   }
 
   const list = useMemo(() => variables.data?.variables ?? [], [variables.data]);
   const fileList = useMemo(() => files.data?.files ?? [], [files.data]);
-  const open = (name: string) => {
+  const open = (name: string, editFile?: string) => {
     setSelected(name);
     setOpened(name);
+    setEditing(editFile);
   };
   const sections = useMemo(
     () => browse(list, fileList, filters, sort),
@@ -121,7 +125,7 @@ function VariablesBrowser({ focus }: { focus?: string }) {
           statusFile={filters.file}
           selected={selected}
           onSelect={setSelected}
-          onOpen={open}
+          onOpen={(name) => open(name)}
           renderValue={(variable, file) => (
             <SecretValue variable={variable} file={file} />
           )}
@@ -169,8 +173,13 @@ function VariablesBrowser({ focus }: { focus?: string }) {
           variable={list.find((variable) => variable.name === opened)}
           files={fileList}
           all={list}
-          onNavigate={open}
-          onClose={() => setOpened(undefined)}
+          editing={editing}
+          onEditingChange={setEditing}
+          onNavigate={(name) => open(name)}
+          onClose={() => {
+            setOpened(undefined);
+            setEditing(undefined);
+          }}
         />
       </div>
     </RevealProvider>

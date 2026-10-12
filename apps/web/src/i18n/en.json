@@ -261,6 +261,19 @@
       },
       "notSet": "{{name}} is not set in {{file}}",
       "failed": "Could not copy: {{message}}"
+    },
+    "edit": {
+      "edit": "Edit {{name}} in {{file}}",
+      "label": "New value of {{name}} in {{file}}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "checking": "Checking…",
+      "secretPlaceholder": "Type a new value",
+      "replaceProtected": "Replace the protected value",
+      "saved": "Saved {{name}} in {{file}}",
+      "problem": "{{name}} {{message}}",
+      "increment": "Increase",
+      "decrement": "Decrease"
     }
   }
 }
