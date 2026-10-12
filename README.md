@@ -659,6 +659,8 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 
 The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate do not read the protected variables' state yet, so they report no protected mismatch.
 
+`packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
+
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
 | `pnpm dev`             | run the CLI from source with tsx                                     |
@@ -670,6 +672,8 @@ The endpoints that need a valid schema answer 422 with its errors otherwise. Che
 | `pnpm test`            | run the tests with Vitest                                            |
 | `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
+| `pnpm gen:api`         | regenerate the OpenAPI document and the API client in `packages/api-client/` |
+| `pnpm gen:api:check`   | fail when the committed API client is stale                          |
 | `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps), and the API into `apps/api/dist/` |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
