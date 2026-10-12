@@ -17,8 +17,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import packageJson from '../package.json' with { type: 'json' };
-import { InspectErrorFilter, apiModule } from './api.module.ts';
+import { apiModule } from './api.module.ts';
 import { components } from './contracts.ts';
+import { ApiErrorFilter } from './http.ts';
 import { type Project, resolveProject } from './project.ts';
 import { LAUNCH_PATH, securityMiddleware } from './security.ts';
 
@@ -82,7 +83,7 @@ async function createApp(
   app.useGlobalInterceptors(
     new StandardSchemaSerializerInterceptor(app.get(Reflector)),
   );
-  app.useGlobalFilters(new InspectErrorFilter());
+  app.useGlobalFilters(new ApiErrorFilter());
   app.disable('x-powered-by');
   return app;
 }
@@ -126,6 +127,7 @@ export async function buildOpenApiDocument() {
     root: '/',
     schemaFile: '/env.schema.json',
     schemaPath: 'env.schema.json',
+    statePath: '/.configure-env/state.db',
   };
   const app = await createApp(project, packageJson.version);
   try {

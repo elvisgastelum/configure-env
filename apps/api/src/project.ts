@@ -2,12 +2,14 @@
 // which must lie inside that root.
 
 import { readFile, realpath } from 'node:fs/promises';
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import {
+  DEFAULT_STATE_PATH,
   type EnvSchema,
   type SchemaError,
   parseSchemaText,
   resolveTarget,
+  schemaFingerprint,
 } from '@configure-env/core';
 
 export interface Project {
@@ -17,6 +19,8 @@ export interface Project {
   schemaFile: string;
   /** The schema file relative to the root, with `/` separators. */
   schemaPath: string;
+  /** The state database: protected values and the history of edits. */
+  statePath: string;
 }
 
 /** Resolves the root and the schema; throws when the schema leaves the root. */
@@ -34,6 +38,7 @@ export async function resolveProject(
     root: real,
     schemaFile: target.absolute,
     schemaPath: relative(real, target.absolute).split('\\').join('/'),
+    statePath: resolve(real, DEFAULT_STATE_PATH),
   };
 }
 
@@ -43,6 +48,8 @@ export interface SchemaRead {
   document: unknown;
   schema?: EnvSchema;
   errors: SchemaError[];
+  /** Identifies the bytes read; absent when the file cannot be read. */
+  fingerprint?: string;
 }
 
 /** Reads the schema afresh: the files may change while the server runs. */
@@ -69,7 +76,8 @@ export async function readSchema(project: Project): Promise<SchemaRead> {
   } catch {
     // parseSchemaText reports the syntax error with its position.
   }
+  const fingerprint = schemaFingerprint(text);
   return result.ok
-    ? { document, schema: result.schema, errors: [] }
-    : { document, errors: result.errors };
+    ? { document, schema: result.schema, errors: [], fingerprint }
+    : { document, errors: result.errors, fingerprint };
 }

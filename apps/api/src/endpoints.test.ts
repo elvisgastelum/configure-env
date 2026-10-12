@@ -1,11 +1,13 @@
 import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { schemaFingerprint } from '@configure-env/core';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   type ApiServer,
   DB_PASSWORD,
   TOKEN,
+  fixtureEnv,
   fixtureProject,
   fixtureSchema,
   removeProject,
@@ -44,6 +46,7 @@ describe('GET /api/schema', () => {
       valid: true,
       document: fixtureSchema,
       errors: [],
+      fingerprint: schemaFingerprint(JSON.stringify(fixtureSchema, null, 2)),
     });
   });
 });
@@ -109,6 +112,7 @@ describe('GET /api/files', () => {
         unknownKeys: ['EXTRA'],
       },
       parseErrors: [{ line: 6, message: 'is not a valid entry' }],
+      fingerprint: schemaFingerprint(fixtureEnv),
     });
     expect(example).toMatchObject({
       path: '.env.example',
@@ -117,6 +121,7 @@ describe('GET /api/files', () => {
       exists: false,
       mode: { expected: null, actual: null },
       drift: { status: 'missing', drift: true },
+      fingerprint: null,
     });
     expect(app.path).toBe('config/app.env');
   });

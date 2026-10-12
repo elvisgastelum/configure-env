@@ -1,42 +1,31 @@
-// The HTTP surface: thin controllers over src/inspect.ts. Every injection
-// names its token, so nothing depends on emitted decorator metadata.
+// The read-only HTTP surface: thin controllers over src/inspect.ts, and the
+// module that binds every controller to a project. Every injection names its
+// token, so nothing depends on emitted decorator metadata.
 
 import {
-  type ArgumentsHost,
   Body,
-  Catch,
   Controller,
-  type ExceptionFilter,
   Get,
   HttpCode,
-  HttpException,
   Inject,
   Module,
   Post,
   Query,
-  SerializeOptions,
-  applyDecorators,
 } from '@nestjs/common';
 import {
   ApiBody,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
-  ApiOkResponse,
-  ApiOperation,
   ApiQuery,
   ApiTags,
-  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { EnvSchema } from '@configure-env/core';
-import type { Response } from 'express';
 import type { z } from 'zod';
 import {
   checkResponse,
-  components,
   errorResponse,
   filesResponse,
   healthResponse,
-  invalidSchemaResponse,
   projectResponse,
   revealRequest,
   revealResponse,
@@ -46,7 +35,14 @@ import {
   variablesResponse,
 } from './contracts.ts';
 import {
-  InspectError,
+  NeedsSchema,
+  PROJECT,
+  Read,
+  VERSION,
+  ref,
+  requireSchema,
+} from './http.ts';
+import {
   checkProject,
   listFiles,
   listVariables,
@@ -54,45 +50,9 @@ import {
   validateProject,
 } from './inspect.ts';
 import { type Project, readSchema } from './project.ts';
+import { ValuesController } from './values.controller.ts';
 
-/** The provider token of the bound project. */
-export const PROJECT = Symbol('PROJECT');
-/** The provider token of the configure-env version. */
-export const VERSION = Symbol('VERSION');
-
-/** A `$ref` to the schema's OpenAPI component. */
-const ref = (schema: z.ZodType) => {
-  const id = components.get(schema)?.id;
-  if (!id) throw new Error('schema is not a registered component');
-  return { $ref: `#/components/schemas/${id}` };
-};
-
-/** The operation id, its 200 response, and the schema shaping that response. */
-const Read = (operationId: string, summary: string, schema: z.ZodType) =>
-  applyDecorators(
-    ApiOperation({ operationId, summary }),
-    ApiOkResponse({ schema: ref(schema) }),
-    SerializeOptions({ schema }),
-  );
-
-/** For the routes that need a valid schema. */
-const NeedsSchema = () =>
-  ApiUnprocessableEntityResponse({
-    description: 'The schema is invalid.',
-    schema: ref(invalidSchemaResponse),
-  });
-
-/** Maps an InspectError to its status with the usual error body. */
-@Catch(InspectError)
-export class InspectErrorFilter implements ExceptionFilter {
-  catch(error: InspectError, host: ArgumentsHost) {
-    host
-      .switchToHttp()
-      .getResponse<Response>()
-      .status(error.statusCode)
-      .json({ statusCode: error.statusCode, message: error.message });
-  }
-}
+export { PROJECT, VERSION } from './http.ts';
 
 // Swagger finds parameters through emitted metadata, which is not emitted
 // here; the request body and query are declared explicitly instead.
@@ -116,17 +76,8 @@ export class ProjectController {
   ) {}
 
   /** The valid schema, or a 422 with its errors. */
-  private async schema(): Promise<EnvSchema> {
-    const read = await readSchema(this.project);
-    if (read.schema) return read.schema;
-    throw new HttpException(
-      {
-        statusCode: 422,
-        message: `${this.project.schemaPath} is invalid`,
-        errors: read.errors,
-      },
-      422,
-    );
+  private schema(): Promise<EnvSchema> {
+    return requireSchema(this.project);
   }
 
   @Get('health')
@@ -162,6 +113,7 @@ export class ProjectController {
       valid: Boolean(read.schema),
       document: read.document,
       errors: read.errors,
+      ...(read.fingerprint ? { fingerprint: read.fingerprint } : {}),
     };
   }
 
@@ -251,7 +203,7 @@ export class ProjectController {
 /** The module for a bound project. */
 export function apiModule(project: Project, version: string) {
   @Module({
-    controllers: [ProjectController],
+    controllers: [ProjectController, ValuesController],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },

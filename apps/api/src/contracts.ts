@@ -7,6 +7,7 @@ import {
   type DriftStatus,
   FILE_POLICIES,
   RULE_FIELDS,
+  VARIABLE_NAME,
   variableSpec,
 } from '@configure-env/core';
 import { z } from 'zod';
@@ -67,6 +68,10 @@ export const schemaResponse = named(
         'The schema file as parsed JSON, valid or not; null when it cannot be read or parsed.',
     }),
     errors: z.array(schemaError),
+    fingerprint: z.string().optional().meta({
+      description:
+        'Identifies the bytes read; a schema edit names it. Absent when the file cannot be read.',
+    }),
   }),
 );
 
@@ -123,6 +128,9 @@ export const parseError = named(
   z.object({ line: z.int(), message: z.string() }),
 );
 
+/** An env file's fingerprint: `sha256:` and the hex digest; null when it does not exist. */
+const fileFingerprint = z.string().nullable();
+
 export const fileInfo = named(
   'FileInfo',
   z.object({
@@ -145,6 +153,10 @@ export const fileInfo = named(
       unknownKeys: z.array(z.string()),
     }),
     parseErrors: z.array(parseError),
+    fingerprint: fileFingerprint.optional().meta({
+      description:
+        'Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.',
+    }),
     error: z
       .string()
       .optional()
@@ -273,5 +285,120 @@ export const validateResponse = named(
         }),
       ),
     ),
+  }),
+);
+
+// ---------------------------------------------------------------- writes
+
+const variableName = z
+  .string()
+  .regex(VARIABLE_NAME)
+  .meta({ description: 'A variable name, like `API_URL`.' });
+
+const basedOn = fileFingerprint.meta({
+  description:
+    "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
+});
+
+const replaceProtected = z.array(variableName).optional().meta({
+  description:
+    'The protected keys the edit may replace or remove; any other protected change is refused.',
+});
+
+export const setValuesRequest = named(
+  'SetValuesRequest',
+  z
+    .strictObject({
+      file: z.string().min(1).meta({ description: 'A schema file path.' }),
+      fingerprint: basedOn,
+      values: z.record(variableName, z.string()).optional().meta({
+        description: 'The values to set, by key, as a person would type them.',
+      }),
+      generate: z.array(variableName).optional().meta({
+        description:
+          'Secret string variables to set to a new random value, never returned.',
+      }),
+      replaceProtected,
+    })
+    .refine(
+      (body) => Object.keys(body.values ?? {}).length || body.generate?.length,
+      { message: 'set at least one value, or generate one' },
+    )
+    .refine(
+      (body) =>
+        !body.generate?.some((key) => Object.hasOwn(body.values ?? {}, key)),
+      { message: 'a key is either given a value or generated, not both' },
+    ),
+);
+
+export const unsetValuesRequest = named(
+  'UnsetValuesRequest',
+  z.strictObject({
+    file: z.string().min(1).meta({ description: 'A schema file path.' }),
+    fingerprint: basedOn,
+    keys: z.array(variableName).min(1),
+    replaceProtected,
+  }),
+);
+
+export const KEY_STATUSES = [
+  'updated',
+  'added',
+  'unchanged',
+  'removed',
+  'absent',
+] as const;
+
+export const valuesResponse = named(
+  'ValuesEdit',
+  z.object({
+    file: z.string(),
+    fingerprint: fileFingerprint.meta({
+      description: "The file's fingerprint after the edit.",
+    }),
+    keys: z.array(z.object({ key: z.string(), status: z.enum(KEY_STATUSES) })),
+    replaced: z
+      .array(z.string())
+      .meta({ description: 'The protected keys replaced.' }),
+    generated: z
+      .array(z.string())
+      .meta({ description: 'The keys set to a generated value.' }),
+    warnings: z.array(z.string()).meta({
+      description:
+        'What went wrong after the file was written: the protected state or the history not recorded.',
+    }),
+  }),
+);
+
+export const editProblem = named(
+  'EditProblem',
+  z.object({
+    key: z.string().optional(),
+    message: z.string(),
+    reason: z.string().optional().meta({
+      description: "A protected variable's reason, when it gives one.",
+    }),
+  }),
+);
+
+export const editRefusedResponse = named(
+  'EditRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    kind: z.enum(['invalid', 'protected']).meta({
+      description:
+        'invalid: values that break their rules; protected: protected values the edit may not change.',
+    }),
+    errors: z.array(editProblem),
+  }),
+);
+
+export const staleFileResponse = named(
+  'StaleFile',
+  z.object({
+    statusCode: z.literal(409),
+    message: z.string(),
+    file: fileInfo.meta({ description: 'The file as it is now.' }),
   }),
 );

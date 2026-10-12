@@ -33,19 +33,18 @@ import type {
   validateResponse,
   variablesResponse,
 } from './contracts.ts';
+import { contentFingerprint } from './fingerprint.ts';
+import { ApiError } from './http.ts';
 
 type FileValue = z.output<typeof fileValue>;
 type FileInfo = z.output<typeof fileInfo>;
 type FileValidation = z.output<typeof validateResponse>['files'][number];
 type Problem = FileValidation['errors'][number];
 
-/** Thrown for a request the project cannot answer; the controllers map it. */
-export class InspectError extends Error {
-  constructor(
-    readonly statusCode: 404 | 403,
-    message: string,
-  ) {
-    super(message);
+/** Thrown for a file or key the project does not have, or a refused path. */
+export class InspectError extends ApiError {
+  constructor(statusCode: 404 | 403, message: string) {
+    super(statusCode, message);
   }
 }
 
@@ -57,18 +56,20 @@ type Read =
       exists: boolean;
       mode?: number;
       doc: DotenvDocument;
+      fingerprint: string | null;
     }
   | { ok: false; spec: FileSpec; message: string };
 
 async function readFile(root: string, spec: FileSpec): Promise<Read> {
   const result = await readEnvFile(root, spec);
   if (!result.ok) return { ok: false, spec, message: result.message };
-  const { exists, mode, doc } = result.file;
+  const { exists, mode, doc, previous } = result.file;
   return {
     ok: true,
     spec,
     exists,
     doc,
+    fingerprint: contentFingerprint(previous),
     ...(mode === undefined ? {} : { mode }),
   };
 }
@@ -181,10 +182,22 @@ export async function listFiles(
           line,
           message: 'is not a valid entry',
         })),
-        ...(file.ok ? {} : { error: file.message }),
+        ...(file.ok
+          ? { fingerprint: file.fingerprint }
+          : { error: file.message }),
       };
     }),
   };
+}
+
+/** One schema file as GET /api/files describes it: for a 409 body. */
+export async function fileInfoOf(
+  schema: EnvSchema,
+  root: string,
+  path: string,
+): Promise<FileInfo> {
+  const { files } = await listFiles(schema, root);
+  return files.find((file) => file.path === path)!;
 }
 
 /** One value as the file holds it, unmasked. Only the file's own variables. */
