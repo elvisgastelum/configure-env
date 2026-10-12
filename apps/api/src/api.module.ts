@@ -51,6 +51,8 @@ import {
 } from './inspect.ts';
 import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
+import { EventsController } from './events.controller.ts';
+import { ProjectEvents } from './events.ts';
 import { PlanController } from './plan.controller.ts';
 import { SchemaController } from './schema.controller.ts';
 import { ValuesController } from './values.controller.ts';
@@ -204,10 +206,12 @@ export function apiModule(project: Project, version: string) {
       ValuesController,
       PlanController,
       SchemaController,
+      EventsController,
     ],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },
+      { provide: ProjectEvents, useValue: new ProjectEvents(project) },
     ],
   })
   class ApiModule {}
