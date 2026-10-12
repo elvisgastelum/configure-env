@@ -636,7 +636,7 @@ The repo is a pnpm workspace: the published package lives in `packages/cli`, the
 
 The state database's tables are declared in `packages/core/src/engine/db-schema.ts`. After changing them, run `pnpm --filter @configure-env/core db:generate`: drizzle-kit writes a new migration to `packages/core/drizzle`, which the core applies when it opens a database and `pnpm build` copies to the package's `dist/migrations`. A test checks that the migrated tables match the declaration.
 
-`packages/design-system` (`@configure-env/design-system`) is the private, source-only design system for the planned web portal; see [its README](packages/design-system/README.md).
+`packages/design-system` (`@configure-env/design-system`) is the private, source-only design system for the web portal; see [its README](packages/design-system/README.md).
 
 `apps/api` (`@configure-env/api`) is the private local HTTP API behind the planned `configure-env serve`: a NestJS server over one project's schema and env files. `createServer({ root, schemaPath, host, port, token, staticDir })` starts it in-process; `pnpm --filter @configure-env/api start` runs it standalone over `CONFIGURE_ENV_ROOT` (default: the current directory) and prints a launch URL.
 
@@ -659,6 +659,14 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 
 The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate do not read the protected variables' state yet, so they report no protected mismatch.
 
+`apps/web` (`@configure-env/web`) is the portal: a static single-page app (Vite, React 19, TanStack Router file routes and TanStack Query over `@configure-env/api-client`, Tailwind with the design system's theme, motion, i18next) that the API serves from `staticDir`. `pnpm build` writes it to `apps/web/dist/`; a test builds it and serves it from the real API.
+
+- **Shell.** A sidebar with the overview and the pages the next tickets fill (variables, groups, files, schema, check, validate), a sticky header with the project, its root and the schema's state, a system / light / dark theme toggle, and a ⌘K / Ctrl+K palette that jumps to any page, variable or file and runs check, validate or a theme switch.
+- **Overview.** The counts of variables, secrets, required variables and groups, a card per env file with its policy, mode and drift, check and validate with a button to run them again, and an empty state pointing at `configure-env init` when the project has no schema yet.
+- **Session.** The launch URL sets the session cookie and redirects to `/`, so the token never reaches the portal. Opened as `/?token=…` instead (as under `pnpm --filter @configure-env/web dev`, which proxies `/api` and `/launch` to `CONFIGURE_ENV_API`), the portal removes the token from the address bar with `history.replaceState` and trades it at `/launch` for the same cookie. A page request no static file matches (a deep link such as `/variables`) gets the portal's `index.html`.
+- **Copy and motion.** Every string lives in `apps/web/src/i18n/en.json`. Page entrances, staggered reveals, card spotlights and the expanding file details follow `prefers-reduced-motion` through the design system's `SiteMotionConfig`.
+- **Tests and stories.** Vitest and Testing Library run against msw handlers (`apps/web/src/mocks`), which the portal's Storybook (`pnpm storybook:web`, port 6008) uses too, through a service worker, for every state: healthy, passing, loading, no schema, invalid schema and no session.
+
 `packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
 
 | Script                 | What it does                                                         |
@@ -674,18 +682,20 @@ The endpoints that need a valid schema answer 422 with its errors otherwise. Che
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
 | `pnpm gen:api`         | regenerate the OpenAPI document and the API client in `packages/api-client/` |
 | `pnpm gen:api:check`   | fail when the committed API client is stale                          |
-| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps), and the API into `apps/api/dist/` |
+| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps), the API into `apps/api/dist/`, and the portal into `apps/web/dist/` |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |
 | `pnpm storybook`       | start the design system's Storybook on port 6007                     |
 | `pnpm build-storybook` | build the design system's Storybook to `packages/design-system/storybook-static/` |
+| `pnpm storybook:web`   | start the portal's Storybook on port 6008                            |
+| `pnpm build-storybook:web` | build the portal's Storybook to `apps/web/storybook-static/`     |
 | `pnpm test:storybook`  | run every story in headless Chromium, light and dark, failing on axe violations |
 | `pnpm changeset`       | describe a change for the next release                               |
 
 The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
-CI runs lint, format:check, typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. A third job builds the design system's Storybook and runs `pnpm test:storybook`.
+CI runs lint, format:check, typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. A third job builds the design system's Storybook and runs `pnpm test:storybook`, then builds the portal's Storybook.
 
 `dist/` is built, never committed; packing and publishing build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/` (with the state database's migrations in `dist/migrations`), `schema/`, this README, the license and the changelog, and no tests or fixtures. `@configure-env/core` is private and never published: the build inlines it, so the published package depends only on zod, @clack/prompts, better-sqlite3 and drizzle-orm, and `pnpm smoke` fails if the tarball names a workspace package.
 

@@ -1,5 +1,5 @@
-# Libraries and the published CLI live in packages/; the local API (and the
-# planned web portal) live in apps/.
+# Libraries and the published CLI live in packages/; the local API and the
+# web portal live in apps/.
 packages:
   - apps/*
   - packages/*

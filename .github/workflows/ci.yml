@@ -90,7 +90,8 @@ jobs:
 
   # Builds the design system's Storybook and runs every story in headless
   # Chromium, once in the light theme and once in the dark one; any axe
-  # violation fails the job (packages/design-system/vitest.config.ts).
+  # violation fails the job (packages/design-system/vitest.config.ts). Then
+  # builds the portal's Storybook.
   storybook:
     needs: check
     runs-on: ubuntu-latest
@@ -111,3 +112,5 @@ jobs:
       - run: pnpm --filter @configure-env/design-system exec playwright install --with-deps chromium
       - run: pnpm build-storybook
       - run: pnpm test:storybook
+      # The portal's stories (apps/web) must keep building.
+      - run: pnpm build-storybook:web
