@@ -214,23 +214,21 @@ SM_MASTER_KEY was set on 2026-10-10; restore it from your backup, or pass --repl
 
 `--replace-protected KEY` (repeatable; on `set`, `unset` and `apply`) allows the change for that key only; there is no global force. In a terminal you confirm by typing the key's name: a wrong name exits 2 and a cancel 130, both writing nothing. With `--ci` or `--json` the flag alone is enough; without a terminal or either, it exits 2. The output says `replaced protected KEY`. Moving from a key to its file, say, takes `unset --replace-protected SM_MASTER_KEY SM_MASTER_KEY`, then `set SM_MASTER_KEY_FILE=…`.
 
-The state is `.configure-env/state.json` under the root, or the global `--state <path>` (relative to the root; never a schema file or a path inside one). `apply`, `set` and `unset` record each protected value they write, and each one the files they touch hold, only after the env files are written; a value replaced with the flag replaces its record, and one removed with it drops it. A value that differs from its record is left as it is, for `check` and `validate` to report (exit 1):
+The state is `.configure-env/state.db` under the root, a SQLite database, or the global `--state <path>` (relative to the root; never a schema file or a path inside one). `apply`, `set` and `unset` record each protected value they write, and each one the files they touch hold, only after the env files are written; a value replaced with the flag replaces its record, and one removed with it drops it. A value that differs from its record is left as it is, for `check` and `validate` to report (exit 1):
 
 ```text
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. A run that writes or holds a protected value takes a lock file next to the state (`state.json.lock`, holding its pid, host and a random token) before it writes any env file: it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, so parallel runs keep each other's fingerprints. It removes only its own lock. A lock held by another run makes it wait 2 seconds, then exit 1 with nothing written, naming the owner. A lock is never taken over: a run that crashed leaves one, and the message says so (`left by process 4242, which is no longer running; remove it and try again`); remove it by hand. It is written atomically with mode 600, its directory with 700, never through a symlink, and holds only a salted HMAC of each value, never the value:
+`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each value, never the value. Its tables are:
 
-```json
-{
-  "version": 1,
-  "salt": "<base64 of 32 random bytes>",
-  "fingerprints": {
-    ".env": { "SM_MASTER_KEY": { "hmac": "<hex HMAC-SHA-256(salt, value)>", "recordedAt": "2026-10-10T12:00:00.000Z" } }
-  }
-}
-```
+| Table                    | What it holds                                                                                                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `meta`                   | `schema_version` (the migrations applied) and `salt` (the base64 of 32 random bytes)                                                                                                                    |
+| `protected_fingerprints` | per schema file and key, the hex HMAC-SHA-256(salt, value) and when it was recorded (`2026-10-10T12:00:00.000Z`)                                                                                         |
+| `changes`                | the history of edits: `actor` (`cli` or `portal`), `file`, `key`, `operation`, the fingerprints and masked previews of the value before and after, and `at`; never a value                            |
+
+The schema ships with the package as drizzle-kit migrations, applied when a run opens the database; a database written by a newer version is refused, never changed. A `.configure-env/state.json` written by an earlier version (the `state.json` next to the database) is read as it is until the first run that writes the state, which imports it in its transaction, checks every fingerprint arrived, and removes the file once the transaction commits. An import interrupted before the removal is finished by the next run; a `state.json` whose salt differs from the database's is refused (exit 1) until you remove one of them.
 
 Fingerprints are per file: the same value copied to a second file is recorded there too. A state that is not valid exits 1, naming its path; it is never guessed at or replaced. `init` adds `.configure-env/` to `.gitignore`.
 
@@ -316,7 +314,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | ----------------- | ----------------------------------------------------------------------------- |
 | `--schema <path>` | the schema file; default `env.schema.json` in the root                        |
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
-| `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.json` |
+| `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
@@ -346,7 +344,7 @@ A file whose content is current but whose mode differs from the schema's `mode` 
 
 `--replace-protected KEY` (repeatable) lets the run change a protected value; see "Protected variables". Every protected key a file of the run would write is checked before anything is written.
 
-`--prune` removes the keys a `merge` file, or an existing `create-only` file, holds that the schema does not list for it: a variable deleted from the schema, or a key added by hand. Each goes with its comment block, the `#` lines directly above it with no blank line between; a comment set apart by a blank line stays. The blank line rule of `unset` applies. Generate files need no pruning, since they are rewritten. It is opt-in because it deletes keys a person may have added on purpose, and without it `apply` keeps every key. The terminal plan lists the keys to prune (`prune keys: A, B`); the output never shows a value. A pruned key that has a protected fingerprint loses it, under the state's lock. When the schema protects no variable, that is a best effort: a state that cannot be read, or a lock another run holds, keeps the fingerprints and, when the run prunes a key, prints a warning without failing the run: `configure-env: warning: .configure-env/state.json: cannot be read (is not valid JSON); fingerprints of pruned keys, if any, were kept`, or, when a pruned key had one, `not written (<reason>); fingerprints of pruned keys were kept`; a missing state is never created. `check --strict` reports the keys it would remove.
+`--prune` removes the keys a `merge` file, or an existing `create-only` file, holds that the schema does not list for it: a variable deleted from the schema, or a key added by hand. Each goes with its comment block, the `#` lines directly above it with no blank line between; a comment set apart by a blank line stays. The blank line rule of `unset` applies. Generate files need no pruning, since they are rewritten. It is opt-in because it deletes keys a person may have added on purpose, and without it `apply` keeps every key. The terminal plan lists the keys to prune (`prune keys: A, B`); the output never shows a value. A pruned key that has a protected fingerprint loses it, in the state's write transaction. When the schema protects no variable, that is a best effort: a state that cannot be read, or one another run holds, keeps the fingerprints and, when the run prunes a key, prints a warning without failing the run: `configure-env: warning: .configure-env/state.db: cannot be read (is not a valid state database); fingerprints of pruned keys, if any, were kept`, or, when a pruned key had one, `not written (<reason>); fingerprints of pruned keys were kept`; a missing state is never created. `check --strict` reports the keys it would remove.
 
 `--defer KEY` (repeatable) leaves a required variable, or a `requiredUnless` one, for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key that is neither `required: true` nor `requiredUnless`, one also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, leaving out a `requiredUnless` key whose alternative the file sets, and `validate` fails on them until they are set:
 
@@ -635,6 +633,8 @@ The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and 
 Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
 
 The repo is a pnpm workspace: the published package lives in `packages/cli`, the engine it is built on (schema, values, dotenv, plan, apply, check, the protected state and the per-key edits behind `set` and `unset`) in the private `packages/core` (`@configure-env/core`), and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
+
+The state database's tables are declared in `packages/core/src/engine/db-schema.ts`. After changing them, run `pnpm --filter @configure-env/core db:generate`: drizzle-kit writes a new migration to `packages/core/drizzle`, which the core applies when it opens a database and `pnpm build` copies to the package's `dist/migrations`. A test checks that the migrated tables match the declaration.
 
 `packages/design-system` (`@configure-env/design-system`) is the private, source-only design system for the planned web portal; see [its README](packages/design-system/README.md).
 

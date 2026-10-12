@@ -2,27 +2,40 @@
 // protected value a write command wrote or found, never the value itself.
 // It lets a command tell a restored value from a new one after the env file
 // that held it was deleted.
+//
+// It lives in one SQLite database per project (.configure-env/state.db,
+// tables in db-schema.ts), which also holds the history of edits. A run that
+// writes it holds a SQLite write transaction (BEGIN IMMEDIATE) instead of a
+// lock file: SQLite releases it when the run ends, even when it crashes. The
+// state.json of earlier versions is imported by the first write, then
+// removed.
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { chmod, mkdir, open, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { and, eq } from 'drizzle-orm';
 import {
-  type FileHandle,
-  link,
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-  unlink,
-} from 'node:fs/promises';
-import { hostname } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+  type BetterSQLite3Database,
+  drizzle,
+} from 'drizzle-orm/better-sqlite3';
+import { type MigrationMeta, readMigrationFiles } from 'drizzle-orm/migrator';
 import { z } from 'zod';
 import { VARIABLE_NAME } from '../schema/definition.ts';
 import { formatIssuePath } from '../schema/load.ts';
+import * as tables from './db-schema.ts';
 
 /** Where the state lives, relative to the project root. */
-export const DEFAULT_STATE_PATH = '.configure-env/state.json';
+export const DEFAULT_STATE_PATH = '.configure-env/state.db';
+
+/** The file earlier versions kept the state in, next to the database. */
+export const LEGACY_STATE_NAME = 'state.json';
+
+/** The state.json a database at `path` imports. */
+export const legacyStatePath = (path: string) =>
+  join(dirname(path), LEGACY_STATE_NAME);
 
 export const STATE_VERSION = 1;
 
@@ -68,34 +81,40 @@ const codeOf = (error: unknown) =>
   (error as NodeJS.ErrnoException).code ?? String(error);
 
 /**
- * Reads the state at `path`: an empty one when it does not exist. Anything
- * else that is not a valid state is an error naming the path; it is never
- * guessed at or replaced.
+ * Reads a state.json of earlier versions: undefined when it does not exist.
+ * Anything else that is not a valid state is an error naming the path.
  */
-export async function loadState(path: string): Promise<StateResult> {
+export function readLegacyState(path: string): StateResult | undefined {
   const fail = (message: string) => ({
     ok: false as const,
     message: `${path}: ${message}`,
   });
   try {
-    const stats = await lstat(path);
+    const stats = lstatSync(path);
     if (stats.isSymbolicLink())
       return fail('is a symlink; refusing to read through it');
     if (!stats.isFile()) return fail('is not a regular file');
   } catch (error) {
-    if (codeOf(error) === 'ENOENT')
-      return { ok: true, state: emptyState(), exists: false };
+    if (codeOf(error) === 'ENOENT') return undefined;
     return fail(`cannot read it: ${codeOf(error)}`);
   }
   let json: unknown;
   try {
-    json = JSON.parse(await readFile(path, 'utf8'));
+    json = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
     return error instanceof SyntaxError
       ? fail('is not valid JSON')
       : fail(`cannot read it: ${codeOf(error)}`);
   }
-  const result = stateSchema.safeParse(json);
+  return validState(json, fail);
+}
+
+/** `value` as a state, or the first problem through `fail`. */
+function validState(
+  value: unknown,
+  fail: (message: string) => { ok: false; message: string },
+): StateResult {
+  const result = stateSchema.safeParse(value);
   if (result.success) return { ok: true, state: result.data, exists: true };
   const [issue] = result.error.issues;
   return fail(`${formatIssuePath(issue!.path)}: ${issue!.message}`);
@@ -172,42 +191,6 @@ export function removeFingerprint(
 }
 
 /**
- * Writes the state atomically with mode 600: a temporary file in the same
- * directory, flushed, then renamed over it. A new directory gets mode 700.
- * A state path that is a symlink or not a regular file is refused.
- */
-export async function writeState(path: string, state: State): Promise<void> {
-  const dir = dirname(path);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  const stats = await lstat(path).catch(() => undefined);
-  if (stats?.isSymbolicLink())
-    throw new Error(`${path}: is a symlink; refusing to write through it`);
-  if (stats && !stats.isFile())
-    throw new Error(`${path}: is not a regular file`);
-  const temp = join(
-    dir,
-    `.${basename(path)}.${randomBytes(6).toString('hex')}.tmp`,
-  );
-  let handle: FileHandle | undefined;
-  let created = false;
-  try {
-    handle = await open(temp, 'wx', 0o600);
-    created = true;
-    await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    // The mode given to open is subject to the umask; chmod is not.
-    await handle.chmod(0o600);
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await rename(temp, path);
-    created = false;
-  } finally {
-    await handle?.close().catch(() => undefined);
-    if (created) await rm(temp, { force: true }).catch(() => undefined);
-  }
-}
-
-/**
  * One change a run makes: record a value (over a different recorded one
  * only when it `replace`s it), or remove the record. Applied to the state on
  * disk, so it holds the value until then, never writing it.
@@ -245,216 +228,396 @@ export function applyChanges(
   return changed;
 }
 
-/** How long a run waits for another run's lock before it gives up. */
+/** How long a run waits for another run's write transaction before it gives up. */
 export const LOCK_WAIT_MS = 2_000;
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-/** Who holds a lock, as its file says. */
-interface LockOwner {
-  pid: number;
-  host: string;
-  createdAt: string;
-  /** Random, so a run removes only the lock it created. */
-  token: string;
-}
+const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * The lock's owner; undefined when it cannot be read or makes no sense. It
- * never rejects, so a failed read never hides the error a caller reports.
+ * Where the migrations are looked for: `migrations` next to the module (the
+ * published CLI copies them into dist/), then the core's sources.
  */
-const readOwner = async (lock: string): Promise<LockOwner | undefined> => {
-  try {
-    const owner = JSON.parse(await readFile(lock, 'utf8')) as LockOwner;
-    return Number.isInteger(owner.pid) &&
-      owner.pid > 0 &&
-      typeof owner.host === 'string' &&
-      owner.host
-      ? owner
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
+export const MIGRATION_DIRS = [
+  join(here, 'migrations'),
+  join(here, '..', '..', 'drizzle'),
+];
 
-/** Whether a process of this host runs; EPERM means it runs as another user. */
-function isRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return codeOf(error) !== 'ESRCH';
-  }
-}
+let migrationCache: MigrationMeta[] | undefined;
 
-/**
- * Why `lock` cannot be taken, naming its owner. A lock is never taken over;
- * only one whose owner is known to be gone, or on another host, is for a
- * person to remove.
- */
-async function heldMessage(lock: string): Promise<string> {
-  const owner = await readOwner(lock);
-  // Empty or partial: a run filling it now, or one that crashed doing so.
-  if (!owner)
-    return `${lock}: held by another run; try again, and if this persists, remove it`;
-  const { pid, host } = owner;
-  if (host !== hostname())
-    return `${lock}: held by another run (${host}); if none is running, remove it`;
-  return isRunning(pid)
-    ? `${lock}: held by process ${pid}; try again`
-    : `${lock}: left by process ${pid}, which is no longer running; remove it and try again`;
-}
-
-/** The file system calls the lock makes that tests replace. */
-export interface LockFs {
-  link: typeof link;
-  open: typeof open;
-}
-
-// The errors of a file system without hard links: the lock is then created
-// exclusively and filled, and removed when it cannot be filled.
-const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS']);
-
-/** Writes `text` to a new file, closing it whatever happens. */
-async function writeNew(fs: LockFs, path: string, text: string) {
-  const handle = await fs.open(path, 'wx', 0o600);
-  try {
-    await handle.writeFile(text, 'utf8');
-  } finally {
-    await handle.close();
-  }
-}
-
-/**
- * Creates the lock with its owner already in it: the owner goes to a
- * temporary file that is then hard-linked as the lock, so no run ever sees
- * an empty lock or leaves one. False when another run holds it.
- */
-async function createLock(
-  lock: string,
-  owner: LockOwner,
-  fs: LockFs,
-): Promise<boolean> {
-  const text = JSON.stringify(owner);
-  const temp = `${lock}.${owner.token}.tmp`;
-  try {
-    await writeNew(fs, temp, text);
-    await fs.link(temp, lock);
-    return true;
-  } catch (error) {
-    const code = codeOf(error);
-    if (code === 'EEXIST') return false;
-    if (!NO_LINK.has(code)) throw error;
-  } finally {
-    await unlink(temp).catch(() => undefined);
-  }
-  // No hard links: create it exclusively, then fill it.
-  let handle: FileHandle;
-  try {
-    handle = await fs.open(lock, 'wx', 0o600);
-  } catch (error) {
-    // Never remove a lock this run did not create.
-    if (codeOf(error) === 'EEXIST') return false;
-    throw error;
-  }
-  try {
-    await handle.writeFile(text, 'utf8');
-  } catch (error) {
-    // Created but not filled: removed while the path is still this file,
-    // compared with the handle still open, since a closed file's inode can
-    // be reused at once by another run's lock. When the handle cannot be
-    // stat'ed, nothing proves the path is ours: it is left, and the held
-    // message asks a person to remove it if it persists.
-    const mine = await handle.stat().catch(() => undefined);
-    const now = await lstat(lock).catch(() => undefined);
-    if (mine && now && mine.dev === now.dev && mine.ino === now.ino)
-      await unlink(lock).catch(() => undefined);
-    await handle.close().catch(() => undefined);
-    throw error;
-  }
-  try {
-    await handle.close();
-  } catch (error) {
-    // Filled with this run's token, which no other run writes: removed by
-    // it, as a release is.
-    if ((await readOwner(lock))?.token === owner.token)
-      await unlink(lock).catch(() => undefined);
-    throw error;
-  }
-  return true;
-}
-
-const exists = (path: string) =>
-  lstat(path).then(
-    () => true,
-    () => false,
+/** The migrations drizzle-kit generated, in order. */
+export function stateMigrations(): MigrationMeta[] {
+  if (migrationCache) return migrationCache;
+  const dir = MIGRATION_DIRS.find((candidate) =>
+    existsSync(join(candidate, 'meta', '_journal.json')),
   );
+  if (!dir)
+    throw new Error(
+      'the state database migrations are missing; reinstall configure-env',
+    );
+  return (migrationCache = readMigrationFiles({ migrationsFolder: dir }));
+}
+
+/** The schema version of a database migrated by this version. */
+export const stateSchemaVersion = () => stateMigrations().length;
+
+type Db = BetterSQLite3Database<typeof tables>;
+
+/** An error SQLite reports while another connection writes. */
+const isBusy = (error: unknown) =>
+  /^SQLITE_(BUSY|LOCKED)/.test(String((error as { code?: unknown }).code));
+
+/** Another run held the database's write transaction past the wait. */
+export class StateBusyError extends Error {
+  constructor(path: string) {
+    super(`${path}: in use by another run; try again`);
+    this.name = 'StateBusyError';
+  }
+}
+
+/** An error with a message for people, naming `path`. */
+function stateError(path: string, error: unknown): Error {
+  const code = String((error as { code?: unknown }).code ?? '');
+  if (error instanceof StateBusyError) return error;
+  if (isBusy(error)) return new StateBusyError(path);
+  if (code === 'SQLITE_NOTADB' || code.startsWith('SQLITE_CORRUPT'))
+    return new Error(`${path}: is not a valid state database`);
+  const message = (error as Error).message ?? String(error);
+  return new Error(
+    message.startsWith(`${path}: `) ? message : `${path}: ${message}`,
+  );
+}
 
 /**
- * Runs `task` holding `<path>.lock`, created next to the state with this
- * run's pid, host and a random token in it. A lock held by another run is
- * waited for (once more at the deadline if it is gone by then), then
- * refused, naming its owner: it is never taken over, so a run that crashed
- * leaves one for a person to remove. The lock is removed only while it
- * still holds this run's token.
+ * Whether the database file exists; a symlink or anything other than a
+ * regular file is refused.
  */
-export async function withStateLock<T>(
-  path: string,
-  task: () => Promise<T>,
-  {
-    waitMs = LOCK_WAIT_MS,
-    fs: given = {},
-  }: { waitMs?: number; fs?: Partial<LockFs> } = {},
-): Promise<T> {
-  const fs: LockFs = { link, open, ...given };
-  const lock = `${path}.lock`;
+function databaseExists(path: string): boolean {
+  try {
+    const stats = lstatSync(path);
+    if (stats.isSymbolicLink())
+      throw new Error(`${path}: is a symlink; refusing to use it`);
+    if (!stats.isFile()) throw new Error(`${path}: is not a regular file`);
+    return true;
+  } catch (error) {
+    if (codeOf(error) === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+/** Creates the database file with mode 600 when missing; its directory gets 700. */
+async function createDatabaseFile(path: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const owner: LockOwner = {
-    pid: process.pid,
-    host: hostname(),
-    createdAt: new Date().toISOString(),
-    token: randomBytes(16).toString('hex'),
-  };
-  const deadline = Date.now() + waitMs;
-  while (!(await createLock(lock, owner, fs))) {
-    if (Date.now() < deadline) {
-      await pause(25);
-      continue;
+  try {
+    const handle = await open(path, 'wx', 0o600);
+    await handle.close();
+  } catch (error) {
+    if (codeOf(error) !== 'EEXIST') throw error;
+  }
+}
+
+/** The database's schema version: 0 before its first migration. */
+function schemaVersion(sqlite: Database.Database): number {
+  const table = sqlite
+    .prepare("select 1 from sqlite_master where type = 'table' and name = ?")
+    .get('meta');
+  if (!table) return 0;
+  const row = sqlite
+    .prepare("select value from meta where key = 'schema_version'")
+    .get() as { value: string } | undefined;
+  return row ? Number(row.value) : 0;
+}
+
+/**
+ * Applies the migrations the database lacks; the caller holds its write
+ * transaction. A database of a newer version is refused, never changed.
+ */
+function migrate(sqlite: Database.Database): void {
+  const migrations = stateMigrations();
+  const version = schemaVersion(sqlite);
+  if (!Number.isInteger(version) || version < 0)
+    throw new Error('has an invalid schema version');
+  if (version > migrations.length)
+    throw new Error(
+      `has schema version ${version}, newer than this configure-env knows (${migrations.length}); upgrade configure-env`,
+    );
+  if (version === migrations.length) return;
+  for (const migration of migrations.slice(version))
+    for (const statement of migration.sql)
+      if (statement.trim()) sqlite.exec(statement);
+  sqlite
+    .prepare(
+      "insert into meta (key, value) values ('schema_version', ?) on conflict (key) do update set value = excluded.value",
+    )
+    .run(String(migrations.length));
+}
+
+/** The state the database holds; `exists` is false before its first write. */
+function readState(db: Db): StateResult {
+  const fail = (message: string) => ({ ok: false as const, message });
+  const saltRow = db
+    .select()
+    .from(tables.meta)
+    .where(eq(tables.meta.key, 'salt'))
+    .get();
+  const rows = db.select().from(tables.protectedFingerprints).all();
+  if (!saltRow) {
+    if (rows.length) return fail('holds fingerprints without a salt');
+    return { ok: true, state: emptyState(), exists: false };
+  }
+  const fingerprints: Record<string, Record<string, Fingerprint>> = {};
+  for (const row of rows) {
+    fingerprints[row.file] ??= {};
+    fingerprints[row.file]![row.key] = {
+      hmac: row.hmac,
+      recordedAt: row.recordedAt,
+    };
+  }
+  return validState(
+    { version: STATE_VERSION, salt: saltRow.value, fingerprints },
+    fail,
+  );
+}
+
+/** Replaces what the database holds with `state`. */
+function writeAll(db: Db, state: State): void {
+  db.insert(tables.meta)
+    .values({ key: 'salt', value: state.salt })
+    .onConflictDoUpdate({
+      target: tables.meta.key,
+      set: { value: state.salt },
+    })
+    .run();
+  db.delete(tables.protectedFingerprints).run();
+  const rows = Object.entries(state.fingerprints).flatMap(([file, keys]) =>
+    Object.entries(keys).map(([key, entry]) => ({
+      file,
+      key,
+      hmac: entry.hmac,
+      recordedAt: entry.recordedAt,
+    })),
+  );
+  // One statement per row keeps clear of SQLite's bound-parameter limit.
+  for (const row of rows)
+    db.insert(tables.protectedFingerprints).values(row).run();
+}
+
+/**
+ * Imports the state.json next to the database, under its write
+ * transaction: into an empty database as it is, into one with the same salt
+ * only the entries it lacks (a run that crashed after importing it, before
+ * removing it). Every entry is then checked to be in the database. Returns
+ * the path to remove once the transaction commits; undefined when there is
+ * none.
+ */
+function importLegacy(db: Db, path: string): string | undefined {
+  const legacy = legacyStatePath(path);
+  if (legacy === path) return undefined;
+  const result = readLegacyState(legacy);
+  if (!result) return undefined;
+  if (!result.ok) throw new Error(result.message);
+  const json = result.state;
+  const current = readState(db);
+  if (!current.ok) throw new Error(`${path}: ${current.message}`);
+  if (!current.exists) writeAll(db, json);
+  else if (current.state.salt !== json.salt)
+    throw new Error(
+      `${legacy}: its salt differs from the one in ${path}; remove one of them`,
+    );
+  else
+    for (const [file, keys] of Object.entries(json.fingerprints))
+      for (const [key, entry] of Object.entries(keys))
+        db.insert(tables.protectedFingerprints)
+          .values({ file, key, hmac: entry.hmac, recordedAt: entry.recordedAt })
+          .onConflictDoNothing()
+          .run();
+  // Verify before the import commits.
+  for (const [file, keys] of Object.entries(json.fingerprints))
+    for (const key of Object.keys(keys)) {
+      const row = db
+        .select()
+        .from(tables.protectedFingerprints)
+        .where(
+          and(
+            eq(tables.protectedFingerprints.file, file),
+            eq(tables.protectedFingerprints.key, key),
+          ),
+        )
+        .get();
+      if (!row) throw new Error(`${legacy}: ${file} ${key} was not imported`);
     }
-    if (!(await exists(lock)) && (await createLock(lock, owner, fs))) break;
-    throw new Error(await heldMessage(lock));
+  return legacy;
+}
+
+/**
+ * Takes the database's write lock (BEGIN IMMEDIATE), polling without
+ * blocking the event loop until `waitMs` pass; WAL mode is set first.
+ */
+async function begin(sqlite: Database.Database, waitMs: number) {
+  const deadline = Date.now() + waitMs;
+  sqlite.pragma('busy_timeout = 0');
+  try {
+    for (;;) {
+      try {
+        if (sqlite.pragma('journal_mode', { simple: true }) !== 'wal')
+          sqlite.pragma('journal_mode = WAL');
+        sqlite.exec('BEGIN IMMEDIATE');
+        return;
+      } catch (error) {
+        if (!isBusy(error) || Date.now() >= deadline) throw error;
+        await pause(25);
+      }
+    }
+  } finally {
+    sqlite.pragma(`busy_timeout = ${waitMs}`);
+  }
+}
+
+/** A run's view of the state under its write transaction. */
+export interface StateTransaction {
+  /** The database's path. */
+  path: string;
+  /** The state as the transaction read it; a run may change it in place. */
+  state: State;
+  /** Whether the state had been written before. */
+  exists: boolean;
+  /** Replaces what the database holds with `state`, in this transaction. */
+  write: (state: State) => void;
+}
+
+/**
+ * Runs `task` holding the database's write transaction: it opens (creating
+ * it with mode 600, its directory 700) and migrates the database, imports a
+ * state.json left next to it, reads the state, runs `task`, and commits;
+ * anything `task` throws rolls it all back. Another run's transaction is
+ * waited for up to `waitMs`, then refused. An imported state.json is removed
+ * once the transaction commits.
+ */
+export async function withStateTransaction<T>(
+  path: string,
+  task: (tx: StateTransaction) => Promise<T> | T,
+  { waitMs = LOCK_WAIT_MS }: { waitMs?: number } = {},
+): Promise<T> {
+  databaseExists(path);
+  await createDatabaseFile(path);
+  let sqlite: Database.Database;
+  try {
+    sqlite = new Database(path, { timeout: waitMs });
+  } catch (error) {
+    throw stateError(path, error);
   }
   try {
-    return await task();
+    // A file created with another umask, or by SQLite itself.
+    await chmod(path, 0o600).catch(() => undefined);
+    let value: T;
+    let imported: string | undefined;
+    try {
+      await begin(sqlite, waitMs);
+    } catch (error) {
+      throw stateError(path, error);
+    }
+    try {
+      const db = drizzle(sqlite, { schema: tables });
+      try {
+        migrate(sqlite);
+        imported = importLegacy(db, path);
+      } catch (error) {
+        throw stateError(path, error);
+      }
+      const current = readState(db);
+      if (!current.ok) throw new Error(`${path}: ${current.message}`);
+      value = await task({
+        path,
+        state: current.state,
+        exists: current.exists,
+        write: (state) => writeAll(db, state),
+      });
+      sqlite.exec('COMMIT');
+    } catch (error) {
+      if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
+      throw error;
+    }
+    if (imported) await rm(imported, { force: true });
+    return value;
   } finally {
-    if ((await readOwner(lock))?.token === owner.token)
-      await unlink(lock).catch(() => undefined);
+    sqlite.close();
   }
+}
+
+/**
+ * Reads the state at `path`: an empty one when neither the database nor a
+ * state.json next to it exists, and the state.json's content while only it
+ * does (the first write imports it). Anything that is not a valid state is
+ * an error naming the path; it is never guessed at or replaced.
+ */
+export async function loadState(path: string): Promise<StateResult> {
+  let exists: boolean;
+  try {
+    exists = databaseExists(path);
+  } catch (error) {
+    return { ok: false, message: (error as Error).message };
+  }
+  if (!exists)
+    return (
+      readLegacyState(legacyStatePath(path)) ?? {
+        ok: true,
+        state: emptyState(),
+        exists: false,
+      }
+    );
+  try {
+    const sqlite = new Database(path, { fileMustExist: true });
+    try {
+      const current =
+        schemaVersion(sqlite) === stateSchemaVersion() &&
+        !existsSync(legacyStatePath(path))
+          ? readState(drizzle(sqlite, { schema: tables }))
+          : undefined;
+      if (current)
+        return current.ok
+          ? current
+          : { ok: false, message: `${path}: ${current.message}` };
+    } finally {
+      sqlite.close();
+    }
+    // Not migrated yet, or a state.json left to import: a write does both.
+    return await withStateTransaction(path, (tx) => ({
+      ok: true,
+      state: tx.state,
+      exists: tx.exists,
+    }));
+  } catch (error) {
+    return { ok: false, message: stateError(path, error).message };
+  }
+}
+
+/** Writes the state, replacing what the database holds, in one transaction. */
+export async function writeState(path: string, state: State): Promise<void> {
+  await withStateTransaction(path, (tx) => tx.write(state));
 }
 
 /** Writes the state; tests pass one that fails. */
 export type StateWriter = (path: string, state: State) => Promise<void>;
 
 /**
- * Applies changes to the state on disk; the caller holds its lock. It
- * re-reads the state, keeps its salt and every entry the changes do not
- * touch, and writes it with `write` only when it changed. True when it
- * wrote it.
+ * Applies changes to the state of a write transaction: it keeps the salt and
+ * every entry the changes do not touch, and writes only when it changed,
+ * through `write` when given. True when it wrote it.
  */
 export async function mergeState(
-  path: string,
+  tx: StateTransaction,
   changes: readonly StateChange[],
-  write: StateWriter = writeState,
+  write?: StateWriter,
 ): Promise<boolean> {
-  const result = await loadState(path);
-  if (!result.ok) throw new Error(result.message);
-  if (!applyChanges(result.state, changes)) return false;
-  await write(path, result.state);
+  if (!applyChanges(tx.state, changes)) return false;
+  if (write) await write(tx.path, tx.state);
+  else tx.write(tx.state);
   return true;
 }
 
 /**
- * Applies a run's changes to the state on disk, under its lock: it re-reads
+ * Applies a run's changes to the state in one write transaction: it re-reads
  * the state, keeps its salt and every entry the changes do not touch, and
  * writes it only when it changed. Parallel runs so keep each other's
  * fingerprints. True when it wrote the state.
@@ -464,11 +627,11 @@ export async function updateState(
   changes: readonly StateChange[],
   {
     waitMs = LOCK_WAIT_MS,
-    write = writeState,
+    write,
   }: { waitMs?: number; write?: StateWriter } = {},
 ): Promise<boolean> {
   if (!changes.length) return false;
-  return withStateLock(path, () => mergeState(path, changes, write), {
+  return withStateTransaction(path, (tx) => mergeState(tx, changes, write), {
     waitMs,
   });
 }

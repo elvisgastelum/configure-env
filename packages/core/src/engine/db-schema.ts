@@ -1,0 +1,65 @@
+// The tables of the state database (.configure-env/state.db). drizzle-kit
+// generates the migrations in ../../drizzle from this file
+// (`pnpm --filter @configure-env/core db:generate`); a test checks that the
+// migrated tables match it. No column ever holds a value: only salted HMACs
+// and masked previews.
+
+import { sql } from 'drizzle-orm';
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core';
+
+/**
+ * Key/value settings of the database: `schema_version` (how many migrations
+ * it holds) and `salt` (the base64 HMAC salt of its fingerprints).
+ */
+export const meta = sqliteTable('meta', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+});
+
+/** The fingerprint of each protected value, by schema file path and key. */
+export const protectedFingerprints = sqliteTable(
+  'protected_fingerprints',
+  {
+    file: text('file').notNull(),
+    key: text('key').notNull(),
+    hmac: text('hmac').notNull(),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.file, table.key] })],
+);
+
+/**
+ * The history of edits made by the CLI or the portal: who, which key of
+ * which file, how, and fingerprints and masked previews of the value before
+ * and after. Never the value itself. `operation` is not constrained in SQL,
+ * so the history can name new operations without rebuilding the table.
+ */
+export const changes = sqliteTable(
+  'changes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    actor: text('actor', { enum: ['cli', 'portal'] }).notNull(),
+    file: text('file').notNull(),
+    key: text('key').notNull(),
+    operation: text('operation', {
+      enum: ['set', 'unset', 'replace'],
+    }).notNull(),
+    beforeFingerprint: text('before_fingerprint'),
+    afterFingerprint: text('after_fingerprint'),
+    beforePreview: text('before_preview'),
+    afterPreview: text('after_preview'),
+    at: text('at').notNull(),
+  },
+  (table) => [
+    check('changes_actor', sql`${table.actor} in ('cli', 'portal')`),
+    index('changes_file_key').on(table.file, table.key),
+    index('changes_at').on(table.at),
+  ],
+);

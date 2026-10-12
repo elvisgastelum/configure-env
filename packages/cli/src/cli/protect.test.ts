@@ -2,15 +2,24 @@
 // silently, even after the file that held it was deleted.
 
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { getValue, parseDotenv, updateState } from '@configure-env/core';
+import { describe, expect, it, onTestFinished } from 'vitest';
+import {
+  getValue,
+  parseDotenv,
+  updateState,
+  writeState,
+} from '@configure-env/core';
 import {
   KEY_A,
   KEY_B,
+  LEGACY_STATE,
+  STATE,
+  holdState,
+  readState,
   run,
   scriptedPrompts,
+  stateBytes,
   useProject,
 } from './test-helpers.ts';
 
@@ -62,14 +71,9 @@ const exists = (name: string) =>
     () => true,
     () => false,
   );
-const STATE = '.configure-env/state.json';
-const state = async () =>
-  JSON.parse(await read(STATE)) as {
-    fingerprints: Record<
-      string,
-      Record<string, { hmac: string; recordedAt: string }>
-    >;
-  };
+const state = () => readState(path(STATE));
+/** The state as text, for comparing it before and after a run. */
+const snapshot = async () => JSON.stringify(await state());
 const valueIn = async (file: string, key: string) =>
   getValue(parseDotenv(await read(file)), key);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -81,7 +85,7 @@ async function expectNoValue(
 ) {
   const text = [
     ...runs.flatMap((r) => [...r.out, ...r.err]),
-    (await exists(STATE)) ? await read(STATE) : '',
+    await stateBytes(path(STATE)),
   ].join('\n');
   for (const value of values) expect(text).not.toContain(value);
 }
@@ -680,7 +684,7 @@ describe('apply', () => {
 
   it('exits 1 for a state it cannot read, writing nothing', async () => {
     await mkdir(path('.configure-env'));
-    await writeFile(path(STATE), '{"version": 2}');
+    await writeFile(path(LEGACY_STATE), '{"version": 2}');
     const r = await cli([
       'apply',
       '--ci',
@@ -691,7 +695,7 @@ describe('apply', () => {
     ]);
     expect(r.code).toBe(1);
     expect(r.err[0]).toBe(
-      `configure-env: invalid state ${path(STATE)}: version: must be 1`,
+      `configure-env: invalid state ${path(LEGACY_STATE)}: version: must be 1`,
     );
     expect(await exists('gen.env')).toBe(false);
   });
@@ -704,7 +708,7 @@ describe('apply', () => {
     expect(r.code).toBe(1);
     expect(r.out).toEqual(['gen.env: created']);
     expect(r.err[0]).toMatch(
-      /^configure-env: \.configure-env\/state\.json: not written: disk full$/,
+      /^configure-env: \.configure-env\/state\.db: not written: disk full$/,
     );
     expect(r.err[1]).toBe(
       'gen.env was written; its protected values are not recorded',
@@ -758,9 +762,9 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: '.configure-env/state.db',
           message:
-            '.configure-env/state.json: not written: disk full; .env was written; its protected values are not recorded',
+            '.configure-env/state.db: not written: disk full; .env was written; its protected values are not recorded',
         },
       ],
     });
@@ -786,9 +790,9 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: '.configure-env/state.db',
           message:
-            '.configure-env/state.json: not written: disk full; .env was written; its protected values are not recorded',
+            '.configure-env/state.db: not written: disk full; .env was written; its protected values are not recorded',
         },
       ],
     });
@@ -796,15 +800,12 @@ describe('apply', () => {
     await expectNoValue([set, replaced, unset], KEY_A, KEY_B);
   });
 
-  it('fails before writing anything while another run holds the lock', async () => {
+  it('fails before writing anything while another run holds the state', async () => {
     await seedKey();
-    const lock = path(`${STATE}.lock`);
-    await writeFile(
-      lock,
-      JSON.stringify({ pid: process.pid, host: hostname() }),
-    );
+    const release = await holdState(path(STATE));
+    onTestFinished(release);
     const held = [
-      `.configure-env/state.json: not written: ${lock}: held by process ${process.pid}; try again`,
+      '.configure-env/state.db: not written: in use by another run; try again',
       'nothing was written',
     ];
     const set = await cli(
@@ -837,7 +838,7 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: '.configure-env/state.db',
           message: held.join('; '),
         },
       ],
@@ -859,7 +860,7 @@ describe('apply', () => {
       errors: [
         {
           kind: 'file',
-          path: '.configure-env/state.json',
+          path: '.configure-env/state.db',
           message: held.join('; '),
         },
       ],
@@ -872,7 +873,7 @@ describe('apply', () => {
     const holding = await cli(['set', '--file', '.env', 'SM_MASTER_KEY_FILE=']);
     expect(holding.code).toBe(1);
     expect(holding.err[0]).toBe(`configure-env: ${held[0]}`);
-    // A run that touches no protected value never takes the lock.
+    // A run that touches no protected value never opens the state.
     const other = await cli([
       'set',
       '--create',
@@ -940,7 +941,7 @@ describe('apply', () => {
     await expectNoValue([first, again, restored], old);
   });
 
-  it('checks under the lock a state changed after the run read it', async () => {
+  it('checks in its transaction a state changed after the run read it', async () => {
     await seedKey();
     await rm(path('.env'));
     // While this run waits, another one records a new value for the key.
@@ -994,8 +995,8 @@ describe('apply', () => {
     const seeded = await state();
     seeded.fingerprints['.env']!['SM_MASTER_KEY']!.recordedAt =
       '2020-01-02T23:59:30.000Z';
-    await writeFile(path(STATE), JSON.stringify(seeded));
-    const recorded = await read(STATE);
+    await writeState(path(STATE), seeded);
+    const recorded = await snapshot();
     // The value changed by hand: a chmod neither blocks on it nor records it.
     await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
     await chmod(path('.env'), 0o644);
@@ -1007,7 +1008,7 @@ describe('apply', () => {
     });
     expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_B);
-    expect(await read(STATE)).toBe(recorded);
+    expect(await snapshot()).toBe(recorded);
     // check still reports the mismatch.
     const check = await cli(['check', '--ci', '--file', '.env']);
     expect(check.code).toBe(1);
@@ -1019,7 +1020,7 @@ describe('apply', () => {
     const after = await state();
     after.fingerprints['.env']!['SM_MASTER_KEY']!.recordedAt =
       '2020-01-03T00:00:30.000Z';
-    await writeFile(path(STATE), JSON.stringify(after));
+    await writeState(path(STATE), after);
     const next = await cli(['check', '--ci', '--file', '.env']);
     expect(next.out).toContain(
       `.env: SM_MASTER_KEY no longer matches the value recorded on 2020-01-03`,
@@ -1034,24 +1035,20 @@ describe('apply', () => {
       '--file',
       'gen.env',
       '--state',
-      'private/state.json',
+      'private/state.db',
       '--set',
       'API_KEY=first-value',
     ]);
     expect(r.code).toBe(0);
     expect(await exists(STATE)).toBe(false);
-    expect(await exists('private/state.json')).toBe(true);
+    expect(await exists('private/state.db')).toBe(true);
   });
 
-  it('fixes a mode without the lock when the file holds no protected value', async () => {
+  it('fixes a mode without the state when the file holds no protected value', async () => {
     await writeFile(path('.env'), 'SM_MASTER_KEY_FILE=/run/key\n');
     await chmod(path('.env'), 0o644);
-    // Another run holds the lock: a chmod with nothing to record never waits.
-    await mkdir(path('.configure-env'));
-    await writeFile(
-      path(`${STATE}.lock`),
-      JSON.stringify({ pid: process.pid, host: hostname() }),
-    );
+    // Another run holds the state: a chmod with nothing to record never waits.
+    onTestFinished(await holdState(path(STATE)));
     const r = await cli(['apply', '--ci', '--file', '.env']);
     expect(r).toMatchObject({
       code: 0,
@@ -1059,30 +1056,26 @@ describe('apply', () => {
       err: [],
     });
     expect((await stat(path('.env'))).mode & 0o777).toBe(0o600);
-    expect(await exists(STATE)).toBe(false);
+    expect((await state()).fingerprints).toEqual({});
   });
 
-  it('takes the lock for a mode fix of a file holding a protected value', async () => {
+  it('takes the state for a mode fix of a file holding a protected value', async () => {
     await seedKey();
     await chmod(path('.env'), 0o644);
-    const recorded = await read(STATE);
-    const lock = path(`${STATE}.lock`);
-    await writeFile(
-      lock,
-      JSON.stringify({ pid: process.pid, host: hostname() }),
-    );
+    const recorded = await snapshot();
+    onTestFinished(await holdState(path(STATE)));
     // As for a skipped create-only file: the held value is checked under it.
     const r = await cli(['apply', '--ci', '--file', '.env']);
     expect(r).toMatchObject({
       code: 1,
       out: [],
       err: [
-        `configure-env: .configure-env/state.json: not written: ${lock}: held by process ${process.pid}; try again`,
+        'configure-env: .configure-env/state.db: not written: in use by another run; try again',
         'nothing was written',
       ],
     });
     expect((await stat(path('.env'))).mode & 0o777).toBe(0o644);
-    expect(await read(STATE)).toBe(recorded);
+    expect(await snapshot()).toBe(recorded);
     await expectNoValue([r], KEY_A);
   });
 });
@@ -1094,7 +1087,7 @@ describe('check and validate', () => {
   it('report a value that no longer matches its fingerprint, never writing the state', async () => {
     await seedKey();
     await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
-    const before = await read(STATE);
+    const before = await snapshot();
     const validate = await cli(['validate', '--file', '.env']);
     expect(validate).toMatchObject({ code: 1, out: [`.env: ${mismatch()}`] });
     const json = await cli(['validate', '--json', '--file', '.env']);
@@ -1118,7 +1111,7 @@ describe('check and validate', () => {
         reason: REASON,
       },
     ]);
-    expect(await read(STATE)).toBe(before);
+    expect(await snapshot()).toBe(before);
     await expectNoValue([validate, json, check, checkJson], KEY_A, KEY_B);
   });
 
@@ -1134,11 +1127,11 @@ describe('check and validate', () => {
 
   it('exit 1 for a state they cannot read', async () => {
     await mkdir(path('.configure-env'));
-    await writeFile(path(STATE), 'nope');
+    await writeFile(path(LEGACY_STATE), 'nope');
     const r = await cli(['validate', '--file', '.env']);
     expect(r.code).toBe(1);
     expect(r.err[0]).toBe(
-      `configure-env: invalid state ${path(STATE)}: is not valid JSON`,
+      `configure-env: invalid state ${path(LEGACY_STATE)}: is not valid JSON`,
     );
   });
 });
