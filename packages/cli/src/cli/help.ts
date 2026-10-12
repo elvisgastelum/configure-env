@@ -17,7 +17,7 @@ const GLOBAL = `Global options:
   --root <dir>     the project root the schema's paths are relative to
                    (default: where the command was typed)
   --state <path>   the protected variables' state, relative to the root
-                   (default: .configure-env/state.json)
+                   (default: .configure-env/state.db)
   --file <path>    only this schema file; repeat for more (set, get and
                    unset take one; it defaults to the only file that is
                    not a template)
@@ -37,7 +37,7 @@ const EXIT_CODES = `Exit codes:
 
 const PROTECTED = `A protected variable keeps the value a file holds: a different value,
 or removing it, exits 2 and writes nothing. So does a new value where a
-file lost one that the state (.configure-env/state.json) recorded; the
+file lost one that the state (.configure-env/state.db) recorded; the
 recorded value itself is taken back. --replace-protected KEY allows the
 change: in a terminal you type KEY to confirm, with --ci or --json the
 flag is enough.`;

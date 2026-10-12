@@ -213,7 +213,7 @@ const protectedChanges = (
     : { refused: [], replaced: [] as Replaced[] };
 
 /**
- * Writes the plan, under the state's lock when it touches protected values
+ * Writes the plan, in the state's write transaction when it touches protected values
  * (see writeProtected), settling its checks and values with the state as it
  * is then. `allowed` are the keys --replace-protected may replace.
  */
@@ -545,7 +545,7 @@ async function applyUnattended(
   try {
     written = await writeRun(context, schema, guard, plan, guard.replace);
   } catch (error) {
-    // Refused under the state's lock, or no lock: nothing was written.
+    // Refused in the state's transaction, or no transaction: nothing was written.
     if (!(error instanceof CliError) || !error.errors) throw error;
     if (json) io.stdout(failureJson(error.errors, plan.files));
     else

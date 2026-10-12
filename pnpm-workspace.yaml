@@ -7,4 +7,9 @@ packages:
 # tsx works with the prebuilt platform binary; the esbuild postinstall only
 # re-checks it, and pnpm 12 refuses unapproved build scripts.
 allowBuilds:
+  # better-sqlite3 (the state database) ships N-API prebuilds for Linux
+  # (glibc and musl), macOS and Windows on x64 and arm64 inside its tarball
+  # and has no install script; approved so a release that adds a build
+  # fallback still installs.
+  better-sqlite3: true
   esbuild: false

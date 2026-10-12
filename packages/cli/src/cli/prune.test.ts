@@ -2,10 +2,16 @@
 // leaves the env files with its comment, and only when asked.
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { run, scriptedPrompts, useProject } from './test-helpers.ts';
+import { describe, expect, it, onTestFinished } from 'vitest';
+import {
+  STATE,
+  holdState,
+  readState,
+  run,
+  scriptedPrompts,
+  useProject,
+} from './test-helpers.ts';
 
 const TOKEN = 'token-value-123456';
 
@@ -41,10 +47,7 @@ const path = (name: string) => join(dirs.root, name);
 const read = (name: string) => readFile(path(name), 'utf8');
 const useSchema = (schema: unknown) =>
   writeFile(path('env.schema.json'), JSON.stringify(schema));
-const STATE = '.configure-env/state.json';
-const fingerprints = async () =>
-  (JSON.parse(await read(STATE)) as { fingerprints: Record<string, object> })
-    .fingerprints;
+const fingerprints = async () => (await readState(path(STATE))).fingerprints;
 
 /** The schema without `keys`, each file listing only the rest. */
 const without = (...keys: string[]): Schema => ({
@@ -224,10 +227,11 @@ describe('apply --prune', () => {
 
 describe('apply --prune and an unusable state', () => {
   const KEPT = 'fingerprints of pruned keys were kept';
-  const UNREAD = `${STATE}: cannot be read (is not valid JSON); fingerprints of pruned keys, if any, were kept`;
+  const UNREAD = `${STATE}: cannot be read (is not a valid state database); fingerprints of pruned keys, if any, were kept`;
+  const CORRUPT = 'not a SQLite database, but long enough to be read as one';
   const corrupt = async () => {
     await mkdir(path('.configure-env'), { recursive: true });
-    await writeFile(path(STATE), 'not json');
+    await writeFile(path(STATE), CORRUPT);
   };
 
   it('prunes anyway when the schema protects nothing, with a warning', async () => {
@@ -253,7 +257,7 @@ describe('apply --prune and an unusable state', () => {
       ]),
     );
     expect(document).toMatchObject({ ok: true, warnings: [warning] });
-    expect(await read(STATE)).toBe('not json');
+    expect(await read(STATE)).toBe(CORRUPT);
   });
 
   it('warns about nothing when the run prunes nothing', async () => {
@@ -358,20 +362,16 @@ describe('apply --prune and an unusable state', () => {
     ).not.toHaveProperty('warnings');
   });
 
-  it('prunes past a held lock, keeping the fingerprint', async () => {
+  it('prunes past a state another run holds, keeping the fingerprint', async () => {
     await cli(['apply', '--ci', '--set', `API_TOKEN=${TOKEN}`]);
-    const lock = path(`${STATE}.lock`);
-    await writeFile(
-      lock,
-      JSON.stringify({ pid: process.pid, host: hostname() }),
-    );
+    onTestFinished(await holdState(path(STATE)));
     await useSchema(without('API_TOKEN'));
     const r = await cli(['apply', '--ci', '--prune', '--file', '.env']);
     expect(r).toMatchObject({
       code: 0,
       out: ['.env: pruned keys: API_TOKEN'],
       err: [
-        `configure-env: warning: ${STATE}: not written (${lock}: held by process ${process.pid}; try again); ${KEPT}`,
+        `configure-env: warning: ${STATE}: not written (in use by another run; try again); ${KEPT}`,
       ],
     });
     expect(await read('.env')).not.toContain('API_TOKEN');

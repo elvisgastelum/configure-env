@@ -115,7 +115,7 @@ export const protectedError = (
 ) => new CliError(2, [...problems.map(protectedLine), ...hints], [...problems]);
 
 /**
- * A lock or state a guarded write could not get, so nothing was written:
+ * A state a guarded write could not get or use, so nothing was written:
  * exit 1, with a `file` error for --json.
  */
 export const stateError = (path: string, lines: string[]) =>
@@ -151,8 +151,8 @@ export async function confirmReplacements(
 }
 
 /**
- * The core's guarded write with the CLI's exits: a refusal under the lock
- * exits 2 with `hints`, a lock or state it cannot get exits 1 with nothing
+ * The core's guarded write with the CLI's exits: a refusal in the state's transaction
+ * exits 2 with `hints`, a state it cannot get or use exits 1 with nothing
  * written.
  */
 export async function writeProtected<T>(

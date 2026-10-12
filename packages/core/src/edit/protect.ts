@@ -9,12 +9,12 @@ import {
   type State,
   type StateChange,
   type StateWriter,
-  loadState,
   matchesFingerprint,
   mergeState,
   recorded,
   recordedDay,
-  withStateLock,
+  StateBusyError,
+  withStateTransaction,
 } from '../engine/state.ts';
 import {
   type EnvSchema,
@@ -43,7 +43,7 @@ export type Verdict =
 /**
  * The state of a run, as read at its start: it decides early refusals and
  * which replacements to confirm. The checks that count run again against
- * the state re-read under its lock.
+ * the state re-read in its write transaction.
  */
 export interface RunState {
   path: string;
@@ -249,7 +249,7 @@ export interface Written<T> {
 /**
  * The outcome of a guarded write: written (a state write that failed after
  * the env files is `stateError`, a best-effort one `warning`), refused by a
- * protected check under the lock, or stopped by a lock or state it could
+ * protected check in the state's transaction, or stopped by a state it could
  * not get, with nothing written (`path` as shown, `lines` the reason).
  */
 export type Guarded<T> =
@@ -265,10 +265,10 @@ export type Guarded<T> =
 
 /**
  * Writes a run that may touch protected values. A run that writes or holds
- * none just writes. Any other takes the state's lock before writing
+ * none just writes. Any other takes the state's write transaction before writing
  * anything: under it, it re-reads the state, runs every protected check
  * against it (a refusal writes nothing), writes the env files, merges its
- * changes into the state and releases the lock. The fingerprints of the
+ * changes into the state and commits. The fingerprints of the
  * `forget` keys (pruned ones) of the files written as planned are removed.
  * With `bestEffort` (the schema protects nothing), a run that only forgets
  * writes even when it cannot use the state, returning a `warning` instead of
@@ -298,7 +298,7 @@ export async function writeProtected<T>(
         (key) => isProtected(schema, spec, key) && valueOf(key),
       ),
     );
-  // A run that writes or holds no protected value never takes the lock.
+  // A run that writes or holds no protected value never opens the state.
   if (!run || (!guarded && !forget.length))
     return { ok: true, value: (await write()).value, replaced: [] };
   const lenient = Boolean(plan.bestEffort) && !guarded;
@@ -306,53 +306,50 @@ export async function writeProtected<T>(
     keptWarning(access.cwd, run.path, verb, (error as Error).message);
 
   let writing = false;
-  let unreadable = false;
   try {
-    return await withStateLock(run.path, async (): Promise<Guarded<T>> => {
-      const fresh = await loadState(run.path);
-      if (!fresh.ok) {
-        unreadable = true;
-        throw new Error(fresh.message);
-      }
-      const { refused, replaced } = verdictsOf(
-        schema,
-        fresh.state,
-        checks,
-        replace,
-      );
-      if (refused.length)
-        return { ok: false, kind: 'protected', problems: refused };
-      writing = true;
-      const { value, done, written } = await write();
-      const changes: StateChange[] = [
-        ...intentsOf(
+    return await withStateTransaction(
+      run.path,
+      async (tx): Promise<Guarded<T>> => {
+        const { refused, replaced } = verdictsOf(
           schema,
-          files.filter((file) => done.includes(file.spec.path)),
-          replaced,
-        ),
-        ...forget
-          .filter((entry) => done.includes(entry.file))
-          .map((entry) => ({ action: 'remove' as const, ...entry })),
-      ];
-      try {
-        await mergeState(run.path, changes, access.writeState);
-        return { ok: true, value, replaced };
-      } catch (error) {
-        if (lenient)
+          tx.state,
+          checks,
+          replace,
+        );
+        if (refused.length)
+          return { ok: false, kind: 'protected', problems: refused };
+        writing = true;
+        const { value, done, written } = await write();
+        const changes: StateChange[] = [
+          ...intentsOf(
+            schema,
+            files.filter((file) => done.includes(file.spec.path)),
+            replaced,
+          ),
+          ...forget
+            .filter((entry) => done.includes(entry.file))
+            .map((entry) => ({ action: 'remove' as const, ...entry })),
+        ];
+        try {
+          await mergeState(tx, changes, access.writeState);
+          return { ok: true, value, replaced };
+        } catch (error) {
+          if (lenient)
+            return {
+              ok: true,
+              value,
+              replaced,
+              warning: kept('not written', error),
+            };
           return {
             ok: true,
             value,
             replaced,
-            warning: kept('not written', error),
+            stateError: stateFailure(access.cwd, run, error, written),
           };
-        return {
-          ok: true,
-          value,
-          replaced,
-          stateError: stateFailure(access.cwd, run, error, written),
-        };
-      }
-    });
+        }
+      },
+    );
   } catch (error) {
     if (writing) throw error;
     if (lenient)
@@ -360,19 +357,30 @@ export async function writeProtected<T>(
         ok: true,
         value: (await write()).value,
         replaced: [],
-        warning: kept(unreadable ? 'cannot be read' : 'not written', error),
+        warning: kept(
+          error instanceof StateBusyError ? 'not written' : 'cannot be read',
+          error,
+        ),
       };
     return {
       ok: false,
       kind: 'state',
       path: displayPath(access.cwd, run.path),
       lines: [
-        `${displayPath(access.cwd, run.path)}: not written: ${(error as Error).message}`,
+        `${displayPath(access.cwd, run.path)}: not written: ${reasonOf(run.path, error)}`,
         'nothing was written',
       ],
     };
   }
 }
+
+/** An error's message without the state path it may start with. */
+const reasonOf = (path: string, error: unknown) => {
+  const message = (error as Error).message;
+  return message.startsWith(`${path}: `)
+    ? message.slice(path.length + 2)
+    : message;
+};
 
 /** The lines of a failed state write. */
 export const stateFailure = (
@@ -381,7 +389,7 @@ export const stateFailure = (
   error: unknown,
   written: readonly string[],
 ) => [
-  `${displayPath(cwd, run.path)}: not written: ${(error as Error).message}`,
+  `${displayPath(cwd, run.path)}: not written: ${reasonOf(run.path, error)}`,
   written.length > 1
     ? `${written.join(', ')} were written; their protected values are not recorded`
     : written.length

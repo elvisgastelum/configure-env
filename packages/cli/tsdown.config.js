@@ -2,7 +2,9 @@
 // Builds dist/ for npm: the bin (dist/cli.js) and the programmatic API
 // (dist/index.js with its bundled declarations), with source maps.
 // @configure-env/core is a private workspace package, so it is inlined; the
-// published dependencies (zod, @clack/prompts) stay imports.
+// published dependencies (zod, @clack/prompts, better-sqlite3 with its native
+// binding, drizzle-orm) stay imports. The core's migrations are copied to
+// dist/migrations by scripts/copy-migrations.mjs.
 
 import { defineConfig } from 'tsdown';
 
@@ -18,5 +20,7 @@ export default defineConfig({
   tsconfig: 'tsconfig.build.json',
   // The output may import only the published dependencies and Node's
   // built-ins; anything else fails the build.
-  deps: { onlyImport: ['zod', '@clack/prompts'] },
+  deps: {
+    onlyImport: ['zod', '@clack/prompts', 'better-sqlite3', 'drizzle-orm'],
+  },
 });

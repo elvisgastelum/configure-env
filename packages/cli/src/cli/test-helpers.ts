@@ -1,15 +1,65 @@
 // Shared by the CLI tests: a temporary project root with a schema, and a
 // `main` runner with an injected io and a scripted prompts adapter.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach } from 'vitest';
+import {
+  DEFAULT_STATE_PATH,
+  type State,
+  emptyState,
+  loadState,
+  writeState,
+} from '@configure-env/core';
 import type { Io, Prompts } from './io.ts';
 import { main } from './main.ts';
 
 /** The repository root: README.md, the workspace and release config. */
 export const REPO_ROOT = new URL('../../../../', import.meta.url);
+
+/** The state database, relative to a project root. */
+export const STATE = DEFAULT_STATE_PATH;
+
+/** The state.json of earlier versions, relative to a project root. */
+export const LEGACY_STATE = '.configure-env/state.json';
+
+/** The state at `path`, failing the test when it cannot be read. */
+export async function readState(path: string): Promise<State> {
+  const result = await loadState(path);
+  if (!result.ok) throw new Error(result.message);
+  return result.state;
+}
+
+/**
+ * Everything the state's directory holds, the database and its WAL
+ * included, as text: for checking that no value was written there.
+ */
+export async function stateBytes(path: string): Promise<string> {
+  const dir = dirname(path);
+  const names = await readdir(dir).catch(() => []);
+  const texts = await Promise.all(
+    names.map((name) => readFile(join(dir, name), 'latin1')),
+  );
+  return texts.join('\n');
+}
+
+/**
+ * Holds the state database's write transaction from another connection, as
+ * another run would, creating the database when missing. Returns the
+ * release.
+ */
+export async function holdState(path: string): Promise<() => void> {
+  const current = await loadState(path);
+  if (!current.ok || !current.exists) await writeState(path, emptyState());
+  const db = new Database(path, { fileMustExist: true });
+  db.exec('BEGIN IMMEDIATE');
+  return () => {
+    db.exec('COMMIT');
+    db.close();
+  };
+}
 
 /** One file per policy over five variables; no file name starts with `.env`. */
 export const CLI_SCHEMA = {

@@ -76,7 +76,7 @@ const confirmOf = (context: Context) =>
 
 /**
  * An edit that wrote nothing, as the CLI reports it: a cancel exits 130, a
- * protected refusal 2, anything else 1. A lock or state it could not get is
+ * protected refusal 2, anything else 1. A state it could not get or use is
  * printed as the command's document with --json.
  */
 function failed(

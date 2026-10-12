@@ -61,8 +61,8 @@ export interface EditOptions {
 
 /**
  * Why an edit wrote nothing: values that break their rules (`invalid`),
- * protected values it may not change, a `confirm` that said no, a lock or
- * state it could not get, or an env file it could not write.
+ * protected values it may not change, a `confirm` that said no, a state it
+ * could not get or use, or an env file it could not write.
  */
 export type EditFailure =
   | { ok: false; kind: 'invalid'; messages: string[] }
@@ -143,8 +143,8 @@ class NotWritten {
 }
 
 /**
- * Writes the file and records the protected values it holds; under the
- * state's lock when the run has anything to settle with it, so the state
+ * Writes the file and records the protected values it holds; in the
+ * state's write transaction when the run has anything to settle with it, so the state
  * never learns a value that was not written. `allowed` are the keys the
  * edit may replace.
  */

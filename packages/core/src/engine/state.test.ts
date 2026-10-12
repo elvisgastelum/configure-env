@@ -1,48 +1,87 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import {
-  type FileHandle,
-  link,
   mkdir,
-  open,
   readFile,
   readdir,
-  rm,
   stat,
   symlink,
-  unlink,
   writeFile,
 } from 'node:fs/promises';
-import { hostname } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import Database from 'better-sqlite3';
+import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { describe, expect, it } from 'vitest';
+import * as tables from './db-schema.ts';
 import {
   DEFAULT_STATE_PATH,
   type State,
   type StateChange,
+  StateBusyError,
   applyChanges,
   emptyState,
   fingerprint,
+  legacyStatePath,
   loadState,
   matchesFingerprint,
   recordFingerprint,
   recorded,
   recordedDay,
   removeFingerprint,
+  stateMigrations,
+  stateSchemaVersion,
   updateState,
-  withStateLock,
+  withStateTransaction,
   writeState,
 } from './state.ts';
 import { useTempRoot } from './test-helpers.ts';
 
 const temp = useTempRoot();
 const statePath = () => join(temp.dirs.root, DEFAULT_STATE_PATH);
+const legacyPath = () => legacyStatePath(statePath());
+const stateDir = () => join(temp.dirs.root, '.configure-env');
 const modeOf = async (path: string) => (await stat(path)).mode & 0o777;
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
 
 const SECRET = 'correct horse battery staple';
 
+const record = (
+  file: string,
+  key: string,
+  value: string,
+  replace = false,
+): StateChange => ({ action: 'record', file, key, value, replace });
+
+/** The state at the path, failing the test when it cannot be read. */
+async function loaded(path = statePath()): Promise<State> {
+  const result = await loadState(path);
+  if (!result.ok) throw new Error(result.message);
+  return result.state;
+}
+
+/** A raw connection to the database, for what the API does not show. */
+function raw<T>(use: (db: Database.Database) => T): T {
+  const db = new Database(statePath(), { fileMustExist: true });
+  try {
+    return use(db);
+  } finally {
+    db.close();
+  }
+}
+
+/** A state.json as earlier versions wrote it. */
+async function writeLegacy(state: State) {
+  await mkdir(stateDir(), { recursive: true });
+  await writeFile(legacyPath(), `${JSON.stringify(state, null, 2)}\n`);
+}
+
 describe('the state', () => {
-  it('is empty when the file is missing, with a fresh 32-byte salt', async () => {
+  it('is empty when the database is missing, with a fresh 32-byte salt, and creates nothing', async () => {
     const result = await loadState(statePath());
     expect(result).toMatchObject({
       ok: true,
@@ -52,30 +91,35 @@ describe('the state', () => {
     if (!result.ok) return;
     expect(Buffer.from(result.state.salt, 'base64')).toHaveLength(32);
     expect(emptyState().salt).not.toBe(result.state.salt);
+    expect(await exists(stateDir())).toBe(false);
   });
 
-  it('writes atomically with mode 600 in a directory with mode 700', async () => {
+  it('writes the database with mode 600 in a directory with mode 700', async () => {
     const state = emptyState();
     recordFingerprint(state, '.env', 'KEY', SECRET);
     await writeState(statePath(), state);
     expect(await modeOf(statePath())).toBe(0o600);
-    expect(await modeOf(join(temp.dirs.root, '.configure-env'))).toBe(0o700);
-    // No temporary file is left behind.
-    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
-      'state.json',
-    ]);
-    const loaded = await loadState(statePath());
-    expect(loaded).toEqual({ ok: true, exists: true, state });
+    expect(await modeOf(stateDir())).toBe(0o700);
+    expect(await loadState(statePath())).toEqual({
+      ok: true,
+      exists: true,
+      state,
+    });
   });
 
   it('never holds the value, only its HMAC', async () => {
     const state = emptyState();
     recordFingerprint(state, '.env', 'KEY', SECRET);
     await writeState(statePath(), state);
-    const text = await readFile(statePath(), 'utf8');
-    expect(text).not.toContain(SECRET);
-    expect(text).not.toContain(Buffer.from(SECRET).toString('base64'));
-    expect(text).not.toContain(Buffer.from(SECRET).toString('hex'));
+    for (const name of await readdir(stateDir())) {
+      const bytes = await readFile(join(stateDir(), name));
+      for (const form of [
+        SECRET,
+        Buffer.from(SECRET).toString('base64'),
+        Buffer.from(SECRET).toString('hex'),
+      ])
+        expect(bytes.includes(form), `${name} holds ${form}`).toBe(false);
+    }
     const entry = recorded(state, '.env', 'KEY')!;
     expect(entry.hmac).toMatch(/^[0-9a-f]{64}$/);
     expect(entry.hmac).toBe(fingerprint(state.salt, SECRET));
@@ -107,18 +151,206 @@ describe('the state', () => {
   });
 
   it('refuses to write or read through a symlink', async () => {
-    const elsewhere = join(await temp.another(), 'target.json');
-    await writeFile(elsewhere, '{}');
-    await mkdir(join(temp.dirs.root, '.configure-env'));
+    const elsewhere = join(await temp.another(), 'target.db');
+    await writeFile(elsewhere, '');
+    await mkdir(stateDir());
     await symlink(elsewhere, statePath());
     await expect(writeState(statePath(), emptyState())).rejects.toThrow(
       /is a symlink/,
     );
-    expect(await readFile(elsewhere, 'utf8')).toBe('{}');
+    expect(await readFile(elsewhere, 'utf8')).toBe('');
     expect(await loadState(statePath())).toEqual({
       ok: false,
-      message: `${statePath()}: is a symlink; refusing to read through it`,
+      message: `${statePath()}: is a symlink; refusing to use it`,
     });
+  });
+
+  it('rejects a file that is not a SQLite database, naming the path', async () => {
+    await mkdir(stateDir());
+    await writeFile(statePath(), 'not a database, but long enough to look at');
+    expect(await loadState(statePath())).toEqual({
+      ok: false,
+      message: `${statePath()}: is not a valid state database`,
+    });
+    await expect(writeState(statePath(), emptyState())).rejects.toThrow(
+      `${statePath()}: is not a valid state database`,
+    );
+  });
+
+  it('round-trips a state with several files', async () => {
+    const state: State = emptyState();
+    recordFingerprint(state, '.env', 'A', 'one');
+    recordFingerprint(state, 'deploy/.env', 'A', 'one');
+    await writeState(statePath(), state);
+    expect(await loaded()).toEqual(state);
+    expect(recorded(state, '.env', 'A')!.hmac).toBe(
+      recorded(state, 'deploy/.env', 'A')!.hmac,
+    );
+  });
+});
+
+describe('migrations', () => {
+  it('ship with the package and create the tables the schema declares', async () => {
+    expect(stateMigrations().length).toBeGreaterThan(0);
+    await writeState(statePath(), emptyState());
+    raw((db) => {
+      for (const table of [
+        tables.meta,
+        tables.protectedFingerprints,
+        tables.changes,
+      ]) {
+        const config = getTableConfig(table);
+        const columns = (
+          db.prepare(`pragma table_info(${config.name})`).all() as {
+            name: string;
+          }[]
+        ).map((column) => column.name);
+        expect(columns.sort(), config.name).toEqual(
+          config.columns.map((column) => column.name).sort(),
+        );
+      }
+      expect(
+        db.prepare("select value from meta where key = 'schema_version'").get(),
+      ).toEqual({ value: String(stateSchemaVersion()) });
+      expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
+    });
+  });
+
+  it('run once: reopening a migrated database changes nothing', async () => {
+    const state = emptyState();
+    recordFingerprint(state, '.env', 'KEY', SECRET);
+    await writeState(statePath(), state);
+    await updateState(statePath(), [record('.env', 'OTHER', 'x')]);
+    expect(Object.keys((await loaded()).fingerprints['.env']!).sort()).toEqual([
+      'KEY',
+      'OTHER',
+    ]);
+  });
+
+  it('migrate an empty database file on its first read', async () => {
+    await mkdir(stateDir());
+    await writeFile(statePath(), '');
+    expect(await loadState(statePath())).toMatchObject({
+      ok: true,
+      exists: false,
+    });
+    expect(
+      raw((db) =>
+        db.prepare("select value from meta where key = 'schema_version'").get(),
+      ),
+    ).toEqual({ value: String(stateSchemaVersion()) });
+  });
+
+  it('refuse a database of a newer version, changing nothing', async () => {
+    await writeState(statePath(), emptyState());
+    const newer = stateSchemaVersion() + 1;
+    raw((db) =>
+      db
+        .prepare("update meta set value = ? where key = 'schema_version'")
+        .run(String(newer)),
+    );
+    const message = `${statePath()}: has schema version ${newer}, newer than this configure-env knows (${stateSchemaVersion()}); upgrade configure-env`;
+    expect(await loadState(statePath())).toEqual({ ok: false, message });
+    await expect(
+      updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+    ).rejects.toThrow(message);
+  });
+
+  it('check the actor of the history', async () => {
+    await writeState(statePath(), emptyState());
+    raw((db) => {
+      const insert = db.prepare(
+        'insert into changes (actor, file, key, operation, after_fingerprint, after_preview, at) values (?, ?, ?, ?, ?, ?, ?)',
+      );
+      insert.run('portal', '.env', 'KEY', 'set', 'f'.repeat(64), 'ab…', 'now');
+      expect(() =>
+        insert.run('someone', '.env', 'KEY', 'set', null, null, 'now'),
+      ).toThrow(/CHECK constraint failed/);
+    });
+  });
+});
+
+describe('importing state.json', () => {
+  const legacyState = () => {
+    const state = emptyState();
+    recordFingerprint(state, '.env', 'KEY', SECRET, new Date('2026-01-02'));
+    recordFingerprint(state, 'worker.env', 'KEY', 'other');
+    return state;
+  };
+
+  it('reads it while no database exists, writing nothing', async () => {
+    const state = legacyState();
+    await writeLegacy(state);
+    expect(await loadState(statePath())).toEqual({
+      ok: true,
+      exists: true,
+      state,
+    });
+    expect(await exists(statePath())).toBe(false);
+    expect(await exists(legacyPath())).toBe(true);
+  });
+
+  it('imports it on the first write, verifies it, then removes it', async () => {
+    const state = legacyState();
+    await writeLegacy(state);
+    await updateState(statePath(), [record('.env', 'NEW', 'value')]);
+    expect(await exists(legacyPath())).toBe(false);
+    const now = await loaded();
+    expect(now.salt).toBe(state.salt);
+    expect(now.fingerprints['worker.env']).toEqual(
+      state.fingerprints['worker.env'],
+    );
+    expect(now.fingerprints['.env']!.KEY).toEqual(
+      state.fingerprints['.env']!.KEY,
+    );
+    expect(matchesFingerprint(now, '.env', 'NEW', 'value')).toBe(true);
+  });
+
+  it('keeps it, and imports nothing, when the transaction fails; a retry imports it', async () => {
+    const state = legacyState();
+    await writeLegacy(state);
+    await expect(
+      withStateTransaction(statePath(), () => {
+        throw new Error('crashed');
+      }),
+    ).rejects.toThrow('crashed');
+    expect(await exists(legacyPath())).toBe(true);
+    // Rolled back with the migration that came with it.
+    expect(
+      raw((db) => db.prepare('select name from sqlite_master').all()),
+    ).toEqual([]);
+    expect(await loaded()).toEqual(state);
+    expect(await exists(legacyPath())).toBe(false);
+  });
+
+  it('finishes an import that committed before the file was removed', async () => {
+    const state = legacyState();
+    // A run imported it, then crashed before removing it; the next run
+    // records a key.
+    await writeState(statePath(), state);
+    await writeLegacy(state);
+    await updateState(statePath(), [record('.env', 'LATER', 'x')]);
+    expect(await exists(legacyPath())).toBe(false);
+    const now = await loaded();
+    expect(now.salt).toBe(state.salt);
+    expect(Object.keys(now.fingerprints['.env']!).sort()).toEqual([
+      'KEY',
+      'LATER',
+    ]);
+    expect(now.fingerprints['worker.env']).toEqual(
+      state.fingerprints['worker.env'],
+    );
+  });
+
+  it('refuses one whose salt differs from the database, removing nothing', async () => {
+    await writeState(statePath(), emptyState());
+    await writeLegacy(legacyState());
+    await expect(
+      updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+    ).rejects.toThrow(
+      `${legacyPath()}: its salt differs from the one in ${statePath()}; remove one of them`,
+    );
+    expect(await exists(legacyPath())).toBe(true);
   });
 
   it.each([
@@ -148,38 +380,25 @@ describe('the state', () => {
       },
       'values',
     ],
-  ])('rejects %s, naming the path', async (_label, content, message) => {
-    await mkdir(join(temp.dirs.root, '.configure-env'));
-    await writeFile(
-      statePath(),
-      typeof content === 'string' ? content : JSON.stringify(content),
-    );
-    const result = await loadState(statePath());
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.message).toContain(statePath());
-    expect(result.message).toContain(message);
-  });
-
-  it('round-trips a state with several files', async () => {
-    const state: State = emptyState();
-    recordFingerprint(state, '.env', 'A', 'one');
-    recordFingerprint(state, 'deploy/.env', 'A', 'one');
-    await writeState(statePath(), state);
-    const loaded = await loadState(statePath());
-    expect(loaded.ok && loaded.state).toEqual(state);
-    expect(recorded(state, '.env', 'A')!.hmac).toBe(
-      recorded(state, 'deploy/.env', 'A')!.hmac,
-    );
-  });
+  ])(
+    'rejects %s, naming it, and keeps it',
+    async (_label, content, message) => {
+      await mkdir(stateDir());
+      const text =
+        typeof content === 'string' ? content : JSON.stringify(content);
+      await writeFile(legacyPath(), text);
+      const result = await loadState(statePath());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.message).toContain(legacyPath());
+      expect(result.message).toContain(message);
+      await expect(
+        updateState(statePath(), [record('.env', 'KEY', SECRET)]),
+      ).rejects.toThrow(message);
+      expect(await readFile(legacyPath(), 'utf8')).toBe(text);
+    },
+  );
 });
-
-const record = (
-  file: string,
-  key: string,
-  value: string,
-  replace = false,
-): StateChange => ({ action: 'record', file, key, value, replace });
 
 describe('applyChanges', () => {
   it('records a value only where none is recorded, unless it replaces', () => {
@@ -198,22 +417,38 @@ describe('applyChanges', () => {
   });
 });
 
+const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+const STATE_MODULE = pathToFileURL(
+  fileURLToPath(new URL('./state.ts', import.meta.url)),
+).href;
+
+/** Runs `code` in a new Node process with the state module as `state`. */
+async function child(code: string): Promise<{ code: number; err: string }> {
+  const script = join(await temp.another(), 'child.mjs');
+  await writeFile(
+    script,
+    `import * as state from ${JSON.stringify(STATE_MODULE)};\n${code}\n`,
+  );
+  const proc = spawn(process.execPath, ['--import', TSX, script], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let err = '';
+  proc.stderr.on('data', (chunk: Buffer) => (err += chunk));
+  const status = await new Promise<number>((done) =>
+    proc.on('close', (status) => done(status ?? -1)),
+  );
+  return { code: status, err };
+}
+
 describe('updateState', () => {
   it('keeps the fingerprints of two runs that both loaded an empty state', async () => {
     await Promise.all([
       updateState(statePath(), [record('.env', 'A', 'one')]),
       updateState(statePath(), [record('worker.env', 'B', 'two')]),
     ]);
-    const loaded = await loadState(statePath());
-    if (!loaded.ok) throw new Error(loaded.message);
-    expect(matchesFingerprint(loaded.state, '.env', 'A', 'one')).toBe(true);
-    expect(matchesFingerprint(loaded.state, 'worker.env', 'B', 'two')).toBe(
-      true,
-    );
-    // The lock is gone.
-    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
-      'state.json',
-    ]);
+    const state = await loaded();
+    expect(matchesFingerprint(state, '.env', 'A', 'one')).toBe(true);
+    expect(matchesFingerprint(state, 'worker.env', 'B', 'two')).toBe(true);
   });
 
   it('keeps the salt and the entries on disk, applying only its changes', async () => {
@@ -227,361 +462,127 @@ describe('updateState', () => {
         { action: 'remove', file: '.env', key: 'GONE' },
       ]),
     ).toBe(true);
-    const loaded = await loadState(statePath());
-    if (!loaded.ok) throw new Error(loaded.message);
-    expect(loaded.state.salt).toBe(disk.salt);
-    expect(Object.keys(loaded.state.fingerprints['.env']!).sort()).toEqual([
+    const state = await loaded();
+    expect(state.salt).toBe(disk.salt);
+    expect(Object.keys(state.fingerprints['.env']!).sort()).toEqual([
       'KEY',
       'OTHER',
     ]);
-    expect(matchesFingerprint(loaded.state, '.env', 'KEY', SECRET)).toBe(true);
+    expect(matchesFingerprint(state, '.env', 'KEY', SECRET)).toBe(true);
   });
 
   it('writes nothing when the changes change nothing', async () => {
     expect(await updateState(statePath(), [])).toBe(false);
+    expect(await exists(statePath())).toBe(false);
     expect(
       await updateState(statePath(), [
         { action: 'remove', file: '.env', key: 'KEY' },
       ]),
     ).toBe(false);
-    await expect(stat(statePath())).rejects.toThrow();
+    expect(await loadState(statePath())).toMatchObject({
+      ok: true,
+      exists: false,
+    });
   });
 
-  it('lets simultaneous runs take the lock in turn', async () => {
+  it('lets simultaneous runs of this process write in turn', async () => {
     const keys = ['A', 'B', 'C', 'D', 'E', 'F'];
     await Promise.all(
       keys.map((key) => updateState(statePath(), [record('.env', key, key)])),
     );
-    const loaded = await loadState(statePath());
-    if (!loaded.ok) throw new Error(loaded.message);
+    const state = await loaded();
     for (const key of keys)
-      expect(matchesFingerprint(loaded.state, '.env', key, key)).toBe(true);
-    expect(await readdir(join(temp.dirs.root, '.configure-env'))).toEqual([
-      'state.json',
-    ]);
+      expect(matchesFingerprint(state, '.env', key, key)).toBe(true);
   });
 
-  it('writes its pid, host and a token in the lock, with mode 600', async () => {
-    const lock = `${statePath()}.lock`;
-    await withStateLock(statePath(), async () => {
-      expect((await stat(lock)).mode & 0o777).toBe(0o600);
-      expect(JSON.parse(await readFile(lock, 'utf8'))).toEqual({
-        pid: process.pid,
-        host: hostname(),
-        createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-        token: expect.stringMatching(/^[0-9a-f]{32}$/),
-      });
-    });
-    await expect(stat(lock)).rejects.toThrow();
-  });
-
-  it('never removes a lock it did not create', async () => {
-    const lock = `${statePath()}.lock`;
-    const other = JSON.stringify({ pid: 1, host: 'elsewhere', token: 'x' });
-    await withStateLock(statePath(), async () => {
-      // Someone removed this run's lock, and another run took it.
-      await writeFile(lock, other);
-    });
-    expect(await readFile(lock, 'utf8')).toBe(other);
-  });
-
-  describe('a lock held by another run', () => {
-    const hold = async (content: string) => {
-      await mkdir(join(temp.dirs.root, '.configure-env'), { recursive: true });
-      await writeFile(`${statePath()}.lock`, content);
-    };
-    const attempt = () =>
-      updateState(statePath(), [record('.env', 'KEY', SECRET)], {
-        waitMs: 100,
-      });
-
-    it('names a live process, and is left in place', async () => {
-      const content = JSON.stringify({ pid: process.pid, host: hostname() });
-      await hold(content);
-      await expect(attempt()).rejects.toThrow(
-        `${statePath()}.lock: held by process ${process.pid}; try again`,
-      );
-      expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(content);
-      await expect(stat(statePath())).rejects.toThrow();
-    });
-
-    it('names a process of this host that is no longer running', async () => {
-      const { pid } = spawnSync(process.execPath, ['-e', '']);
-      await hold(JSON.stringify({ pid, host: hostname() }));
-      await expect(attempt()).rejects.toThrow(
-        `${statePath()}.lock: left by process ${pid}, which is no longer running; remove it and try again`,
-      );
-    });
-
-    it('names another host it can read, and tells to remove it', async () => {
-      await hold(JSON.stringify({ pid: 1, host: 'elsewhere' }));
-      await expect(attempt()).rejects.toThrow(
-        `${statePath()}.lock: held by another run (elsewhere); if none is running, remove it`,
-      );
-    });
-
-    it.each([
-      ['empty', ''],
-      ['partial', '{"pid": 12'],
-      ['pid 0', JSON.stringify({ pid: 0, host: hostname() })],
-      ['a negative pid', JSON.stringify({ pid: -1, host: hostname() })],
-      ['no host', JSON.stringify({ pid: 1 })],
-    ])(
-      'asks to try again, then to remove it, when its owner is %s',
-      async (_label, text) => {
-        await hold(text);
-        await expect(attempt()).rejects.toThrow(
-          new RegExp(
-            `^${statePath()}\\.lock: held by another run; try again, and if this persists, remove it$`,
-          ),
-        );
-        expect(await readFile(`${statePath()}.lock`, 'utf8')).toBe(text);
-      },
+  it('lets concurrent processes write in turn, losing no fingerprint', async () => {
+    const path = JSON.stringify(statePath());
+    const runs = await Promise.all(
+      ['A', 'B', 'C', 'D'].map((name) =>
+        child(`
+          for (let i = 0; i < 5; i++)
+            await state.updateState(${path}, [
+              { action: 'record', file: '.env', key: '${name}' + i, value: 'v' + i, replace: false },
+            ], { waitMs: 10_000 });
+        `),
+      ),
     );
-  });
+    expect(runs).toEqual(runs.map(() => ({ code: 0, err: '' })));
+    const state = await loaded();
+    expect(Object.keys(state.fingerprints['.env']!)).toHaveLength(20);
+  }, 30_000);
 
-  describe('creating the lock', () => {
-    const lock = () => `${statePath()}.lock`;
-    /** An open whose handles fail to write, as a full disk makes them. */
-    const failingOpen = (async (...args: Parameters<typeof open>) => {
-      const handle = await open(...args);
-      handle.writeFile = (async () => {
-        throw new Error('disk full');
-      }) as never;
-      return handle;
-    }) as typeof open;
-    const noLink = (async () => {
-      throw Object.assign(new Error('no hard links'), { code: 'ENOTSUP' });
-    }) as typeof link;
-    /** An open that acts on the lock itself (not its temporary file). */
-    const onLock = (
-      act: (args: Parameters<typeof open>) => Promise<FileHandle>,
-    ) =>
-      (async (...args: Parameters<typeof open>) =>
-        String(args[0]).endsWith('.lock')
-          ? act(args)
-          : open(...args)) as typeof open;
-    const entries = () => readdir(join(temp.dirs.root, '.configure-env'));
-    const lockWith = (fs: Partial<{ open: typeof open; link: typeof link }>) =>
-      withStateLock(statePath(), async () => 'ran', { fs });
+  describe('a write transaction held by another run', () => {
+    /** Holds the write lock from another connection until released. */
+    async function hold() {
+      await writeState(statePath(), emptyState());
+      const db = new Database(statePath());
+      db.exec('BEGIN IMMEDIATE');
+      return () => {
+        db.exec('COMMIT');
+        db.close();
+      };
+    }
 
-    it('leaves no lock when its owner cannot be written', async () => {
-      await expect(lockWith({ open: failingOpen })).rejects.toThrow(
-        'disk full',
-      );
-      expect(await entries()).toEqual([]);
-    });
-
-    describe('without hard links', () => {
-      it('removes the lock it created when its owner cannot be written', async () => {
-        await expect(
-          lockWith({
-            link: noLink,
-            open: onLock((args) => failingOpen(...args)),
-          }),
-        ).rejects.toThrow('disk full');
-        expect(await entries()).toEqual([]);
-      });
-
-      it('compares and removes the lock before it closes its handle', async () => {
-        const calls: string[] = [];
-        const ordered = onLock(async (args) => {
-          const handle = await open(...args);
-          const stat = handle.stat.bind(handle);
-          const close = handle.close.bind(handle);
-          handle.writeFile = (async () => {
-            throw new Error('disk full');
-          }) as never;
-          handle.stat = (async (...rest: Parameters<typeof stat>) => {
-            calls.push('stat');
-            return stat(...rest);
-          }) as never;
-          handle.close = async () => {
-            // The lock is gone before its handle closes.
-            calls.push(existsSync(lock()) ? 'close, lock there' : 'close');
-            return close();
-          };
-          return handle;
-        });
-        await expect(lockWith({ link: noLink, open: ordered })).rejects.toThrow(
-          'disk full',
-        );
-        expect(calls).toEqual(['stat', 'close']);
-        expect(await entries()).toEqual([]);
-      });
-
-      it('leaves the lock when it cannot prove the file is its own', async () => {
-        const noStat = onLock(async (args) => {
-          const handle = await open(...args);
-          handle.writeFile = (async () => {
-            throw new Error('disk full');
-          }) as never;
-          handle.stat = (async () => {
-            throw new Error('fstat failed');
-          }) as never;
-          return handle;
-        });
-        await expect(lockWith({ link: noLink, open: noStat })).rejects.toThrow(
-          'disk full',
-        );
-        // An empty lock, which the held message asks a person to remove.
-        expect(await readFile(lock(), 'utf8')).toBe('');
-      });
-
-      it('removes the lock it created when closing it fails', async () => {
-        const closeFails = onLock(async (args) => {
-          const handle = await open(...args);
-          const close = handle.close.bind(handle);
-          handle.close = async () => {
-            await close();
-            throw new Error('close failed');
-          };
-          return handle;
-        });
-        await expect(
-          lockWith({ link: noLink, open: closeFails }),
-        ).rejects.toThrow('close failed');
-        expect(await entries()).toEqual([]);
-      });
-
-      describe('when closing it fails', () => {
-        /** An open whose lock handle closes, runs `after`, then throws. */
-        const closeThen = (after: () => Promise<void>) =>
-          onLock(async (args) => {
-            const handle = await open(...args);
-            const close = handle.close.bind(handle);
-            handle.close = async () => {
-              await close();
-              await after();
-              throw new Error('close failed');
-            };
-            return handle;
-          });
-        const theirs = JSON.stringify({
-          pid: 1,
-          host: 'elsewhere',
-          token: 'theirs',
-        });
-
-        it.each([
-          [
-            "another run's token",
-            async () => {
-              await unlink(lock());
-              await writeFile(lock(), theirs);
-            },
-            theirs,
-          ],
-          [
-            'an owner it cannot parse',
-            async () => {
-              await unlink(lock());
-              await writeFile(lock(), 'garbage');
-            },
-            'garbage',
-          ],
-        ])(
-          'leaves a lock holding %s, reporting the close error',
-          async (_label, after, content) => {
-            await expect(
-              lockWith({ link: noLink, open: closeThen(after) }),
-            ).rejects.toThrow('close failed');
-            expect(await readFile(lock(), 'utf8')).toBe(content);
-          },
-        );
-
-        it('reports the close error when the lock is gone', async () => {
-          await expect(
-            lockWith({ link: noLink, open: closeThen(() => unlink(lock())) }),
-          ).rejects.toThrow('close failed');
-          expect(await entries()).toEqual([]);
-        });
-
-        it('reports the close error and leaves a lock it cannot read', async () => {
-          // A read that fails (EISDIR) counts as not ours.
-          const unreadable = closeThen(async () => {
-            await unlink(lock());
-            await mkdir(lock());
-          });
-          try {
-            await expect(
-              lockWith({ link: noLink, open: unreadable }),
-            ).rejects.toThrow('close failed');
-            expect((await stat(lock())).isDirectory()).toBe(true);
-          } finally {
-            await rm(lock(), { recursive: true, force: true });
-          }
-        });
-      });
-
-      it('never removes a file that replaced the lock it created', async () => {
-        const replaced = onLock(async (args) => {
-          const handle = await open(...args);
-          handle.writeFile = (async () => {
-            await unlink(lock());
-            await writeFile(lock(), 'theirs');
-            throw new Error('disk full');
-          }) as never;
-          return handle;
-        });
-        await expect(
-          lockWith({ link: noLink, open: replaced }),
-        ).rejects.toThrow('disk full');
-        expect(await readFile(lock(), 'utf8')).toBe('theirs');
-      });
-
-      it('never removes a lock after its own open failed', async () => {
-        await mkdir(join(temp.dirs.root, '.configure-env'));
-        await writeFile(lock(), 'theirs');
-        const tooMany = onLock(async () => {
-          throw Object.assign(new Error('too many open files'), {
-            code: 'EMFILE',
-          });
-        });
-        await expect(lockWith({ link: noLink, open: tooMany })).rejects.toThrow(
-          'too many open files',
-        );
-        expect(await readFile(lock(), 'utf8')).toBe('theirs');
-      });
-    });
-
-    it.each(['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS'])(
-      'falls back to an exclusive create when link fails with %s',
-      async (code) => {
-        const linkFails = (async () => {
-          throw Object.assign(new Error('no hard links'), { code });
-        }) as typeof link;
-        await withStateLock(
+    it('is waited for, then refused, writing nothing', async () => {
+      const release = await hold();
+      try {
+        const attempt = updateState(
           statePath(),
-          async () => {
-            expect(JSON.parse(await readFile(lock(), 'utf8')).pid).toBe(
-              process.pid,
-            );
-            expect((await stat(lock())).mode & 0o777).toBe(0o600);
-          },
-          { fs: { link: linkFails } },
+          [record('.env', 'KEY', SECRET)],
+          { waitMs: 100 },
         );
-        expect(await entries()).toEqual([]);
-      },
-    );
+        await expect(attempt).rejects.toThrow(StateBusyError);
+        await expect(attempt).rejects.toThrow(
+          `${statePath()}: in use by another run; try again`,
+        );
+      } finally {
+        release();
+      }
+      expect((await loaded()).fingerprints).toEqual({});
+    });
 
-    it('tries once more at the deadline when the lock is gone', async () => {
-      // The first link finds a lock, which is gone by the deadline.
-      let calls = 0;
-      const busyOnce = (async (...args: Parameters<typeof link>) => {
-        if (!calls++)
-          throw Object.assign(new Error('exists'), { code: 'EEXIST' });
-        return link(...args);
-      }) as typeof link;
+    it('lets readers read meanwhile', async () => {
+      const release = await hold();
+      try {
+        expect(await loadState(statePath())).toMatchObject({ ok: true });
+      } finally {
+        release();
+      }
+    });
+
+    it('is taken once it is released', async () => {
+      const release = await hold();
+      setTimeout(release, 150);
       expect(
-        await withStateLock(statePath(), async () => 'ran', {
-          waitMs: 0,
-          fs: { link: busyOnce },
+        await updateState(statePath(), [record('.env', 'KEY', SECRET)], {
+          waitMs: 5_000,
         }),
-      ).toBe('ran');
-      expect(calls).toBe(2);
+      ).toBe(true);
+      expect(matchesFingerprint(await loaded(), '.env', 'KEY', SECRET)).toBe(
+        true,
+      );
     });
   });
+
+  it('is released when the process holding it dies, with nothing to remove by hand', async () => {
+    await writeState(statePath(), emptyState());
+    const path = JSON.stringify(statePath());
+    const died = await child(`
+      await state.withStateTransaction(${path}, (tx) => {
+        tx.state.fingerprints['.env'] = { KEY: { hmac: '0'.repeat(64), recordedAt: new Date().toISOString() } };
+        tx.write(tx.state);
+        process.exit(3);
+      });
+    `);
+    expect(died.code).toBe(3);
+    expect((await loaded()).fingerprints).toEqual({});
+    expect(
+      await updateState(statePath(), [record('.env', 'KEY', SECRET)], {
+        waitMs: 100,
+      }),
+    ).toBe(true);
+  }, 15_000);
 
   it('writes through the given writer, keeping the state on disk when it fails', async () => {
     const disk = emptyState();
@@ -593,9 +594,7 @@ describe('updateState', () => {
         },
       }),
     ).rejects.toThrow('disk full');
-    const loaded = await loadState(statePath());
-    expect(loaded.ok && loaded.state).toEqual(disk);
-    await expect(stat(`${statePath()}.lock`)).rejects.toThrow();
+    expect(await loaded()).toEqual(disk);
   });
 });
 

@@ -45,12 +45,27 @@ jobs:
 
   # Packs the package as npm would publish it, installs the tarball into a
   # throwaway project and runs the CLI through npx
-  # (packages/cli/scripts/pack-smoke.sh).
+  # (packages/cli/scripts/pack-smoke.sh), on every OS and supported Node
+  # major: better-sqlite3 (the state database) is a native module, and the
+  # install must load its prebuilt binary everywhere, never compile it.
   package:
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: package (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    defaults:
+      run:
+        # Git Bash on Windows: the smoke test is a bash script.
+        shell: bash
     steps:
+      # Keep LF endings on Windows, so bash can run the checked-out scripts.
+      - run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -59,13 +74,15 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .node-version
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm smoke
-      - run: npm publish --dry-run
+      # The manifest does not depend on the OS or Node version: checked once.
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm publish --dry-run
         working-directory: packages/cli
 
   # Builds the design system's Storybook and runs every story in headless

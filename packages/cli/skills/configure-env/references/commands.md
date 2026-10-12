@@ -10,7 +10,7 @@ Every command takes them, except `install`, which takes only `--root`, `--ci`, `
 | --- | --- |
 | `--schema <path>` | the schema; default `env.schema.json` in the root |
 | `--root <dir>` | the project root the schema's paths are relative to; default where the command was typed (`INIT_CWD` under a pnpm script, else the cwd) |
-| `--state <path>` | the protected variables' state, relative to the root; default `.configure-env/state.json`; never a schema file or a path inside one (exit 2) |
+| `--state <path>` | the protected variables' state, relative to the root; default `.configure-env/state.db`; never a schema file or a path inside one (exit 2) |
 | `--file <path>` | only this schema file; repeatable for `apply`, `check`, `list`, `validate`; `set`, `get`, `unset` take one. A path not in the schema exits 2 |
 | `--ci` | never prompt; also on when `CI` is set and not `false`/`0` |
 | `--json` | one JSON document on stdout, logs on stderr; never prompts |
@@ -58,8 +58,8 @@ Every command takes them, except `install`, which takes only `--root`, `--ci`, `
 - Once a non-template file holds a non-empty value, a different value (`set`, `apply`) or `unset` exits 2 and writes nothing: `KEY: is protected (<reason>); pass --replace-protected KEY to change it`. The same value is `unchanged`.
 - A missing or empty key whose earlier value the state recorded takes only that value back, or empty (`--defer`). Anything else, such as `apply --generate` after `.env` was deleted, exits 2: `KEY was set on DATE; restore it from your backup, or pass --replace-protected KEY`. To restore, pipe the backup in: `<backup read> | configure-env set --ci --create --file .env --stdin KEY`.
 - `--replace-protected KEY` (`set`, `unset`, `apply`; per key, no global force): a person types the key in a terminal; with `--ci`/`--json` the flag is enough. Output: `replaced protected KEY`. Never pass it without asking the user.
-- State: `.configure-env/state.json`, mode 600 (directory 700), git-ignored, salted HMACs only. Written by `apply`, `set`, `unset` after the env files; never by `check`, `validate`, `list`. They report `KEY no longer matches the value recorded on DATE` (exit 1). It knows only this machine's history: a fresh clone has none; `git clean -fdx` deletes it.
-- Lock: a run that writes or holds a protected value takes `state.json.lock` first. Held by another run, it waits 2 s, then exits 1 with nothing written: `held by process PID; try again`. A crashed run's lock is never taken over: `left by process PID, which is no longer running; remove it and try again`.
+- State: `.configure-env/state.db`, mode 600 (directory 700), a SQLite database, git-ignored, salted HMACs only. Written by `apply`, `set`, `unset` after the env files; never by `check`, `validate`, `list`. They report `KEY no longer matches the value recorded on DATE` (exit 1). It knows only this machine's history: a fresh clone has none; `git clean -fdx` deletes it. A `state.json` of an earlier version next to it is imported by the first write, then removed.
+- Concurrency: a run that writes or holds a protected value takes the database's write transaction first. Held by another run, it waits 2 s, then exits 1 with nothing written: `in use by another run; try again`. A crashed run leaves nothing to remove.
 - A failed state write after the files were written makes the run exit 1 with a `file` error: `X was written; its protected values are not recorded`.
 
 ## Mode drift

@@ -12,6 +12,12 @@ set -euo pipefail
 
 # The package npm packs (packages/cli), not the repository root.
 package_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# A path as Node and tsc take it: on Windows (Git Bash) a /c/... path becomes
+# C:/...; elsewhere it is unchanged.
+native() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
 work="$(mktemp -d "${TMPDIR:-/tmp}/configure-env-smoke.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
@@ -61,13 +67,15 @@ if [ -e "$package_dir/README.md" ] || [ -e "$package_dir/LICENSE" ]; then
 else
   pass 'postpack removed the README and LICENSE copies'
 fi
-version="$(node -p "require('$package_dir/package.json').version")"
+version="$(node -p "require('$(native "$package_dir")/package.json').version")"
 
 contents="$(tar -tzf "$tarball")"
 out="$contents"
 expect 'the tarball holds the bin' '^package/dist/cli\.js$'
 expect 'the tarball holds the api types' '^package/dist/index\.d\.ts$'
 expect 'the tarball holds the json schema' '^package/schema/env\.schema\.v1\.json$'
+expect 'the tarball holds the state migrations' '^package/dist/migrations/meta/_journal\.json$'
+expect 'the tarball holds the first migration' '^package/dist/migrations/0000_[a-z_]+\.sql$'
 expect 'the tarball holds the readme' '^package/README\.md$'
 expect 'the tarball holds the license' '^package/LICENSE$'
 if grep -Eq '\.test\.|test-helpers|fixtures|^package/src/' <<<"$contents"; then
@@ -84,6 +92,8 @@ if grep -q 'workspace:' <<<"$out"; then
 else
   pass 'the manifest holds no workspace: range'
 fi
+expect 'the manifest depends on better-sqlite3' '"better-sqlite3": '
+expect 'the manifest depends on drizzle-orm' '"drizzle-orm": '
 if tar -xzOf "$tarball" $(grep -E '^package/dist/.*\.(js|d\.ts)$' <<<"$contents") |
   grep -q '@configure-env/'; then
   fail 'the build imports a workspace package'
@@ -96,7 +106,9 @@ app="$work/app"
 mkdir -p "$app"
 cd "$app"
 printf '{ "name": "smoke-app", "private": true, "type": "module" }\n' >package.json
-npm install --silent --no-audit --no-fund --prefer-offline "$tarball"
+# --ignore-scripts: better-sqlite3 must load from the prebuilt binary its
+# tarball ships for this platform, never from a local compile.
+npm install --silent --no-audit --no-fund --prefer-offline --ignore-scripts "$(native "$tarball")"
 
 cli() { npx --no-install configure-env "$@"; }
 
@@ -113,7 +125,7 @@ cat >env.schema.json <<'JSON'
   "variables": {
     "PORT": { "type": "port", "default": 8080 },
     "MODE": { "type": "enum", "values": ["dev", "prod"], "default": "dev" },
-    "TOKEN": { "type": "string", "secret": true, "required": true }
+    "TOKEN": { "type": "string", "secret": true, "required": true, "protected": true }
   },
   "files": [
     { "path": "config/app.env", "policy": "generate", "variables": "*" },
@@ -122,6 +134,13 @@ cat >env.schema.json <<'JSON'
 }
 JSON
 
+# A state.json of an earlier version: the first write imports it.
+mkdir -p .configure-env
+node -e "
+  const salt = require('node:crypto').randomBytes(32).toString('base64');
+  console.log(JSON.stringify({ version: 1, salt, fingerprints: {} }));
+" >.configure-env/state.json
+
 run 1 'check before apply reports drift' cli check --ci --root "$app"
 run 0 'apply --ci --set' cli apply --ci --root "$app" \
   --set PORT=9090 --set TOKEN=smoke-token-1234567890
@@ -129,6 +148,23 @@ expect 'apply creates the file' '^config/app\.env: created$'
 expect 'apply creates the template' '^config/app\.env\.example: created$'
 run 0 'check --ci after apply' cli check --ci --root "$app" \
   --set PORT=9090 --set TOKEN=smoke-token-1234567890
+if [[ -f .configure-env/state.db ]]; then
+  pass 'apply writes the state database'
+else
+  fail 'apply writes the state database'
+fi
+if [[ -e .configure-env/state.json ]]; then
+  fail 'apply imports and removes state.json'
+else
+  pass 'apply imports and removes state.json'
+fi
+if grep -rqa 'smoke-token-1234567890' .configure-env; then
+  fail 'the state holds a value'
+else
+  pass 'the state holds no value'
+fi
+run 2 'set refuses to change a protected value' \
+  cli set TOKEN=another-token-1234567890 --ci --root "$app" --file config/app.env
 run 0 'get PORT' cli get PORT --root "$app" --file config/app.env
 expect 'get prints the value that was set' '^9090$'
 run 1 'get a secret without --reveal' cli get TOKEN --root "$app" --file config/app.env
@@ -174,7 +210,7 @@ cat >tsconfig.json <<JSON
     "strict": true,
     "noEmit": true,
     "types": ["node"],
-    "typeRoots": ["$package_dir/node_modules/@types"]
+    "typeRoots": ["$(native "$package_dir")/node_modules/@types"]
   },
   "files": ["check-types.ts"]
 }
