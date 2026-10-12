@@ -19,7 +19,17 @@ native() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
 work="$(mktemp -d "${TMPDIR:-/tmp}/configure-env-smoke.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+
+# The `serve` process, while it runs: stopped on any exit, so a failed check
+# never leaves a server behind (or, on Windows, a lock on $work).
+server_pid=''
+stop_server() {
+  if [[ -n "$server_pid" ]]; then
+    node -e "try { process.kill(Number(process.argv[1]), 'SIGTERM') } catch {}" "$server_pid"
+    server_pid=''
+  fi
+}
+trap 'stop_server; rm -rf "$work"' EXIT
 
 # A pnpm script sets INIT_CWD to the checkout, and the CLI treats INIT_CWD as
 # the project root; clear it so nothing below can point at the checkout.
@@ -76,6 +86,8 @@ expect 'the tarball holds the api types' '^package/dist/index\.d\.ts$'
 expect 'the tarball holds the json schema' '^package/schema/env\.schema\.v1\.json$'
 expect 'the tarball holds the state migrations' '^package/dist/migrations/meta/_journal\.json$'
 expect 'the tarball holds the first migration' '^package/dist/migrations/0000_[a-z_]+\.sql$'
+expect 'the tarball holds the portal' '^package/dist/web/index\.html$'
+expect "the tarball holds the portal's scripts" '^package/dist/web/assets/index-[A-Za-z0-9_-]+\.js$'
 expect 'the tarball holds the readme' '^package/README\.md$'
 expect 'the tarball holds the license' '^package/LICENSE$'
 if grep -Eq '\.test\.|test-helpers|fixtures|^package/src/' <<<"$contents"; then
@@ -94,6 +106,8 @@ else
 fi
 expect 'the manifest depends on better-sqlite3' '"better-sqlite3": '
 expect 'the manifest depends on drizzle-orm' '"drizzle-orm": '
+expect 'the manifest depends on @nestjs/core' '"@nestjs/core": '
+expect 'the manifest depends on @nestjs/platform-express' '"@nestjs/platform-express": '
 if tar -xzOf "$tarball" $(grep -E '^package/dist/.*\.(js|d\.ts)$' <<<"$contents") |
   grep -q '@configure-env/'; then
   fail 'the build imports a workspace package'
@@ -177,6 +191,59 @@ if [[ -f "$app/.claude/skills/configure-env/SKILL.md" ]]; then
   pass 'the installed skill holds SKILL.md'
 else
   fail 'the installed skill holds SKILL.md'
+fi
+
+echo "== serve"
+# The installed bin run by node directly, not through npx: $! is then the
+# server itself, so `wait` reports its exit code.
+bin="$app/node_modules/@elvisgastelum/configure-env/dist/cli.js"
+node "$(native "$bin")" serve --no-open --json --root "$app" \
+  >"$work/serve.json" 2>"$work/serve.err" &
+job=$!
+for _ in $(seq 1 120); do
+  [[ -s "$work/serve.json" ]] && break
+  kill -0 "$job" 2>/dev/null || break
+  sleep 0.5
+done
+out="$(cat "$work/serve.json")"
+expect 'serve --json prints {url, port, pid}' '^\{"command":"serve","url":"http://127\.0\.0\.1:[0-9]+/launch\?token=[A-Za-z0-9_-]+","port":[0-9]+,"pid":[0-9]+\}$'
+if [[ -n "$out" ]]; then
+  # The pid the server reports is the one Node can signal on every OS.
+  server_pid="$(node -p 'JSON.parse(process.argv[1]).pid' "$out")"
+  run 0 'serve answers its token' node --input-type=module -e "
+    const launch = new URL(JSON.parse(process.argv[1]).url);
+    const token = launch.searchParams.get('token');
+    const at = (path) => new URL(path, launch);
+    const health = await fetch(at('/api/health'), {
+      headers: { authorization: 'Bearer ' + token },
+    });
+    console.log('health', health.status, JSON.stringify(await health.json()));
+    console.log('anonymous', (await fetch(at('/api/health'))).status);
+    const page = await fetch(at('/'), {
+      headers: { authorization: 'Bearer ' + token, accept: 'text/html' },
+    });
+    const html = await page.text();
+    console.log('index', page.status, /<div id=\"root\">/.test(html) ? 'portal' : html.slice(0, 80));
+  " "$out"
+  expect '/api/health answers 200 with the token' '^health 200 '
+  expect '/api/health answers 401 without the token' '^anonymous 401$'
+  expect 'the portal index loads' '^index 200 portal$'
+  stop_server
+  code=0
+  wait "$job" || code=$?
+  if command -v cygpath >/dev/null 2>&1; then
+    # Windows has no SIGTERM to catch: process.kill ends the process.
+    pass "serve stopped (exit $code)"
+  elif [[ "$code" == 0 ]]; then
+    pass 'serve stops on SIGTERM (exit 0)'
+  else
+    fail "serve stops on SIGTERM: exit $code, expected 0"
+    sed 's/^/      /' "$work/serve.err" >&2
+  fi
+else
+  fail 'serve started'
+  sed 's/^/      /' "$work/serve.err" >&2
+  kill "$job" 2>/dev/null || true
 fi
 
 echo "== api"

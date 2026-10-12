@@ -57,6 +57,7 @@ Commands:
   list      show each file's variables: set, valid, value (secrets masked)
   validate  check the current values against the schema
   install   install the agent skill: configure-env install skill
+  serve     start the local portal for the project in a browser
 
 Run configure-env <command> --help for the command's own options.
 
@@ -400,5 +401,52 @@ Examples:
   configure-env install skill --ci --scope project --mode copy
   configure-env install skill --scope local --mode symlink --agent claude --agent agents
   configure-env install skill --scope user --force
+
+${EXIT_CODES}`;
+
+export const SERVE_HELP = `Usage: configure-env serve [options]
+
+Starts the local portal for the project: the configure-env API with the
+web app, on this machine, until Ctrl-C (SIGINT) or SIGTERM, which stop it
+and exit 0.
+
+Every run makes a fresh random token. Only requests that carry it reach
+the API: the printed URL holds it and, opened in a browser, trades it for
+a session cookie. Anyone with that URL can read and change the project's
+env files while the server runs, so do not share it.
+
+It binds 127.0.0.1 by default. A host that is not a loopback address
+(127.x.x.x, ::1, localhost) is refused (exit 2) unless --unsafe-expose is
+given, and then serves with a warning.
+
+Without --port it takes the first free port from 4747. A taken --port
+exits 1.
+
+In a terminal it opens the URL in the default browser; --open and
+--no-open decide instead. With --json it prints one line,
+{"command":"serve","url":...,"port":...,"pid":...}, where url holds the
+token, and does not open a browser unless --open is given.
+
+Options:
+  --port <port>    the port (default: the first free one from 4747;
+                   0: any free port)
+  --host <host>    the address to bind (default: 127.0.0.1)
+  --unsafe-expose  allow a --host that other machines can reach
+  --open           open the browser, also without a terminal
+  --no-open        never open the browser
+
+Global options:
+  --schema <path>  the schema file (default: env.schema.json in the root);
+                   it must lie inside the root
+  --root <dir>     the project (default: where the command was typed)
+  --json           print {command, url, port, pid} on stdout
+  --no-color       plain output; NO_COLOR is honoured too
+  -h, --help       show the help
+
+Examples:
+  configure-env serve
+  configure-env serve --port 5000 --no-open
+  configure-env serve --json --no-open
+  configure-env serve --host 0.0.0.0 --unsafe-expose
 
 ${EXIT_CODES}`;

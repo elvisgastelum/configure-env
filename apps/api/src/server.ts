@@ -69,7 +69,14 @@ async function createApp(
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
     apiModule(project, version),
-    { logger: false, abortOnError: false, bodyParser: true },
+    // forceCloseConnections: close() ends open keep-alive connections too,
+    // so a stopping `configure-env serve` never waits on a browser tab.
+    {
+      logger: false,
+      abortOnError: false,
+      bodyParser: true,
+      forceCloseConnections: true,
+    },
   );
   app.useGlobalPipes(new StandardSchemaValidationPipe());
   app.useGlobalInterceptors(
@@ -193,7 +200,13 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
     },
   );
 
-  await app.listen(options.port, host);
+  try {
+    await app.listen(options.port, host);
+  } catch (error) {
+    // A taken port: release what the app holds, so a retry starts clean.
+    await app.close().catch(() => {});
+    throw error;
+  }
   port = (app.getHttpServer().address() as AddressInfo).port;
   const url = `http://${hostPort(host, port)}`;
   return {

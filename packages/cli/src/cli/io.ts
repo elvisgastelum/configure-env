@@ -2,6 +2,7 @@
 // the environment, and the prompts. Tests replace all of it.
 
 import type { StateWriter } from '@configure-env/core';
+import type { ServeRuntime } from './serve.ts';
 
 /** One option of a select or multiselect prompt. */
 export interface Choice<V> {
@@ -73,4 +74,6 @@ export interface Io {
   readStdin?: () => Promise<string>;
   /** Writes the protected variables' state; tests pass one that fails. */
   writeState?: StateWriter;
+  /** What `serve` starts, waits for and opens; tests stub any of it. */
+  serve?: Partial<ServeRuntime>;
 }
