@@ -638,6 +638,27 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 
 `packages/design-system` (`@configure-env/design-system`) is the private, source-only design system for the planned web portal; see [its README](packages/design-system/README.md).
 
+`apps/api` (`@configure-env/api`) is the private local HTTP API behind the planned `configure-env serve`: a NestJS server over one project's schema and env files. `createServer({ root, schemaPath, host, port, token, staticDir })` starts it in-process; `pnpm --filter @configure-env/api start` runs it standalone over `CONFIGURE_ENV_ROOT` (default: the current directory) and prints a launch URL.
+
+- **Local only.** It binds `127.0.0.1` unless told otherwise, and answers only requests whose `Host` (and `Origin`, when sent) is its own address, against DNS rebinding and CSRF. There is no CORS: preflights are refused, and cross-site fetches (`Sec-Fetch-Site`) too.
+- **Token on every request.** A random per-run token, as `Authorization: Bearer <token>`, or as the HttpOnly `SameSite=Strict` cookie that `GET /launch?token=<token>` sets before redirecting to `/`. A cookie-authenticated `POST` must also send its `Origin`.
+- **Inside the root.** The schema must be a regular file inside the root, and the env files are read only when they resolve inside it, symlinks included.
+- **Secrets masked.** Values of `secret` variables are masked everywhere except `POST /api/reveal`, which returns one value of one schema file.
+
+| Endpoint             | What it returns                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `GET /api/health`    | `{ "status": "ok" }`                                                                              |
+| `GET /api/project`   | the root, the schema path and the version                                                       |
+| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`                |
+| `GET /api/variables` | each variable's spec and its status in every file: `set`, `missing`, `invalid` or `masked`      |
+| `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
+| `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
+| `GET /api/check`     | the drift report of `configure-env check` (`?strict=true` reports unknown keys)                 |
+| `GET /api/validate`  | the rule and value errors of `configure-env validate` (`?strict=true` makes unknown keys errors) |
+| `GET /api/openapi.json` | the OpenAPI document                                                                         |
+
+The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate do not read the protected variables' state yet, so they report no protected mismatch.
+
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
 | `pnpm dev`             | run the CLI from source with tsx                                     |
@@ -649,7 +670,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `pnpm test`            | run the tests with Vitest                                            |
 | `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
-| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps) |
+| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps), and the API into `apps/api/dist/` |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx` |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |

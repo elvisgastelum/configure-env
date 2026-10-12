@@ -1,0 +1,6 @@
+{
+  // What tsdown bundles: the sources, never the tests.
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/test-helpers.ts"]
+}
