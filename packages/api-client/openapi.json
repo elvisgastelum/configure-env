@@ -1,0 +1,2498 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "getHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Whether the server is up",
+        "tags": ["project"]
+      }
+    },
+    "/api/project": {
+      "get": {
+        "operationId": "getProject",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The project root, schema path and version",
+        "tags": ["project"]
+      }
+    },
+    "/api/schema": {
+      "get": {
+        "operationId": "getSchema",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The schema file and its errors, with JSON paths",
+        "tags": ["project"]
+      }
+    },
+    "/api/variables": {
+      "get": {
+        "operationId": "getVariables",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Variables"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Every variable with its spec and value status per file; secrets masked",
+        "tags": ["project"]
+      }
+    },
+    "/api/files": {
+      "get": {
+        "operationId": "getFiles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Files"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Every schema file with its policy, mode, drift and parse errors",
+        "tags": ["project"]
+      }
+    },
+    "/api/reveal": {
+      "post": {
+        "operationId": "revealValue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reveal"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The file path is refused: it leaves the root.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a schema file, or not one of its variables.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "One value, unmasked",
+        "tags": ["project"]
+      }
+    },
+    "/api/check": {
+      "get": {
+        "operationId": "getCheck",
+        "parameters": [
+          {
+            "name": "strict",
+            "required": false,
+            "in": "query",
+            "description": "Treat keys the schema does not list for a file as errors.",
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Check"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The drift report, as configure-env check gives it",
+        "tags": ["project"]
+      }
+    },
+    "/api/validate": {
+      "get": {
+        "operationId": "getValidate",
+        "parameters": [
+          {
+            "name": "strict",
+            "required": false,
+            "in": "query",
+            "description": "Treat keys the schema does not list for a file as errors.",
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Validate"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Rule and value errors per file, as configure-env validate gives them",
+        "tags": ["project"]
+      }
+    }
+  },
+  "info": {
+    "title": "configure-env API",
+    "description": "The local configure-env server: a project's schema and env files. Every request needs the per-run token, as a bearer token or the cookie the launch URL sets.",
+    "version": "1",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message"],
+        "additionalProperties": false
+      },
+      "Check": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "No drift, no invalid value, no error."
+          },
+          "drift": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileDrift"
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanError"
+            }
+          }
+        },
+        "required": ["ok", "drift", "files", "errors"],
+        "additionalProperties": false
+      },
+      "FileDrift": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": ["generate", "merge", "create-only"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["current", "missing", "differs", "missing-keys", "refused"]
+          },
+          "drift": {
+            "type": "boolean"
+          },
+          "missingKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unknownKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "invalid": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "shown": {
+                  "type": "string",
+                  "description": "The value for display, masked when secret."
+                }
+              },
+              "required": ["key", "message", "shown"],
+              "additionalProperties": false
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleProblem"
+            }
+          },
+          "invalidLines": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "protected": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["protected"]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["kind", "key", "message"],
+              "additionalProperties": false
+            }
+          },
+          "mode": {
+            "type": "object",
+            "properties": {
+              "actual": {
+                "type": "string"
+              },
+              "expected": {
+                "type": "string"
+              }
+            },
+            "required": ["actual", "expected"],
+            "additionalProperties": false
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "policy",
+          "status",
+          "drift",
+          "missingKeys",
+          "unknownKeys",
+          "invalid",
+          "rules",
+          "invalidLines",
+          "protected"
+        ],
+        "additionalProperties": false
+      },
+      "FileInfo": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": ["generate", "merge", "create-only"]
+          },
+          "template": {
+            "type": "boolean"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "object",
+            "properties": {
+              "expected": {
+                "nullable": true,
+                "description": "The schema mode, like `600`; null when it sets none.",
+                "type": "string"
+              },
+              "actual": {
+                "nullable": true,
+                "description": "The file mode; null when the file does not exist.",
+                "type": "string"
+              }
+            },
+            "required": ["expected", "actual"],
+            "additionalProperties": false
+          },
+          "drift": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "missing",
+                  "differs",
+                  "missing-keys",
+                  "refused"
+                ]
+              },
+              "drift": {
+                "type": "boolean"
+              },
+              "missingKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unknownKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["status", "drift", "missingKeys", "unknownKeys"],
+            "additionalProperties": false
+          },
+          "parseErrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParseError"
+            }
+          },
+          "error": {
+            "description": "Why the path was refused.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "policy",
+          "template",
+          "exists",
+          "mode",
+          "drift",
+          "parseErrors"
+        ],
+        "additionalProperties": false
+      },
+      "Files": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileInfo"
+            }
+          }
+        },
+        "required": ["files"],
+        "additionalProperties": false
+      },
+      "FileValidation": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "template": {
+            "type": "boolean"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "required": ["path", "template", "exists", "ok", "errors", "warnings"],
+        "additionalProperties": false
+      },
+      "FileValue": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["set", "missing", "invalid", "masked"],
+            "description": "set: a valid value, shown; masked: a valid secret, masked; invalid: breaks its rules; missing: not in the file, or no file."
+          },
+          "value": {
+            "description": "The value; a secret only ever masked. Absent when it is missing.",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it is invalid; never holds the value.",
+            "type": "string"
+          }
+        },
+        "required": ["file", "status"],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok"]
+          }
+        },
+        "required": ["status"],
+        "additionalProperties": false
+      },
+      "InvalidSchema": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [422]
+          },
+          "message": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchemaError"
+            }
+          }
+        },
+        "required": ["statusCode", "message", "errors"],
+        "additionalProperties": false
+      },
+      "ParseError": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["line", "message"],
+        "additionalProperties": false
+      },
+      "PlanError": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["value", "file"]
+          },
+          "key": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "message"],
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "line": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "The real path of the project root."
+          },
+          "schemaPath": {
+            "type": "string",
+            "description": "The schema file, relative to the root."
+          },
+          "version": {
+            "type": "string",
+            "description": "The configure-env version."
+          }
+        },
+        "required": ["root", "schemaPath", "version"],
+        "additionalProperties": false
+      },
+      "Reveal": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "description": "Null when not set.",
+            "type": "string"
+          }
+        },
+        "required": ["file", "key", "value"],
+        "additionalProperties": false
+      },
+      "RevealRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schema file path."
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["file", "key"],
+        "additionalProperties": false
+      },
+      "RuleProblem": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "requiredUnless",
+              "conflictsWith",
+              "distinctFrom",
+              "within"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "others": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["rule", "key", "others", "message"],
+        "additionalProperties": false
+      },
+      "Schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "document": {
+            "description": "The schema file as parsed JSON, valid or not; null when it cannot be read or parsed."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchemaError"
+            }
+          }
+        },
+        "required": ["path", "valid", "document", "errors"],
+        "additionalProperties": false
+      },
+      "SchemaError": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Where, like `files[1].variables[0]`."
+          },
+          "message": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "column": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["path", "message"],
+        "additionalProperties": false
+      },
+      "Validate": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileValidation"
+            }
+          }
+        },
+        "required": ["ok", "files"],
+        "additionalProperties": false
+      },
+      "Variable": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "spec": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["string"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "minLength": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "maxLength": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "pattern": {
+                    "description": "A JavaScript regular expression (Unicode mode).",
+                    "type": "string"
+                  },
+                  "patternMessage": {
+                    "description": "The error shown when the value does not match `pattern`.",
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "description": "The value must be bytes in this encoding: base64 with padding, base64url without padding, or hex of either case.",
+                    "type": "string",
+                    "enum": ["base64", "base64url", "hex"]
+                  },
+                  "bytes": {
+                    "description": "The number of bytes the value must decode to; needs `encoding`.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["number"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "number"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "number"
+                  },
+                  "min": {
+                    "type": "number"
+                  },
+                  "max": {
+                    "type": "number"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["integer"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "min": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "max": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["boolean"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "boolean"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["enum"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "values": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "The accepted values."
+                  }
+                },
+                "required": ["type", "required", "secret", "values"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["email"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["url"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "protocols": {
+                    "description": "The accepted URL schemes, like [\"https\"]; any when absent.",
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:?$"
+                    }
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["host"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["ipv4"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "within": {
+                    "description": "A cidr variable: when both are set, the value (an address, or a whole block) must lie inside its network.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["ipv6"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "within": {
+                    "description": "A cidr variable: when both are set, the value (an address, or a whole block) must lie inside its network.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["ip"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "within": {
+                    "description": "A cidr variable: when both are set, the value (an address, or a whole block) must lie inside its network.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["cidr"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "string"
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "string"
+                  },
+                  "within": {
+                    "description": "A cidr variable: when both are set, the value (an address, or a whole block) must lie inside its network.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "family": {
+                    "default": "any",
+                    "description": "The address family the block must be: ipv4, ipv6, or any for either.",
+                    "type": "string",
+                    "enum": ["ipv4", "ipv6", "any"]
+                  },
+                  "strict": {
+                    "default": false,
+                    "description": "Refuse a block with host bits set, like 10.0.0.1/8: the address must be the network address.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["type", "required", "secret", "family", "strict"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["port"]
+                  },
+                  "description": {
+                    "description": "What the variable is for.",
+                    "type": "string"
+                  },
+                  "group": {
+                    "description": "A heading that groups related variables.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": false,
+                    "description": "Whether the variable must be set.",
+                    "type": "boolean"
+                  },
+                  "secret": {
+                    "default": false,
+                    "description": "Mask the value in output and never echo it in errors.",
+                    "type": "boolean"
+                  },
+                  "allowEmpty": {
+                    "description": "Whether an empty value is accepted. Defaults to true when the variable is not required.",
+                    "type": "boolean"
+                  },
+                  "comment": {
+                    "description": "Text written as `#` comment lines above the key in generated files; may span lines.",
+                    "type": "string"
+                  },
+                  "requiredUnless": {
+                    "description": "The variable is required unless one of these is set (non-empty). Not with `required: true`.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "conflictsWith": {
+                    "description": "The variable and one of these must not both be set (non-empty).",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "distinctFrom": {
+                    "description": "When the variable and one of these are both set, their values must differ.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    ]
+                  },
+                  "protected": {
+                    "description": "Once a file holds a value, never replace or remove it without --replace-protected. Needs `secret: true`; no effect on templates.",
+                    "anyOf": [
+                      {
+                        "type": "boolean",
+                        "enum": [true]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Why the value must never change, shown in errors."
+                          }
+                        },
+                        "required": ["reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "default": {
+                    "description": "The value used when none is given.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "example": {
+                    "description": "A sample value shown to people.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["type", "required", "secret"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileValue"
+            }
+          }
+        },
+        "required": ["name", "spec", "files"],
+        "additionalProperties": false
+      },
+      "Variables": {
+        "type": "object",
+        "properties": {
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Variable"
+            }
+          }
+        },
+        "required": ["variables"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ]
+}
