@@ -91,3 +91,40 @@ export const removeProject = (root: string) =>
   rm(root, { recursive: true, force: true });
 
 export type { ApiServer };
+
+/** A schema with a protected secret, for the write endpoints. */
+export const protectedSchema = {
+  version: 1,
+  variables: {
+    PORT: { type: 'port', default: 3000 },
+    NAME: { type: 'string' },
+    SESSION_KEY: {
+      type: 'string',
+      secret: true,
+      protected: { reason: 'signs every session' },
+    },
+    TOKEN: { type: 'string', secret: true, encoding: 'hex', bytes: 16 },
+  },
+  files: [
+    { path: '.env', policy: 'merge', variables: '*' },
+    { path: 'config/app.env', policy: 'generate', variables: ['PORT'] },
+  ],
+};
+
+export const SESSION_KEY = 'session-key-0123456789';
+
+/** `.env` of the protected project. */
+export const protectedEnv = [
+  '# local overrides',
+  'PORT=8080',
+  'NAME=app',
+  `SESSION_KEY=${SESSION_KEY}`,
+  '',
+].join('\n');
+
+/** A project whose schema protects SESSION_KEY. */
+export const protectedProject = () =>
+  writeProject({
+    'env.schema.json': JSON.stringify(protectedSchema, null, 2),
+    '.env': protectedEnv,
+  });

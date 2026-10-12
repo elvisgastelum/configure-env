@@ -21,6 +21,52 @@ import type {
   UseQueryResult,
 } from '@tanstack/react-query';
 
+/**
+ * The file, as env.schema.json writes it.
+ */
+export type AddFileRequestSpec = { [key: string]: unknown };
+
+export interface AddFileRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** The file, as env.schema.json writes it. */
+  spec: AddFileRequestSpec;
+  /**
+   * Where; last by default.
+   * @minimum 0
+   * @maximum 9007199254740991
+   */
+  index?: number;
+}
+
+/**
+ * The variable, as env.schema.json writes it.
+ */
+export type AddVariableRequestSpec = { [key: string]: unknown };
+
+export interface AddVariableRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /**
+   * A variable name, like `API_URL`.
+   * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  name: string;
+  /** The variable, as env.schema.json writes it. */
+  spec: AddVariableRequestSpec;
+  /**
+   * Files whose variable list it joins; a file that takes `"*"` holds it already.
+   * @items.minLength 1
+   */
+  files?: string[];
+}
+
 export interface ApiError {
   /**
    * @minimum -9007199254740991
@@ -28,6 +74,65 @@ export interface ApiError {
    */
   statusCode: number;
   message: string;
+}
+
+export type AppliedFilesItemAction =
+  (typeof AppliedFilesItemAction)[keyof typeof AppliedFilesItemAction];
+
+export const AppliedFilesItemAction = {
+  create: 'create',
+  update: 'update',
+  mode: 'mode',
+  unchanged: 'unchanged',
+  skip: 'skip',
+} as const;
+
+export type AppliedFilesItem = {
+  path: string;
+  action: AppliedFilesItemAction;
+  ok: boolean;
+  written: boolean;
+  error?: string;
+};
+
+export type AppliedReplacedItem = {
+  file: string;
+  key: string;
+};
+
+export interface Applied {
+  /** Every file was written as planned. */
+  ok: boolean;
+  files: AppliedFilesItem[];
+  replaced: AppliedReplacedItem[];
+  warnings: string[];
+}
+
+/**
+ * Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.
+ */
+export type ApplyRequestValues = { [key: string]: string };
+
+export interface ApplyRequest {
+  /** Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them. */
+  values?: ApplyRequestValues;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Remove the keys a merge or create-only file holds that the schema does not list for it. */
+  prune?: boolean;
+  /**
+   * The protected keys the edit may replace or remove; any other protected change is refused.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  replaceProtected?: string[];
+  /**
+   * The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).
+   * @minLength 1
+   */
+  fingerprint: string;
 }
 
 export type FileDriftPolicy =
@@ -135,6 +240,53 @@ export interface Check {
   errors: PlanError[];
 }
 
+export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
+
+export const DiffLineKind = {
+  same: 'same',
+  added: 'added',
+  removed: 'removed',
+} as const;
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  /** The line, secrets masked. */
+  line: string;
+}
+
+export interface EditProblem {
+  key?: string;
+  message: string;
+  /** A protected variable's reason, when it gives one. */
+  reason?: string;
+}
+
+export type EditRefusedStatusCode =
+  (typeof EditRefusedStatusCode)[keyof typeof EditRefusedStatusCode];
+
+export const EditRefusedStatusCode = {
+  NUMBER_422: 422,
+} as const;
+
+/**
+ * invalid: values that break their rules; protected: protected values the edit may not change.
+ */
+export type EditRefusedKind =
+  (typeof EditRefusedKind)[keyof typeof EditRefusedKind];
+
+export const EditRefusedKind = {
+  invalid: 'invalid',
+  protected: 'protected',
+} as const;
+
+export interface EditRefused {
+  statusCode: EditRefusedStatusCode;
+  message: string;
+  /** invalid: values that break their rules; protected: protected values the edit may not change. */
+  kind: EditRefusedKind;
+  errors: EditProblem[];
+}
+
 export type FileInfoPolicy =
   (typeof FileInfoPolicy)[keyof typeof FileInfoPolicy];
 
@@ -192,15 +344,92 @@ export interface FileInfo {
   mode: FileInfoMode;
   drift: FileInfoDrift;
   parseErrors: ParseError[];
+  /**
+   * Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.
+   * @nullable
+   */
+  fingerprint?: string | null;
   /** Why the path was refused. */
   error?: string;
+}
+
+export type FilePlanPolicy =
+  (typeof FilePlanPolicy)[keyof typeof FilePlanPolicy];
+
+export const FilePlanPolicy = {
+  generate: 'generate',
+  merge: 'merge',
+  'create-only': 'create-only',
+} as const;
+
+/**
+ * mode: the content is current, only the permissions change.
+ */
+export type FilePlanAction =
+  (typeof FilePlanAction)[keyof typeof FilePlanAction];
+
+export const FilePlanAction = {
+  create: 'create',
+  update: 'update',
+  mode: 'mode',
+  unchanged: 'unchanged',
+  skip: 'skip',
+} as const;
+
+/**
+ * Why a file is skipped: create-only and present, an unsafe path, or a mode that would loosen it.
+ */
+export type FilePlanReason =
+  (typeof FilePlanReason)[keyof typeof FilePlanReason];
+
+export const FilePlanReason = {
+  exists: 'exists',
+  refused: 'refused',
+  loosens: 'loosens',
+} as const;
+
+export interface FilePlan {
+  path: string;
+  policy: FilePlanPolicy;
+  /** mode: the content is current, only the permissions change. */
+  action: FilePlanAction;
+  /** Why a file is skipped: create-only and present, an unsafe path, or a mode that would loosen it. */
+  reason?: FilePlanReason;
+  error?: string;
+  addedKeys: string[];
+  prunedKeys: string[];
+  /** The permissions it is written with, like `600`. */
+  mode: string;
+  /**
+   * Its permissions now; null when it does not exist.
+   * @nullable
+   */
+  currentMode: string | null;
+  /**
+   * The file's fingerprint now; null when it does not exist.
+   * @nullable
+   */
+  fingerprint: string | null;
+  /** From the file now to the file after; empty for a skipped one. */
+  diff: DiffLine[];
 }
 
 export interface Files {
   files: FileInfo[];
 }
 
+/**
+ * protected: a protected value that no longer matches the one the state recorded.
+ */
+export type ProblemKind = (typeof ProblemKind)[keyof typeof ProblemKind];
+
+export const ProblemKind = {
+  protected: 'protected',
+} as const;
+
 export interface Problem {
+  /** protected: a protected value that no longer matches the one the state recorded. */
+  kind?: ProblemKind;
   key?: string;
   keys?: string[];
   /**
@@ -209,6 +438,8 @@ export interface Problem {
    */
   line?: number;
   message: string;
+  /** A protected variable's reason, when it gives one. */
+  reason?: string;
 }
 
 export interface FileValidation {
@@ -253,6 +484,20 @@ export interface Health {
   status: HealthStatus;
 }
 
+export interface InitSchemaRequest {
+  /**
+   * The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.
+   * @minLength 1
+   */
+  from?: string;
+  /**
+   * To replace an existing schema, its fingerprint; without it an existing schema is kept (409).
+   * @minLength 1
+   * @nullable
+   */
+  fingerprint?: string | null;
+}
+
 export type InvalidSchemaStatusCode =
   (typeof InvalidSchemaStatusCode)[keyof typeof InvalidSchemaStatusCode];
 
@@ -282,6 +527,58 @@ export interface InvalidSchema {
   errors: SchemaError[];
 }
 
+export interface ProtectedRefusal {
+  file: string;
+  key: string;
+  message: string;
+  reason?: string;
+}
+
+export interface Plan {
+  /** Identifies this plan; POST /api/apply names it. */
+  fingerprint: string;
+  /** Whether it can be applied: no error and no protected refusal. */
+  ok: boolean;
+  files: FilePlan[];
+  errors: PlanError[];
+  /** Protected values the plan would change without replaceProtected naming them. */
+  protected: ProtectedRefusal[];
+}
+
+export interface PlanConflict {
+  /**
+   * 409 or 422.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  statusCode: number;
+  message: string;
+  /** The plan as it is now. */
+  plan: Plan;
+}
+
+/**
+ * Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.
+ */
+export type PlanRequestValues = { [key: string]: string };
+
+export interface PlanRequest {
+  /** Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them. */
+  values?: PlanRequestValues;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Remove the keys a merge or create-only file holds that the schema does not list for it. */
+  prune?: boolean;
+  /**
+   * The protected keys the edit may replace or remove; any other protected change is refused.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  replaceProtected?: string[];
+}
+
 export interface Project {
   /** The real path of the project root. */
   root: string;
@@ -289,6 +586,49 @@ export interface Project {
   schemaPath: string;
   /** The configure-env version. */
   version: string;
+}
+
+export interface RemoveFileRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** @minLength 1 */
+  path: string;
+}
+
+export interface RemoveVariableRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** Also remove every rule and file entry naming it; without it, a reference refuses the edit. */
+  cleanup?: boolean;
+}
+
+export interface RenameVariableRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /**
+   * A variable name, like `API_URL`.
+   * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  to: string;
+}
+
+export interface ReorderVariablesRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** Every declared variable, once, in its new place. */
+  order: string[];
 }
 
 export interface Reveal {
@@ -317,11 +657,173 @@ export interface Schema {
   /** The schema file as parsed JSON, valid or not; null when it cannot be read or parsed. */
   document: unknown;
   errors: SchemaError[];
+  /** Identifies the bytes read; a schema edit names it. Absent when the file cannot be read. */
+  fingerprint?: string;
+}
+
+export type SchemaEditRefusedStatusCode =
+  (typeof SchemaEditRefusedStatusCode)[keyof typeof SchemaEditRefusedStatusCode];
+
+export const SchemaEditRefusedStatusCode = {
+  NUMBER_422: 422,
+} as const;
+
+export interface SchemaEditRefused {
+  statusCode: SchemaEditRefusedStatusCode;
+  message: string;
+  errors: SchemaError[];
+  /** The schema as it is now. */
+  schema: Schema;
+}
+
+/**
+ * The values to set, by key, as a person would type them.
+ */
+export type SetValuesRequestValues = { [key: string]: string };
+
+export interface SetValuesRequest {
+  /**
+   * A schema file path.
+   * @minLength 1
+   */
+  file: string;
+  /**
+   * The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).
+   * @nullable
+   */
+  fingerprint: string | null;
+  /** The values to set, by key, as a person would type them. */
+  values?: SetValuesRequestValues;
+  /**
+   * Secret string variables to set to a new random value, never returned.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  generate?: string[];
+  /**
+   * The protected keys the edit may replace or remove; any other protected change is refused.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  replaceProtected?: string[];
+}
+
+export type StaleFileStatusCode =
+  (typeof StaleFileStatusCode)[keyof typeof StaleFileStatusCode];
+
+export const StaleFileStatusCode = {
+  NUMBER_409: 409,
+} as const;
+
+export interface StaleFile {
+  statusCode: StaleFileStatusCode;
+  message: string;
+  /** The file as it is now. */
+  file: FileInfo;
+}
+
+export type StaleSchemaStatusCode =
+  (typeof StaleSchemaStatusCode)[keyof typeof StaleSchemaStatusCode];
+
+export const StaleSchemaStatusCode = {
+  NUMBER_409: 409,
+} as const;
+
+export interface StaleSchema {
+  statusCode: StaleSchemaStatusCode;
+  message: string;
+  /** The schema as it is now. */
+  schema: Schema;
+}
+
+export interface UnsetValuesRequest {
+  /**
+   * A schema file path.
+   * @minLength 1
+   */
+  file: string;
+  /**
+   * The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).
+   * @nullable
+   */
+  fingerprint: string | null;
+  /**
+   * @minItems 1
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  keys: string[];
+  /**
+   * The protected keys the edit may replace or remove; any other protected change is refused.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  replaceProtected?: string[];
+}
+
+/**
+ * Fields to set; null removes one; `path` renames the file.
+ */
+export type UpdateFileRequestChanges = { [key: string]: unknown };
+
+export interface UpdateFileRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** @minLength 1 */
+  path: string;
+  /** Fields to set; null removes one; `path` renames the file. */
+  changes: UpdateFileRequestChanges;
+}
+
+/**
+ * Fields to set; null removes one. A new `type` drops the options it does not take.
+ */
+export type UpdateVariableRequestChanges = { [key: string]: unknown };
+
+export interface UpdateVariableRequest {
+  /**
+   * The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** Fields to set; null removes one. A new `type` drops the options it does not take. */
+  changes: UpdateVariableRequestChanges;
 }
 
 export interface Validate {
   ok: boolean;
   files: FileValidation[];
+}
+
+export type ValuesEditKeysItemStatus =
+  (typeof ValuesEditKeysItemStatus)[keyof typeof ValuesEditKeysItemStatus];
+
+export const ValuesEditKeysItemStatus = {
+  updated: 'updated',
+  added: 'added',
+  unchanged: 'unchanged',
+  removed: 'removed',
+  absent: 'absent',
+} as const;
+
+export type ValuesEditKeysItem = {
+  key: string;
+  status: ValuesEditKeysItemStatus;
+};
+
+export interface ValuesEdit {
+  file: string;
+  /**
+   * The file's fingerprint after the edit.
+   * @nullable
+   */
+  fingerprint: string | null;
+  keys: ValuesEditKeysItem[];
+  /** The protected keys replaced. */
+  replaced: string[];
+  /** The keys set to a generated value. */
+  generated: string[];
+  /** What went wrong after the file was written: the protected state or the history not recorded. */
+  warnings: string[];
 }
 
 export type VariableSpec =
@@ -1876,10 +2378,17 @@ export type getCheckResponse422 = {
   status: 422;
 };
 
+export type getCheckResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
 export type getCheckResponseSuccess = getCheckResponse200 & {
   headers: Headers;
 };
-export type getCheckResponseError = getCheckResponse422 & {
+export type getCheckResponseError = (
+  getCheckResponse422 | getCheckResponse503
+) & {
   headers: Headers;
 };
 
@@ -1925,7 +2434,7 @@ export const getGetCheckQueryKey = (params?: GetCheckParams) => {
 
 export const getGetCheckQueryOptions = <
   TData = Awaited<ReturnType<typeof getCheck>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetCheckParams,
   options?: {
@@ -1953,11 +2462,11 @@ export const getGetCheckQueryOptions = <
 export type GetCheckQueryResult = NonNullable<
   Awaited<ReturnType<typeof getCheck>>
 >;
-export type GetCheckQueryError = InvalidSchema;
+export type GetCheckQueryError = InvalidSchema | ApiError;
 
 export function useGetCheck<
   TData = Awaited<ReturnType<typeof getCheck>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params: undefined | GetCheckParams,
   options: {
@@ -1980,7 +2489,7 @@ export function useGetCheck<
 };
 export function useGetCheck<
   TData = Awaited<ReturnType<typeof getCheck>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetCheckParams,
   options?: {
@@ -2003,7 +2512,7 @@ export function useGetCheck<
 };
 export function useGetCheck<
   TData = Awaited<ReturnType<typeof getCheck>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetCheckParams,
   options?: {
@@ -2022,7 +2531,7 @@ export function useGetCheck<
 
 export function useGetCheck<
   TData = Awaited<ReturnType<typeof getCheck>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetCheckParams,
   options?: {
@@ -2055,10 +2564,17 @@ export type getValidateResponse422 = {
   status: 422;
 };
 
+export type getValidateResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
 export type getValidateResponseSuccess = getValidateResponse200 & {
   headers: Headers;
 };
-export type getValidateResponseError = getValidateResponse422 & {
+export type getValidateResponseError = (
+  getValidateResponse422 | getValidateResponse503
+) & {
   headers: Headers;
 };
 
@@ -2109,7 +2625,7 @@ export const getGetValidateQueryKey = (params?: GetValidateParams) => {
 
 export const getGetValidateQueryOptions = <
   TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetValidateParams,
   options?: {
@@ -2137,11 +2653,11 @@ export const getGetValidateQueryOptions = <
 export type GetValidateQueryResult = NonNullable<
   Awaited<ReturnType<typeof getValidate>>
 >;
-export type GetValidateQueryError = InvalidSchema;
+export type GetValidateQueryError = InvalidSchema | ApiError;
 
 export function useGetValidate<
   TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params: undefined | GetValidateParams,
   options: {
@@ -2164,7 +2680,7 @@ export function useGetValidate<
 };
 export function useGetValidate<
   TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetValidateParams,
   options?: {
@@ -2187,7 +2703,7 @@ export function useGetValidate<
 };
 export function useGetValidate<
   TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetValidateParams,
   options?: {
@@ -2206,7 +2722,7 @@ export function useGetValidate<
 
 export function useGetValidate<
   TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema,
+  TError = InvalidSchema | ApiError,
 >(
   params?: GetValidateParams,
   options?: {
@@ -2220,6 +2736,2201 @@ export function useGetValidate<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetValidateQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export type setValuesResponse200 = {
+  data: ValuesEdit;
+  status: 200;
+};
+
+export type setValuesResponse403 = {
+  data: ApiError;
+  status: 403;
+};
+
+export type setValuesResponse404 = {
+  data: ApiError;
+  status: 404;
+};
+
+export type setValuesResponse409 = {
+  data: StaleFile;
+  status: 409;
+};
+
+export type setValuesResponse422 = {
+  data: EditRefused;
+  status: 422;
+};
+
+export type setValuesResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type setValuesResponseSuccess = setValuesResponse200 & {
+  headers: Headers;
+};
+export type setValuesResponseError = (
+  | setValuesResponse403
+  | setValuesResponse404
+  | setValuesResponse409
+  | setValuesResponse422
+  | setValuesResponse503
+) & {
+  headers: Headers;
+};
+
+export type setValuesResponse =
+  setValuesResponseSuccess | setValuesResponseError;
+
+export const getSetValuesUrl = () => {
+  return `/api/values/set`;
+};
+
+/**
+ * @summary Sets values in one file, given or generated; protected values only when replaced by key
+ */
+export const setValues = async (
+  setValuesRequest: SetValuesRequest,
+  options?: RequestInit,
+): Promise<setValuesResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getSetValuesUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(setValuesRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setValuesResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as setValuesResponse;
+};
+
+export const getSetValuesMutationKey = () => ['setValues'] as const;
+
+export const getSetValuesMutationOptions = <
+  TError = ApiError | StaleFile | EditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setValues>>,
+    TError,
+    SetValuesMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setValues>>,
+  TError,
+  SetValuesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSetValuesMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setValues>>,
+    SetValuesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setValues(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetValuesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setValues>>
+>;
+export type SetValuesMutationBody = SetValuesRequest;
+export type SetValuesMutationError = ApiError | StaleFile | EditRefused;
+export type SetValuesMutationVariables = { data: SetValuesRequest };
+
+/**
+ * @summary Sets values in one file, given or generated; protected values only when replaced by key
+ */
+export const useSetValues = <
+  TError = ApiError | StaleFile | EditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setValues>>,
+      TError,
+      SetValuesMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setValues>>,
+  TError,
+  SetValuesMutationVariables,
+  TContext
+> => {
+  return useMutation(getSetValuesMutationOptions(options), queryClient);
+};
+
+export type unsetValuesResponse200 = {
+  data: ValuesEdit;
+  status: 200;
+};
+
+export type unsetValuesResponse403 = {
+  data: ApiError;
+  status: 403;
+};
+
+export type unsetValuesResponse404 = {
+  data: ApiError;
+  status: 404;
+};
+
+export type unsetValuesResponse409 = {
+  data: StaleFile;
+  status: 409;
+};
+
+export type unsetValuesResponse422 = {
+  data: EditRefused;
+  status: 422;
+};
+
+export type unsetValuesResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type unsetValuesResponseSuccess = unsetValuesResponse200 & {
+  headers: Headers;
+};
+export type unsetValuesResponseError = (
+  | unsetValuesResponse403
+  | unsetValuesResponse404
+  | unsetValuesResponse409
+  | unsetValuesResponse422
+  | unsetValuesResponse503
+) & {
+  headers: Headers;
+};
+
+export type unsetValuesResponse =
+  unsetValuesResponseSuccess | unsetValuesResponseError;
+
+export const getUnsetValuesUrl = () => {
+  return `/api/values/unset`;
+};
+
+/**
+ * @summary Removes keys from one file; protected values only when replaced by key
+ */
+export const unsetValues = async (
+  unsetValuesRequest: UnsetValuesRequest,
+  options?: RequestInit,
+): Promise<unsetValuesResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getUnsetValuesUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(unsetValuesRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: unsetValuesResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as unsetValuesResponse;
+};
+
+export const getUnsetValuesMutationKey = () => ['unsetValues'] as const;
+
+export const getUnsetValuesMutationOptions = <
+  TError = ApiError | StaleFile | EditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unsetValues>>,
+    TError,
+    UnsetValuesMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unsetValues>>,
+  TError,
+  UnsetValuesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnsetValuesMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unsetValues>>,
+    UnsetValuesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return unsetValues(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnsetValuesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unsetValues>>
+>;
+export type UnsetValuesMutationBody = UnsetValuesRequest;
+export type UnsetValuesMutationError = ApiError | StaleFile | EditRefused;
+export type UnsetValuesMutationVariables = { data: UnsetValuesRequest };
+
+/**
+ * @summary Removes keys from one file; protected values only when replaced by key
+ */
+export const useUnsetValues = <
+  TError = ApiError | StaleFile | EditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unsetValues>>,
+      TError,
+      UnsetValuesMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unsetValues>>,
+  TError,
+  UnsetValuesMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnsetValuesMutationOptions(options), queryClient);
+};
+
+export type planChangesResponse200 = {
+  data: Plan;
+  status: 200;
+};
+
+export type planChangesResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type planChangesResponseSuccess = planChangesResponse200 & {
+  headers: Headers;
+};
+export type planChangesResponseError = planChangesResponse422 & {
+  headers: Headers;
+};
+
+export type planChangesResponse =
+  planChangesResponseSuccess | planChangesResponseError;
+
+export const getPlanChangesUrl = () => {
+  return `/api/plan`;
+};
+
+/**
+ * @summary What applying would do to each file, with masked diffs; writes nothing
+ */
+export const planChanges = async (
+  planRequest: PlanRequest,
+  options?: RequestInit,
+): Promise<planChangesResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getPlanChangesUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(planRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: planChangesResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as planChangesResponse;
+};
+
+export const getPlanChangesMutationKey = () => ['planChanges'] as const;
+
+export const getPlanChangesMutationOptions = <
+  TError = InvalidSchema,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof planChanges>>,
+    TError,
+    PlanChangesMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof planChanges>>,
+  TError,
+  PlanChangesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPlanChangesMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof planChanges>>,
+    PlanChangesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return planChanges(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PlanChangesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof planChanges>>
+>;
+export type PlanChangesMutationBody = PlanRequest;
+export type PlanChangesMutationError = InvalidSchema;
+export type PlanChangesMutationVariables = { data: PlanRequest };
+
+/**
+ * @summary What applying would do to each file, with masked diffs; writes nothing
+ */
+export const usePlanChanges = <TError = InvalidSchema, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof planChanges>>,
+      TError,
+      PlanChangesMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof planChanges>>,
+  TError,
+  PlanChangesMutationVariables,
+  TContext
+> => {
+  return useMutation(getPlanChangesMutationOptions(options), queryClient);
+};
+
+export type applyPlanResponse200 = {
+  data: Applied;
+  status: 200;
+};
+
+export type applyPlanResponse409 = {
+  data: PlanConflict;
+  status: 409;
+};
+
+export type applyPlanResponse422 = {
+  data: PlanConflict;
+  status: 422;
+};
+
+export type applyPlanResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type applyPlanResponseSuccess = applyPlanResponse200 & {
+  headers: Headers;
+};
+export type applyPlanResponseError = (
+  applyPlanResponse409 | applyPlanResponse422 | applyPlanResponse503
+) & {
+  headers: Headers;
+};
+
+export type applyPlanResponse =
+  applyPlanResponseSuccess | applyPlanResponseError;
+
+export const getApplyPlanUrl = () => {
+  return `/api/apply`;
+};
+
+/**
+ * @summary Writes the plan shown, when its fingerprint still matches
+ */
+export const applyPlan = async (
+  applyRequest: ApplyRequest,
+  options?: RequestInit,
+): Promise<applyPlanResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getApplyPlanUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(applyRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: applyPlanResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as applyPlanResponse;
+};
+
+export const getApplyPlanMutationKey = () => ['applyPlan'] as const;
+
+export const getApplyPlanMutationOptions = <
+  TError = PlanConflict | ApiError,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyPlan>>,
+    TError,
+    ApplyPlanMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof applyPlan>>,
+  TError,
+  ApplyPlanMutationVariables,
+  TContext
+> => {
+  const mutationKey = getApplyPlanMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof applyPlan>>,
+    ApplyPlanMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return applyPlan(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApplyPlanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof applyPlan>>
+>;
+export type ApplyPlanMutationBody = ApplyRequest;
+export type ApplyPlanMutationError = PlanConflict | ApiError;
+export type ApplyPlanMutationVariables = { data: ApplyRequest };
+
+/**
+ * @summary Writes the plan shown, when its fingerprint still matches
+ */
+export const useApplyPlan = <
+  TError = PlanConflict | ApiError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof applyPlan>>,
+      TError,
+      ApplyPlanMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof applyPlan>>,
+  TError,
+  ApplyPlanMutationVariables,
+  TContext
+> => {
+  return useMutation(getApplyPlanMutationOptions(options), queryClient);
+};
+
+export type addVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type addVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type addVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type addVariableResponseSuccess = addVariableResponse200 & {
+  headers: Headers;
+};
+export type addVariableResponseError = (
+  addVariableResponse409 | addVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type addVariableResponse =
+  addVariableResponseSuccess | addVariableResponseError;
+
+export const getAddVariableUrl = () => {
+  return `/api/schema/variables`;
+};
+
+/**
+ * @summary Declares a variable
+ */
+export const addVariable = async (
+  addVariableRequest: AddVariableRequest,
+  options?: RequestInit,
+): Promise<addVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getAddVariableUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(addVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: addVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as addVariableResponse;
+};
+
+export const getAddVariableMutationKey = () => ['addVariable'] as const;
+
+export const getAddVariableMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addVariable>>,
+    TError,
+    AddVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addVariable>>,
+  TError,
+  AddVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAddVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addVariable>>,
+    AddVariableMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addVariable(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addVariable>>
+>;
+export type AddVariableMutationBody = AddVariableRequest;
+export type AddVariableMutationError = StaleSchema | SchemaEditRefused;
+export type AddVariableMutationVariables = { data: AddVariableRequest };
+
+/**
+ * @summary Declares a variable
+ */
+export const useAddVariable = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof addVariable>>,
+      TError,
+      AddVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof addVariable>>,
+  TError,
+  AddVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getAddVariableMutationOptions(options), queryClient);
+};
+
+export type updateVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type updateVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type updateVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type updateVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type updateVariableResponseSuccess = updateVariableResponse200 & {
+  headers: Headers;
+};
+export type updateVariableResponseError = (
+  | updateVariableResponse400
+  | updateVariableResponse409
+  | updateVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type updateVariableResponse =
+  updateVariableResponseSuccess | updateVariableResponseError;
+
+export const getUpdateVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}`;
+};
+
+/**
+ * @summary Changes a variable's fields
+ */
+export const updateVariable = async (
+  name: unknown,
+  updateVariableRequest: UpdateVariableRequest,
+  options?: RequestInit,
+): Promise<updateVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getUpdateVariableUrl(name), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(updateVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: updateVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as updateVariableResponse;
+};
+
+export const getUpdateVariableMutationKey = () => ['updateVariable'] as const;
+
+export const getUpdateVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVariable>>,
+    TError,
+    UpdateVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateVariable>>,
+  TError,
+  UpdateVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateVariable>>,
+    UpdateVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return updateVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateVariable>>
+>;
+export type UpdateVariableMutationBody = UpdateVariableRequest;
+export type UpdateVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type UpdateVariableMutationVariables = {
+  name: unknown;
+  data: UpdateVariableRequest;
+};
+
+/**
+ * @summary Changes a variable's fields
+ */
+export const useUpdateVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateVariable>>,
+      TError,
+      UpdateVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateVariable>>,
+  TError,
+  UpdateVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateVariableMutationOptions(options), queryClient);
+};
+
+export type removeVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type removeVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type removeVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type removeVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type removeVariableResponseSuccess = removeVariableResponse200 & {
+  headers: Headers;
+};
+export type removeVariableResponseError = (
+  | removeVariableResponse400
+  | removeVariableResponse409
+  | removeVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type removeVariableResponse =
+  removeVariableResponseSuccess | removeVariableResponseError;
+
+export const getRemoveVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}`;
+};
+
+/**
+ * @summary Removes a variable; with cleanup, every reference to it too
+ */
+export const removeVariable = async (
+  name: unknown,
+  removeVariableRequest: RemoveVariableRequest,
+  options?: RequestInit,
+): Promise<removeVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getRemoveVariableUrl(name), {
+    ...options,
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(removeVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: removeVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as removeVariableResponse;
+};
+
+export const getRemoveVariableMutationKey = () => ['removeVariable'] as const;
+
+export const getRemoveVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeVariable>>,
+    TError,
+    RemoveVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeVariable>>,
+  TError,
+  RemoveVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeVariable>>,
+    RemoveVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return removeVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeVariable>>
+>;
+export type RemoveVariableMutationBody = RemoveVariableRequest;
+export type RemoveVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type RemoveVariableMutationVariables = {
+  name: unknown;
+  data: RemoveVariableRequest;
+};
+
+/**
+ * @summary Removes a variable; with cleanup, every reference to it too
+ */
+export const useRemoveVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeVariable>>,
+      TError,
+      RemoveVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeVariable>>,
+  TError,
+  RemoveVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveVariableMutationOptions(options), queryClient);
+};
+
+export type renameVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type renameVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type renameVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type renameVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type renameVariableResponseSuccess = renameVariableResponse200 & {
+  headers: Headers;
+};
+export type renameVariableResponseError = (
+  | renameVariableResponse400
+  | renameVariableResponse409
+  | renameVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type renameVariableResponse =
+  renameVariableResponseSuccess | renameVariableResponseError;
+
+export const getRenameVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}/rename`;
+};
+
+/**
+ * @summary Renames a variable and every reference to it
+ */
+export const renameVariable = async (
+  name: unknown,
+  renameVariableRequest: RenameVariableRequest,
+  options?: RequestInit,
+): Promise<renameVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getRenameVariableUrl(name), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(renameVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: renameVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as renameVariableResponse;
+};
+
+export const getRenameVariableMutationKey = () => ['renameVariable'] as const;
+
+export const getRenameVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof renameVariable>>,
+    TError,
+    RenameVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof renameVariable>>,
+  TError,
+  RenameVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRenameVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof renameVariable>>,
+    RenameVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return renameVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RenameVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof renameVariable>>
+>;
+export type RenameVariableMutationBody = RenameVariableRequest;
+export type RenameVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type RenameVariableMutationVariables = {
+  name: unknown;
+  data: RenameVariableRequest;
+};
+
+/**
+ * @summary Renames a variable and every reference to it
+ */
+export const useRenameVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof renameVariable>>,
+      TError,
+      RenameVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof renameVariable>>,
+  TError,
+  RenameVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getRenameVariableMutationOptions(options), queryClient);
+};
+
+export type reorderVariablesResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type reorderVariablesResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type reorderVariablesResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type reorderVariablesResponseSuccess = reorderVariablesResponse200 & {
+  headers: Headers;
+};
+export type reorderVariablesResponseError = (
+  reorderVariablesResponse409 | reorderVariablesResponse422
+) & {
+  headers: Headers;
+};
+
+export type reorderVariablesResponse =
+  reorderVariablesResponseSuccess | reorderVariablesResponseError;
+
+export const getReorderVariablesUrl = () => {
+  return `/api/schema/variable-order`;
+};
+
+/**
+ * @summary Puts the variables in a new order
+ */
+export const reorderVariables = async (
+  reorderVariablesRequest: ReorderVariablesRequest,
+  options?: RequestInit,
+): Promise<reorderVariablesResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getReorderVariablesUrl(), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(reorderVariablesRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: reorderVariablesResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as reorderVariablesResponse;
+};
+
+export const getReorderVariablesMutationKey = () =>
+  ['reorderVariables'] as const;
+
+export const getReorderVariablesMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderVariables>>,
+    TError,
+    ReorderVariablesMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderVariables>>,
+  TError,
+  ReorderVariablesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderVariablesMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderVariables>>,
+    ReorderVariablesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderVariables(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderVariablesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderVariables>>
+>;
+export type ReorderVariablesMutationBody = ReorderVariablesRequest;
+export type ReorderVariablesMutationError = StaleSchema | SchemaEditRefused;
+export type ReorderVariablesMutationVariables = {
+  data: ReorderVariablesRequest;
+};
+
+/**
+ * @summary Puts the variables in a new order
+ */
+export const useReorderVariables = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderVariables>>,
+      TError,
+      ReorderVariablesMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderVariables>>,
+  TError,
+  ReorderVariablesMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderVariablesMutationOptions(options), queryClient);
+};
+
+export type addFileResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type addFileResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type addFileResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type addFileResponseSuccess = addFileResponse200 & {
+  headers: Headers;
+};
+export type addFileResponseError = (addFileResponse409 | addFileResponse422) & {
+  headers: Headers;
+};
+
+export type addFileResponse = addFileResponseSuccess | addFileResponseError;
+
+export const getAddFileUrl = () => {
+  return `/api/schema/files`;
+};
+
+/**
+ * @summary Adds a file the schema manages
+ */
+export const addFile = async (
+  addFileRequest: AddFileRequest,
+  options?: RequestInit,
+): Promise<addFileResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getAddFileUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(addFileRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: addFileResponse['data'] = body ? JSON.parse(body) : {};
+  return { data, status: res.status, headers: res.headers } as addFileResponse;
+};
+
+export const getAddFileMutationKey = () => ['addFile'] as const;
+
+export const getAddFileMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addFile>>,
+    TError,
+    AddFileMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addFile>>,
+  TError,
+  AddFileMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAddFileMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addFile>>,
+    AddFileMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addFile(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addFile>>
+>;
+export type AddFileMutationBody = AddFileRequest;
+export type AddFileMutationError = StaleSchema | SchemaEditRefused;
+export type AddFileMutationVariables = { data: AddFileRequest };
+
+/**
+ * @summary Adds a file the schema manages
+ */
+export const useAddFile = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof addFile>>,
+      TError,
+      AddFileMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof addFile>>,
+  TError,
+  AddFileMutationVariables,
+  TContext
+> => {
+  return useMutation(getAddFileMutationOptions(options), queryClient);
+};
+
+export type updateFileResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type updateFileResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type updateFileResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type updateFileResponseSuccess = updateFileResponse200 & {
+  headers: Headers;
+};
+export type updateFileResponseError = (
+  updateFileResponse409 | updateFileResponse422
+) & {
+  headers: Headers;
+};
+
+export type updateFileResponse =
+  updateFileResponseSuccess | updateFileResponseError;
+
+export const getUpdateFileUrl = () => {
+  return `/api/schema/files`;
+};
+
+/**
+ * @summary Changes a file's fields
+ */
+export const updateFile = async (
+  updateFileRequest: UpdateFileRequest,
+  options?: RequestInit,
+): Promise<updateFileResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getUpdateFileUrl(), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(updateFileRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: updateFileResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as updateFileResponse;
+};
+
+export const getUpdateFileMutationKey = () => ['updateFile'] as const;
+
+export const getUpdateFileMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateFile>>,
+    TError,
+    UpdateFileMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateFile>>,
+  TError,
+  UpdateFileMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateFileMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateFile>>,
+    UpdateFileMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateFile(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateFile>>
+>;
+export type UpdateFileMutationBody = UpdateFileRequest;
+export type UpdateFileMutationError = StaleSchema | SchemaEditRefused;
+export type UpdateFileMutationVariables = { data: UpdateFileRequest };
+
+/**
+ * @summary Changes a file's fields
+ */
+export const useUpdateFile = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateFile>>,
+      TError,
+      UpdateFileMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateFile>>,
+  TError,
+  UpdateFileMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateFileMutationOptions(options), queryClient);
+};
+
+export type removeFileResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type removeFileResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type removeFileResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type removeFileResponseSuccess = removeFileResponse200 & {
+  headers: Headers;
+};
+export type removeFileResponseError = (
+  removeFileResponse409 | removeFileResponse422
+) & {
+  headers: Headers;
+};
+
+export type removeFileResponse =
+  removeFileResponseSuccess | removeFileResponseError;
+
+export const getRemoveFileUrl = () => {
+  return `/api/schema/files`;
+};
+
+/**
+ * @summary Removes a file from the schema; its variables stay declared
+ */
+export const removeFile = async (
+  removeFileRequest: RemoveFileRequest,
+  options?: RequestInit,
+): Promise<removeFileResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getRemoveFileUrl(), {
+    ...options,
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(removeFileRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: removeFileResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as removeFileResponse;
+};
+
+export const getRemoveFileMutationKey = () => ['removeFile'] as const;
+
+export const getRemoveFileMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeFile>>,
+    TError,
+    RemoveFileMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeFile>>,
+  TError,
+  RemoveFileMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveFileMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeFile>>,
+    RemoveFileMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeFile(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveFileMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeFile>>
+>;
+export type RemoveFileMutationBody = RemoveFileRequest;
+export type RemoveFileMutationError = StaleSchema | SchemaEditRefused;
+export type RemoveFileMutationVariables = { data: RemoveFileRequest };
+
+/**
+ * @summary Removes a file from the schema; its variables stay declared
+ */
+export const useRemoveFile = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeFile>>,
+      TError,
+      RemoveFileMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeFile>>,
+  TError,
+  RemoveFileMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveFileMutationOptions(options), queryClient);
+};
+
+export type initSchemaResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type initSchemaResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type initSchemaResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type initSchemaResponseSuccess = initSchemaResponse200 & {
+  headers: Headers;
+};
+export type initSchemaResponseError = (
+  initSchemaResponse409 | initSchemaResponse422
+) & {
+  headers: Headers;
+};
+
+export type initSchemaResponse =
+  initSchemaResponseSuccess | initSchemaResponseError;
+
+export const getInitSchemaUrl = () => {
+  return `/api/schema/init`;
+};
+
+/**
+ * @summary Writes a starting schema, inferred from an example env file
+ */
+export const initSchema = async (
+  initSchemaRequest: InitSchemaRequest,
+  options?: RequestInit,
+): Promise<initSchemaResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getInitSchemaUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(initSchemaRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: initSchemaResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as initSchemaResponse;
+};
+
+export const getInitSchemaMutationKey = () => ['initSchema'] as const;
+
+export const getInitSchemaMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof initSchema>>,
+    TError,
+    InitSchemaMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof initSchema>>,
+  TError,
+  InitSchemaMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInitSchemaMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof initSchema>>,
+    InitSchemaMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return initSchema(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InitSchemaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof initSchema>>
+>;
+export type InitSchemaMutationBody = InitSchemaRequest;
+export type InitSchemaMutationError = StaleSchema | SchemaEditRefused;
+export type InitSchemaMutationVariables = { data: InitSchemaRequest };
+
+/**
+ * @summary Writes a starting schema, inferred from an example env file
+ */
+export const useInitSchema = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof initSchema>>,
+      TError,
+      InitSchemaMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof initSchema>>,
+  TError,
+  InitSchemaMutationVariables,
+  TContext
+> => {
+  return useMutation(getInitSchemaMutationOptions(options), queryClient);
+};
+
+export type getEventsResponse200 = {
+  data: string;
+  status: 200;
+};
+
+export type getEventsResponseSuccess = getEventsResponse200 & {
+  headers: Headers;
+};
+export type getEventsResponse = getEventsResponseSuccess;
+
+export const getGetEventsUrl = () => {
+  return `/api/events`;
+};
+
+/**
+ * @summary Server-Sent Events: `changed`, with the paths, when the schema or an env file changes on disk
+ */
+export const getEvents = async (
+  options?: RequestInit,
+): Promise<getEventsResponse> => {
+  const res = await fetch(getGetEventsUrl(), {
+    ...options,
+    method: 'GET',
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getEventsResponse['data'] = body !== null ? body : '';
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as getEventsResponse;
+};
+
+export const getGetEventsQueryKey = () => {
+  return [`/api/events`] as const;
+};
+
+export const getGetEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEvents>>,
+  TError = unknown,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
+  >;
+  fetch?: RequestInit;
+}) => {
+  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEventsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEvents>>> = ({
+    signal,
+  }) => getEvents({ signal, ...fetchOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEvents>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEvents>>
+>;
+export type GetEventsQueryError = unknown;
+
+export function useGetEvents<
+  TData = Awaited<ReturnType<typeof getEvents>>,
+  TError = unknown,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getEvents>>,
+          TError,
+          Awaited<ReturnType<typeof getEvents>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetEvents<
+  TData = Awaited<ReturnType<typeof getEvents>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getEvents>>,
+          TError,
+          Awaited<ReturnType<typeof getEvents>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetEvents<
+  TData = Awaited<ReturnType<typeof getEvents>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary Server-Sent Events: `changed`, with the paths, when the schema or an env file changes on disk
+ */
+
+export function useGetEvents<
+  TData = Awaited<ReturnType<typeof getEvents>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetEventsQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,

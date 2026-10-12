@@ -7,6 +7,7 @@ import {
   type DriftStatus,
   FILE_POLICIES,
   RULE_FIELDS,
+  VARIABLE_NAME,
   variableSpec,
 } from '@configure-env/core';
 import { z } from 'zod';
@@ -67,6 +68,10 @@ export const schemaResponse = named(
         'The schema file as parsed JSON, valid or not; null when it cannot be read or parsed.',
     }),
     errors: z.array(schemaError),
+    fingerprint: z.string().optional().meta({
+      description:
+        'Identifies the bytes read; a schema edit names it. Absent when the file cannot be read.',
+    }),
   }),
 );
 
@@ -123,6 +128,9 @@ export const parseError = named(
   z.object({ line: z.int(), message: z.string() }),
 );
 
+/** An env file's fingerprint: `sha256:` and the hex digest; null when it does not exist. */
+const fileFingerprint = z.string().nullable();
+
 export const fileInfo = named(
   'FileInfo',
   z.object({
@@ -145,6 +153,10 @@ export const fileInfo = named(
       unknownKeys: z.array(z.string()),
     }),
     parseErrors: z.array(parseError),
+    fingerprint: fileFingerprint.optional().meta({
+      description:
+        'Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.',
+    }),
     error: z
       .string()
       .optional()
@@ -223,7 +235,7 @@ const fileDrift = named(
   }),
 );
 
-const planError = named(
+export const planError = named(
   'PlanError',
   z.object({
     kind: z.enum(['value', 'file']),
@@ -249,10 +261,17 @@ export const checkResponse = named(
 const problem = named(
   'Problem',
   z.object({
+    kind: z.literal('protected').optional().meta({
+      description:
+        'protected: a protected value that no longer matches the one the state recorded.',
+    }),
     key: z.string().optional(),
     keys: z.array(z.string()).optional(),
     line: z.int().optional(),
     message: z.string(),
+    reason: z.string().optional().meta({
+      description: "A protected variable's reason, when it gives one.",
+    }),
   }),
 );
 
@@ -273,5 +292,368 @@ export const validateResponse = named(
         }),
       ),
     ),
+  }),
+);
+
+// ---------------------------------------------------------------- writes
+
+const variableName = z
+  .string()
+  .regex(VARIABLE_NAME)
+  .meta({ description: 'A variable name, like `API_URL`.' });
+
+const basedOn = fileFingerprint.meta({
+  description:
+    "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
+});
+
+const replaceProtected = z.array(variableName).optional().meta({
+  description:
+    'The protected keys the edit may replace or remove; any other protected change is refused.',
+});
+
+export const setValuesRequest = named(
+  'SetValuesRequest',
+  z
+    .strictObject({
+      file: z.string().min(1).meta({ description: 'A schema file path.' }),
+      fingerprint: basedOn,
+      values: z.record(variableName, z.string()).optional().meta({
+        description: 'The values to set, by key, as a person would type them.',
+      }),
+      generate: z.array(variableName).optional().meta({
+        description:
+          'Secret string variables to set to a new random value, never returned.',
+      }),
+      replaceProtected,
+    })
+    .refine(
+      (body) => Object.keys(body.values ?? {}).length || body.generate?.length,
+      { message: 'set at least one value, or generate one' },
+    )
+    .refine(
+      (body) =>
+        !body.generate?.some((key) => Object.hasOwn(body.values ?? {}, key)),
+      { message: 'a key is either given a value or generated, not both' },
+    ),
+);
+
+export const unsetValuesRequest = named(
+  'UnsetValuesRequest',
+  z.strictObject({
+    file: z.string().min(1).meta({ description: 'A schema file path.' }),
+    fingerprint: basedOn,
+    keys: z.array(variableName).min(1),
+    replaceProtected,
+  }),
+);
+
+export const KEY_STATUSES = [
+  'updated',
+  'added',
+  'unchanged',
+  'removed',
+  'absent',
+] as const;
+
+export const valuesResponse = named(
+  'ValuesEdit',
+  z.object({
+    file: z.string(),
+    fingerprint: fileFingerprint.meta({
+      description: "The file's fingerprint after the edit.",
+    }),
+    keys: z.array(z.object({ key: z.string(), status: z.enum(KEY_STATUSES) })),
+    replaced: z
+      .array(z.string())
+      .meta({ description: 'The protected keys replaced.' }),
+    generated: z
+      .array(z.string())
+      .meta({ description: 'The keys set to a generated value.' }),
+    warnings: z.array(z.string()).meta({
+      description:
+        'What went wrong after the file was written: the protected state or the history not recorded.',
+    }),
+  }),
+);
+
+export const editProblem = named(
+  'EditProblem',
+  z.object({
+    key: z.string().optional(),
+    message: z.string(),
+    reason: z.string().optional().meta({
+      description: "A protected variable's reason, when it gives one.",
+    }),
+  }),
+);
+
+export const editRefusedResponse = named(
+  'EditRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    kind: z.enum(['invalid', 'protected']).meta({
+      description:
+        'invalid: values that break their rules; protected: protected values the edit may not change.',
+    }),
+    errors: z.array(editProblem),
+  }),
+);
+
+export const staleFileResponse = named(
+  'StaleFile',
+  z.object({
+    statusCode: z.literal(409),
+    message: z.string(),
+    file: fileInfo.meta({ description: 'The file as it is now.' }),
+  }),
+);
+
+const planInputs = {
+  values: z.record(variableName, z.string()).optional().meta({
+    description:
+      'Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.',
+  }),
+  files: z
+    .array(z.string().min(1))
+    .optional()
+    .meta({ description: 'Only these schema files; every file when absent.' }),
+  prune: z.boolean().optional().meta({
+    description:
+      'Remove the keys a merge or create-only file holds that the schema does not list for it.',
+  }),
+  replaceProtected,
+};
+
+export const planRequest = named('PlanRequest', z.strictObject(planInputs));
+
+export const applyRequest = named(
+  'ApplyRequest',
+  z.strictObject({
+    ...planInputs,
+    fingerprint: z.string().min(1).meta({
+      description:
+        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).',
+    }),
+  }),
+);
+
+const FILE_ACTIONS = ['create', 'update', 'mode', 'unchanged', 'skip'] as const;
+
+const diffLine = named(
+  'DiffLine',
+  z.object({
+    kind: z.enum(['same', 'added', 'removed']),
+    line: z.string().meta({ description: 'The line, secrets masked.' }),
+  }),
+);
+
+const filePlan = named(
+  'FilePlan',
+  z.object({
+    path: z.string(),
+    policy: z.enum(FILE_POLICIES),
+    action: z.enum(FILE_ACTIONS).meta({
+      description: 'mode: the content is current, only the permissions change.',
+    }),
+    reason: z.enum(['exists', 'refused', 'loosens']).optional().meta({
+      description:
+        'Why a file is skipped: create-only and present, an unsafe path, or a mode that would loosen it.',
+    }),
+    error: z.string().optional(),
+    addedKeys: z.array(z.string()),
+    prunedKeys: z.array(z.string()),
+    mode: z
+      .string()
+      .meta({ description: 'The permissions it is written with, like `600`.' }),
+    currentMode: z.string().nullable().meta({
+      description: 'Its permissions now; null when it does not exist.',
+    }),
+    fingerprint: fileFingerprint.meta({
+      description: "The file's fingerprint now; null when it does not exist.",
+    }),
+    diff: z.array(diffLine).meta({
+      description:
+        'From the file now to the file after; empty for a skipped one.',
+    }),
+  }),
+);
+
+const protectedRefusal = named(
+  'ProtectedRefusal',
+  z.object({
+    file: z.string(),
+    key: z.string(),
+    message: z.string(),
+    reason: z.string().optional(),
+  }),
+);
+
+export const planResponse = named(
+  'Plan',
+  z.object({
+    fingerprint: z.string().meta({
+      description: 'Identifies this plan; POST /api/apply names it.',
+    }),
+    ok: z.boolean().meta({
+      description:
+        'Whether it can be applied: no error and no protected refusal.',
+    }),
+    files: z.array(filePlan),
+    errors: z.array(planError),
+    protected: z.array(protectedRefusal).meta({
+      description:
+        'Protected values the plan would change without replaceProtected naming them.',
+    }),
+  }),
+);
+
+export const planConflictResponse = named(
+  'PlanConflict',
+  z.object({
+    statusCode: z.int().meta({ description: '409 or 422.' }),
+    message: z.string(),
+    plan: planResponse.meta({ description: 'The plan as it is now.' }),
+  }),
+);
+
+export const applyResponse = named(
+  'Applied',
+  z.object({
+    ok: z.boolean().meta({ description: 'Every file was written as planned.' }),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        action: z.enum(FILE_ACTIONS),
+        ok: z.boolean(),
+        written: z.boolean(),
+        error: z.string().optional(),
+      }),
+    ),
+    replaced: z.array(z.object({ file: z.string(), key: z.string() })),
+    warnings: z.array(z.string()),
+  }),
+);
+
+// ---------------------------------------------------------------- schema writes
+
+const schemaBasedOn = z.string().min(1).meta({
+  description:
+    "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).",
+});
+
+/** Fields the schema writer validates, so its errors carry JSON paths. */
+const fields = (description: string) =>
+  z.record(z.string(), z.unknown()).meta({ description });
+
+export const addVariableRequest = named(
+  'AddVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    name: variableName,
+    spec: fields('The variable, as env.schema.json writes it.'),
+    files: z.array(z.string().min(1)).optional().meta({
+      description:
+        'Files whose variable list it joins; a file that takes `"*"` holds it already.',
+    }),
+  }),
+);
+
+export const updateVariableRequest = named(
+  'UpdateVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    changes: fields(
+      'Fields to set; null removes one. A new `type` drops the options it does not take.',
+    ),
+  }),
+);
+
+export const removeVariableRequest = named(
+  'RemoveVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    cleanup: z.boolean().optional().meta({
+      description:
+        'Also remove every rule and file entry naming it; without it, a reference refuses the edit.',
+    }),
+  }),
+);
+
+export const renameVariableRequest = named(
+  'RenameVariableRequest',
+  z.strictObject({ fingerprint: schemaBasedOn, to: variableName }),
+);
+
+export const reorderVariablesRequest = named(
+  'ReorderVariablesRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    order: z.array(z.string()).meta({
+      description: 'Every declared variable, once, in its new place.',
+    }),
+  }),
+);
+
+export const addFileRequest = named(
+  'AddFileRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    spec: fields('The file, as env.schema.json writes it.'),
+    index: z
+      .int()
+      .min(0)
+      .optional()
+      .meta({ description: 'Where; last by default.' }),
+  }),
+);
+
+export const updateFileRequest = named(
+  'UpdateFileRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    path: z.string().min(1),
+    changes: fields(
+      'Fields to set; null removes one; `path` renames the file.',
+    ),
+  }),
+);
+
+export const removeFileRequest = named(
+  'RemoveFileRequest',
+  z.strictObject({ fingerprint: schemaBasedOn, path: z.string().min(1) }),
+);
+
+export const initSchemaRequest = named(
+  'InitSchemaRequest',
+  z.strictObject({
+    from: z.string().min(1).optional().meta({
+      description:
+        'The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.',
+    }),
+    fingerprint: z.string().min(1).nullable().optional().meta({
+      description:
+        'To replace an existing schema, its fingerprint; without it an existing schema is kept (409).',
+    }),
+  }),
+);
+
+export const schemaEditRefusedResponse = named(
+  'SchemaEditRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    errors: z.array(schemaError),
+    schema: schemaResponse.meta({ description: 'The schema as it is now.' }),
+  }),
+);
+
+export const staleSchemaResponse = named(
+  'StaleSchema',
+  z.object({
+    statusCode: z.literal(409),
+    message: z.string(),
+    schema: schemaResponse.meta({ description: 'The schema as it is now.' }),
   }),
 );

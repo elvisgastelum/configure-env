@@ -665,9 +665,9 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 `apps/api` (`@configure-env/api`) is the private local HTTP API behind `configure-env serve`: a NestJS server over one project's schema and env files. `createServer({ root, schemaPath, host, port, token, staticDir })` starts it in-process; `pnpm --filter @configure-env/api start` runs it standalone over `CONFIGURE_ENV_ROOT` (default: the current directory) and prints a launch URL.
 
 - **Local only.** It binds `127.0.0.1` unless told otherwise, and answers only requests whose `Host` (and `Origin`, when sent) is its own address, against DNS rebinding and CSRF. There is no CORS: preflights are refused, and cross-site fetches (`Sec-Fetch-Site`) too.
-- **Token on every request.** A random per-run token, as `Authorization: Bearer <token>`, or as the HttpOnly `SameSite=Strict` cookie that `GET /launch?token=<token>` sets before redirecting to `/`. A cookie-authenticated `POST` must also send its `Origin`.
-- **Inside the root.** The schema must be a regular file inside the root, and the env files are read only when they resolve inside it, symlinks included.
-- **Secrets masked.** Values of `secret` variables are masked everywhere except `POST /api/reveal`, which returns one value of one schema file.
+- **Token on every request.** A random per-run token, as `Authorization: Bearer <token>`, or as the HttpOnly `SameSite=Strict` cookie that `GET /launch?token=<token>` sets before redirecting to `/`. A cookie-authenticated `POST`, `PUT` or `DELETE` must also send its `Origin`.
+- **Inside the root.** The schema must be a regular file inside the root, and the env files are read and written only when they resolve inside it, symlinks included.
+- **Secrets masked.** Values of `secret` variables are masked everywhere except `POST /api/reveal`, which returns one value of one schema file. Plan diffs mask them too, and a generated secret is never returned.
 
 | Endpoint             | What it returns                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
@@ -679,9 +679,30 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
 | `GET /api/check`     | the drift report of `configure-env check` (`?strict=true` reports unknown keys)                 |
 | `GET /api/validate`  | the rule and value errors of `configure-env validate` (`?strict=true` makes unknown keys errors) |
+| `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
 
-The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate do not read the protected variables' state yet, so they report no protected mismatch.
+The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate read the protected variables' state (`.configure-env/state.db`) and report a protected value that no longer matches it, as the CLI does.
+
+Every change the portal makes goes through these write endpoints, which reuse the core engine; the portal never edits a file itself.
+
+| Endpoint                                  | What it does                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `POST /api/values/set`                    | sets keys of one file, given (`values`) or generated (`generate`: random, base64 or hex bytes) |
+| `POST /api/values/unset`                  | removes keys from one file, each with the comment the engine wrote above it                   |
+| `POST /api/plan`                          | what `apply` would do to each file, with masked line diffs and a plan fingerprint; writes nothing |
+| `POST /api/apply`                         | writes the plan shown: the same inputs and the plan's `fingerprint`                           |
+| `POST /api/schema/variables`              | declares a variable                                                                           |
+| `PUT` / `DELETE /api/schema/variables/{name}` | changes a variable's fields (`null` removes one) / removes it (`cleanup` drops its references) |
+| `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |
+| `PUT /api/schema/variable-order`          | puts the variables in a new order                                                             |
+| `POST` / `PUT` / `DELETE /api/schema/files` | adds, changes or removes a file the schema manages                                          |
+| `POST /api/schema/init`                   | writes a starting schema inferred from `.env.example` (or `from`)                             |
+
+- **Validated and atomic.** A value is checked against its variable and the rules between variables, and a schema edit against every check the schema loader makes, before anything is written; one bad value or field writes nothing (422, with JSON paths for the schema). Files are written through a temporary file and renamed into place.
+- **Based on a fingerprint.** Every write names the fingerprint of what it was based on: an env file's from `GET /api/files` (`null` for a file that does not exist yet), the schema's from `GET /api/schema`, a plan's from `POST /api/plan`. When the file changed on disk since, nothing is written, and the answer is 409 with the file, schema or plan as it is now. A schema write answers with the new schema and its fingerprint.
+- **Protected values.** A protected value is never changed or removed unless the request names it in `replaceProtected`; otherwise the write answers 422 (`kind: "protected"`) with the schema's reason. A plan lists the protected values it would change, and apply refuses it the same way.
+- **Recorded.** Each key a value write or an apply changes is recorded in the history of edits (the `changes` table of the state database): actor `portal`, file, key, operation (`set`, `unset` or `replace`), and salted HMAC fingerprints and masked previews of the values before and after, never the values; a secret's preview is `••••`.
 
 `apps/web` (`@configure-env/web`) is the portal: a static single-page app (Vite, React 19, TanStack Router file routes and TanStack Query over `@configure-env/api-client`, Tailwind with the design system's theme, motion, i18next) that the API serves from `staticDir`. `pnpm build` writes it to `apps/web/dist/`; a test builds it and serves it from the real API.
 

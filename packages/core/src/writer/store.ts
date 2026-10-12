@@ -7,7 +7,15 @@
 // changes only the bytes it must.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
+import {
+  link,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { EnvSchema } from '../schema/definition.ts';
 import { type SchemaError, parseSchemaText } from '../schema/load.ts';
@@ -209,4 +217,58 @@ export async function editSchemaFile(
   const edited = edit(read.file.document);
   if (!edited.ok) return { ok: false, kind: 'invalid', errors: edited.errors };
   return writeSchemaFile(path, edited.document, { fingerprint });
+}
+
+/** The mode a new schema file takes, before the umask. */
+const NEW_SCHEMA_MODE = 0o644;
+
+/**
+ * Creates the schema file at `path` with `document`, validated first. The
+ * text is written to a temporary file and linked into place, so a reader
+ * never sees half a schema, and a file that exists is never replaced: it is
+ * `stale`, as another writer made it.
+ */
+export async function createSchemaFile(
+  path: string,
+  document: SchemaDocument,
+): Promise<SchemaWriteResult> {
+  const valid = validateDocument(document);
+  if (!valid.ok) return { ok: false, kind: 'invalid', errors: valid.errors };
+  const text = `${JSON.stringify(document, null, 2)}\n`;
+  const dir = dirname(path);
+  const temp = join(
+    dir,
+    `.${basename(path)}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+  try {
+    const handle = await open(temp, 'wx', NEW_SCHEMA_MODE);
+    try {
+      await handle.writeFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      await link(temp, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        return failure('stale', `${path} exists; edit it instead`);
+      throw error;
+    }
+    await syncDirectory(dir);
+  } catch (error) {
+    return failure('io', ioError(path, 'write', error));
+  } finally {
+    await rm(temp, { force: true }).catch(() => undefined);
+  }
+  return {
+    ok: true,
+    written: true,
+    file: {
+      text,
+      fingerprint: schemaFingerprint(text),
+      document: valid.document,
+      schema: valid.schema,
+    },
+  };
 }

@@ -1,42 +1,32 @@
-// The HTTP surface: thin controllers over src/inspect.ts. Every injection
-// names its token, so nothing depends on emitted decorator metadata.
+// The read-only HTTP surface: thin controllers over src/inspect.ts, and the
+// module that binds every controller to a project. Every injection names its
+// token, so nothing depends on emitted decorator metadata.
 
 import {
-  type ArgumentsHost,
   Body,
-  Catch,
   Controller,
-  type ExceptionFilter,
   Get,
   HttpCode,
-  HttpException,
   Inject,
   Module,
   Post,
   Query,
-  SerializeOptions,
-  applyDecorators,
 } from '@nestjs/common';
 import {
   ApiBody,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
-  ApiOkResponse,
-  ApiOperation,
   ApiQuery,
+  ApiServiceUnavailableResponse,
   ApiTags,
-  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { EnvSchema } from '@configure-env/core';
-import type { Response } from 'express';
 import type { z } from 'zod';
 import {
   checkResponse,
-  components,
   errorResponse,
   filesResponse,
   healthResponse,
-  invalidSchemaResponse,
   projectResponse,
   revealRequest,
   revealResponse,
@@ -46,53 +36,30 @@ import {
   variablesResponse,
 } from './contracts.ts';
 import {
-  InspectError,
+  NeedsSchema,
+  PROJECT,
+  Read,
+  VERSION,
+  ref,
+  requireSchema,
+} from './http.ts';
+import {
   checkProject,
   listFiles,
   listVariables,
   revealValue,
   validateProject,
 } from './inspect.ts';
-import { type Project, readSchema } from './project.ts';
+import type { Project } from './project.ts';
+import { currentSchema } from './schema.ts';
+import { protectedState } from './state.ts';
+import { EventsController } from './events.controller.ts';
+import { ProjectEvents } from './events.ts';
+import { PlanController } from './plan.controller.ts';
+import { SchemaController } from './schema.controller.ts';
+import { ValuesController } from './values.controller.ts';
 
-/** The provider token of the bound project. */
-export const PROJECT = Symbol('PROJECT');
-/** The provider token of the configure-env version. */
-export const VERSION = Symbol('VERSION');
-
-/** A `$ref` to the schema's OpenAPI component. */
-const ref = (schema: z.ZodType) => {
-  const id = components.get(schema)?.id;
-  if (!id) throw new Error('schema is not a registered component');
-  return { $ref: `#/components/schemas/${id}` };
-};
-
-/** The operation id, its 200 response, and the schema shaping that response. */
-const Read = (operationId: string, summary: string, schema: z.ZodType) =>
-  applyDecorators(
-    ApiOperation({ operationId, summary }),
-    ApiOkResponse({ schema: ref(schema) }),
-    SerializeOptions({ schema }),
-  );
-
-/** For the routes that need a valid schema. */
-const NeedsSchema = () =>
-  ApiUnprocessableEntityResponse({
-    description: 'The schema is invalid.',
-    schema: ref(invalidSchemaResponse),
-  });
-
-/** Maps an InspectError to its status with the usual error body. */
-@Catch(InspectError)
-export class InspectErrorFilter implements ExceptionFilter {
-  catch(error: InspectError, host: ArgumentsHost) {
-    host
-      .switchToHttp()
-      .getResponse<Response>()
-      .status(error.statusCode)
-      .json({ statusCode: error.statusCode, message: error.message });
-  }
-}
+export { PROJECT, VERSION } from './http.ts';
 
 // Swagger finds parameters through emitted metadata, which is not emitted
 // here; the request body and query are declared explicitly instead.
@@ -102,6 +69,13 @@ const StrictQuery = () =>
     required: false,
     enum: ['true', 'false'],
     description: 'Treat keys the schema does not list for a file as errors.',
+  });
+
+/** For the routes that read the protected variables' state. */
+const NeedsState = () =>
+  ApiServiceUnavailableResponse({
+    description: "The protected variables' state cannot be read.",
+    schema: ref(errorResponse),
   });
 
 const isStrict = (query: z.output<typeof strictQuery>) =>
@@ -116,17 +90,8 @@ export class ProjectController {
   ) {}
 
   /** The valid schema, or a 422 with its errors. */
-  private async schema(): Promise<EnvSchema> {
-    const read = await readSchema(this.project);
-    if (read.schema) return read.schema;
-    throw new HttpException(
-      {
-        statusCode: 422,
-        message: `${this.project.schemaPath} is invalid`,
-        errors: read.errors,
-      },
-      422,
-    );
+  private schema(): Promise<EnvSchema> {
+    return requireSchema(this.project);
   }
 
   @Get('health')
@@ -155,14 +120,8 @@ export class ProjectController {
     'The schema file and its errors, with JSON paths',
     schemaResponse,
   )
-  async schemaFile(): Promise<z.output<typeof schemaResponse>> {
-    const read = await readSchema(this.project);
-    return {
-      path: this.project.schemaPath,
-      valid: Boolean(read.schema),
-      document: read.document,
-      errors: read.errors,
-    };
+  schemaFile(): Promise<z.output<typeof schemaResponse>> {
+    return currentSchema(this.project);
   }
 
   @Get('variables')
@@ -219,13 +178,16 @@ export class ProjectController {
   )
   @StrictQuery()
   @NeedsSchema()
+  @NeedsState()
   async check(
     @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
   ) {
+    const schema = await this.schema();
     return checkProject(
-      await this.schema(),
+      schema,
       this.project.root,
       isStrict(query),
+      await protectedState(schema, this.project),
     );
   }
 
@@ -237,13 +199,16 @@ export class ProjectController {
   )
   @StrictQuery()
   @NeedsSchema()
+  @NeedsState()
   async validate(
     @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
   ) {
+    const schema = await this.schema();
     return validateProject(
-      await this.schema(),
+      schema,
       this.project.root,
       isStrict(query),
+      await protectedState(schema, this.project),
     );
   }
 }
@@ -251,10 +216,17 @@ export class ProjectController {
 /** The module for a bound project. */
 export function apiModule(project: Project, version: string) {
   @Module({
-    controllers: [ProjectController],
+    controllers: [
+      ProjectController,
+      ValuesController,
+      PlanController,
+      SchemaController,
+      EventsController,
+    ],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },
+      { provide: ProjectEvents, useValue: new ProjectEvents(project) },
     ],
   })
   class ApiModule {}

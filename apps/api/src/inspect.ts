@@ -1,14 +1,15 @@
 // Read-only views of the env files against the schema: the values per
 // variable, the files with their drift, a single revealed value, and the
-// check and validate reports. Nothing here writes, and nothing but
-// `revealValue` returns a secret unmasked. The protected variables' state is
-// not read: check and validate report no protected mismatch yet.
+// check and validate reports, which report the protected values that no
+// longer match the state, as the CLI does. Nothing here writes, and nothing
+// but `revealValue` returns a secret unmasked.
 
 import {
   type DotenvDocument,
   type EnvSchema,
   type FileSpec,
   type RuleProblem,
+  type State,
   checkDrift,
   fileKeys,
   fileRules,
@@ -18,6 +19,7 @@ import {
   isTemplate,
   keysOf,
   maskValue,
+  protectedMismatches,
   readEnvFile,
   ruleKeys,
   unquoteValue,
@@ -33,19 +35,18 @@ import type {
   validateResponse,
   variablesResponse,
 } from './contracts.ts';
+import { contentFingerprint } from './fingerprint.ts';
+import { ApiError } from './http.ts';
 
 type FileValue = z.output<typeof fileValue>;
 type FileInfo = z.output<typeof fileInfo>;
 type FileValidation = z.output<typeof validateResponse>['files'][number];
 type Problem = FileValidation['errors'][number];
 
-/** Thrown for a request the project cannot answer; the controllers map it. */
-export class InspectError extends Error {
-  constructor(
-    readonly statusCode: 404 | 403,
-    message: string,
-  ) {
-    super(message);
+/** Thrown for a file or key the project does not have, or a refused path. */
+export class InspectError extends ApiError {
+  constructor(statusCode: 404 | 403, message: string) {
+    super(statusCode, message);
   }
 }
 
@@ -57,18 +58,20 @@ type Read =
       exists: boolean;
       mode?: number;
       doc: DotenvDocument;
+      fingerprint: string | null;
     }
   | { ok: false; spec: FileSpec; message: string };
 
 async function readFile(root: string, spec: FileSpec): Promise<Read> {
   const result = await readEnvFile(root, spec);
   if (!result.ok) return { ok: false, spec, message: result.message };
-  const { exists, mode, doc } = result.file;
+  const { exists, mode, doc, previous } = result.file;
   return {
     ok: true,
     spec,
     exists,
     doc,
+    fingerprint: contentFingerprint(previous),
     ...(mode === undefined ? {} : { mode }),
   };
 }
@@ -181,10 +184,22 @@ export async function listFiles(
           line,
           message: 'is not a valid entry',
         })),
-        ...(file.ok ? {} : { error: file.message }),
+        ...(file.ok
+          ? { fingerprint: file.fingerprint }
+          : { error: file.message }),
       };
     }),
   };
+}
+
+/** One schema file as GET /api/files describes it: for a 409 body. */
+export async function fileInfoOf(
+  schema: EnvSchema,
+  root: string,
+  path: string,
+): Promise<FileInfo> {
+  const { files } = await listFiles(schema, root);
+  return files.find((file) => file.path === path)!;
 }
 
 /** One value as the file holds it, unmasked. Only the file's own variables. */
@@ -208,8 +223,9 @@ export async function checkProject(
   schema: EnvSchema,
   root: string,
   strict: boolean,
+  state?: State,
 ): Promise<z.output<typeof checkResponse>> {
-  return checkDrift({ schema, root, strict });
+  return checkDrift({ schema, root, strict, ...(state ? { state } : {}) });
 }
 
 const UNKNOWN_MESSAGE = 'is not in the schema for this file';
@@ -218,6 +234,7 @@ function validateFile(
   schema: EnvSchema,
   file: Read,
   strict: boolean,
+  state: State | undefined,
 ): FileValidation {
   const { spec } = file;
   const template = isTemplate(spec);
@@ -247,6 +264,7 @@ function validateFile(
         message: problem.message,
       });
     }
+    errors.push(...protectedMismatches(schema, state, spec, doc));
     const known = new Set(fileKeys(schema, spec));
     for (const key of keysOf(doc).filter((key) => !known.has(key)))
       (strict ? errors : warnings).push({ key, message: UNKNOWN_MESSAGE });
@@ -266,9 +284,10 @@ export async function validateProject(
   schema: EnvSchema,
   root: string,
   strict: boolean,
+  state?: State,
 ): Promise<z.output<typeof validateResponse>> {
   const files = (await readAll(schema, root)).map((file) =>
-    validateFile(schema, file, strict),
+    validateFile(schema, file, strict, state),
   );
   return { ok: files.every((file) => file.ok), files };
 }
