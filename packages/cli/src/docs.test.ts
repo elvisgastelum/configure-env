@@ -11,6 +11,7 @@ import {
 } from './cli/generate.ts';
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
 import { STATE_IGNORE } from './cli/init.ts';
+import { DEFAULT_PORT } from './cli/serve.ts';
 import {
   DEFAULT_STATE_PATH,
   LOCK_WAIT_MS,
@@ -74,5 +75,14 @@ describe('the docs', () => {
     expect(commands).toContain(`${SECONDS} s with no new input`);
     expect(commands).toContain(`waits ${LOCK_WAIT_MS / 1000} s`);
     expect(doc('README.md')).toContain(`wait ${LOCK_WAIT_MS / 1000} seconds`);
+  });
+
+  it('the docs state the port serve starts from', () => {
+    expect(doc('README.md')).toContain(
+      `the first free port from ${DEFAULT_PORT}`,
+    );
+    expect(doc('skills/configure-env/references/commands.md')).toContain(
+      `the first free one from ${DEFAULT_PORT}`,
+    );
   });
 });
