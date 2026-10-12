@@ -49,8 +49,10 @@ import {
   revealValue,
   validateProject,
 } from './inspect.ts';
-import { type Project, readSchema } from './project.ts';
+import type { Project } from './project.ts';
+import { currentSchema } from './schema.ts';
 import { PlanController } from './plan.controller.ts';
+import { SchemaController } from './schema.controller.ts';
 import { ValuesController } from './values.controller.ts';
 
 export { PROJECT, VERSION } from './http.ts';
@@ -107,15 +109,8 @@ export class ProjectController {
     'The schema file and its errors, with JSON paths',
     schemaResponse,
   )
-  async schemaFile(): Promise<z.output<typeof schemaResponse>> {
-    const read = await readSchema(this.project);
-    return {
-      path: this.project.schemaPath,
-      valid: Boolean(read.schema),
-      document: read.document,
-      errors: read.errors,
-      ...(read.fingerprint ? { fingerprint: read.fingerprint } : {}),
-    };
+  schemaFile(): Promise<z.output<typeof schemaResponse>> {
+    return currentSchema(this.project);
   }
 
   @Get('variables')
@@ -204,7 +199,12 @@ export class ProjectController {
 /** The module for a bound project. */
 export function apiModule(project: Project, version: string) {
   @Module({
-    controllers: [ProjectController, ValuesController, PlanController],
+    controllers: [
+      ProjectController,
+      ValuesController,
+      PlanController,
+      SchemaController,
+    ],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },

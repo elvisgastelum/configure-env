@@ -528,3 +528,125 @@ export const applyResponse = named(
     warnings: z.array(z.string()),
   }),
 );
+
+// ---------------------------------------------------------------- schema writes
+
+const schemaBasedOn = z.string().min(1).meta({
+  description:
+    "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409).",
+});
+
+/** Fields the schema writer validates, so its errors carry JSON paths. */
+const fields = (description: string) =>
+  z.record(z.string(), z.unknown()).meta({ description });
+
+export const addVariableRequest = named(
+  'AddVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    name: variableName,
+    spec: fields('The variable, as env.schema.json writes it.'),
+    files: z.array(z.string().min(1)).optional().meta({
+      description:
+        'Files whose variable list it joins; a file that takes `"*"` holds it already.',
+    }),
+  }),
+);
+
+export const updateVariableRequest = named(
+  'UpdateVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    changes: fields(
+      'Fields to set; null removes one. A new `type` drops the options it does not take.',
+    ),
+  }),
+);
+
+export const removeVariableRequest = named(
+  'RemoveVariableRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    cleanup: z.boolean().optional().meta({
+      description:
+        'Also remove every rule and file entry naming it; without it, a reference refuses the edit.',
+    }),
+  }),
+);
+
+export const renameVariableRequest = named(
+  'RenameVariableRequest',
+  z.strictObject({ fingerprint: schemaBasedOn, to: variableName }),
+);
+
+export const reorderVariablesRequest = named(
+  'ReorderVariablesRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    order: z.array(z.string()).meta({
+      description: 'Every declared variable, once, in its new place.',
+    }),
+  }),
+);
+
+export const addFileRequest = named(
+  'AddFileRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    spec: fields('The file, as env.schema.json writes it.'),
+    index: z
+      .int()
+      .min(0)
+      .optional()
+      .meta({ description: 'Where; last by default.' }),
+  }),
+);
+
+export const updateFileRequest = named(
+  'UpdateFileRequest',
+  z.strictObject({
+    fingerprint: schemaBasedOn,
+    path: z.string().min(1),
+    changes: fields(
+      'Fields to set; null removes one; `path` renames the file.',
+    ),
+  }),
+);
+
+export const removeFileRequest = named(
+  'RemoveFileRequest',
+  z.strictObject({ fingerprint: schemaBasedOn, path: z.string().min(1) }),
+);
+
+export const initSchemaRequest = named(
+  'InitSchemaRequest',
+  z.strictObject({
+    from: z.string().min(1).optional().meta({
+      description:
+        'The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.',
+    }),
+    fingerprint: z.string().min(1).nullable().optional().meta({
+      description:
+        'To replace an existing schema, its fingerprint; without it an existing schema is kept (409).',
+    }),
+  }),
+);
+
+export const schemaEditRefusedResponse = named(
+  'SchemaEditRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    errors: z.array(schemaError),
+    schema: schemaResponse.meta({ description: 'The schema as it is now.' }),
+  }),
+);
+
+export const staleSchemaResponse = named(
+  'StaleSchema',
+  z.object({
+    statusCode: z.literal(409),
+    message: z.string(),
+    schema: schemaResponse.meta({ description: 'The schema as it is now.' }),
+  }),
+);
