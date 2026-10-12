@@ -1,7 +1,17 @@
 {
   // What tsdown builds dist/ from, declarations included: the sources, never
   // the tests. tsconfig.json stays the checker.
+  //
+  // The core's sources are listed too, so the declaration build loads them
+  // into its one program up front: a module outside the listed files makes
+  // it build another program, and each one costs memory.
   "extends": "./tsconfig.json",
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/test-helpers.ts"]
+  "include": ["src", "../core/src"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/test-helpers.ts",
+    "../core/src/**/*.test.ts",
+    "../core/src/**/test-helpers.ts",
+    "../core/src/**/*.test-helpers.ts"
+  ]
 }
