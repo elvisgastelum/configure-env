@@ -15,6 +15,7 @@ import {
   hasUngrouped,
   typesOf,
 } from './model';
+import { VariableDrawer } from './variable-drawer';
 import { VariablesTable } from './variables-table';
 import { VariablesToolbar } from './variables-toolbar';
 
@@ -54,17 +55,29 @@ function VariablesBrowser({ focus }: { focus?: string }) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<SortOrder>('schema');
   const [selected, setSelected] = useState<string | undefined>(focus);
+  const [opened, setOpened] = useState<string | undefined>(focus);
   const [lastFocus, setLastFocus] = useState(focus);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // A new palette jump selects its variable.
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    if (focus) setSelected(focus);
+    if (focus) {
+      setSelected(focus);
+      setOpened(focus);
+    }
   }
 
   const list = useMemo(() => variables.data?.variables ?? [], [variables.data]);
   const fileList = useMemo(() => files.data?.files ?? [], [files.data]);
+  const known = useMemo(
+    () => new Set(list.map((variable) => variable.name)),
+    [list],
+  );
+  const open = (name: string) => {
+    setSelected(name);
+    setOpened(name);
+  };
   const sections = useMemo(
     () => browse(list, fileList, filters, sort),
     [list, fileList, filters, sort],
@@ -109,10 +122,17 @@ function VariablesBrowser({ focus }: { focus?: string }) {
         statusFile={filters.file}
         selected={selected}
         onSelect={setSelected}
-        onOpen={setSelected}
+        onOpen={open}
         empty={
           list.length === 0 ? t('variables.emptySchema') : t('variables.empty')
         }
+      />
+      <VariableDrawer
+        variable={list.find((variable) => variable.name === opened)}
+        files={fileList}
+        known={known}
+        onNavigate={open}
+        onClose={() => setOpened(undefined)}
       />
     </div>
   );

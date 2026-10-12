@@ -193,6 +193,44 @@
       "required": "Required",
       "secret": "Secret",
       "protected": "Protected"
+    },
+    "drawer": {
+      "close": "Close",
+      "noDescription": "No description.",
+      "details": "Details",
+      "comment": "Comment",
+      "default": "Default",
+      "example": "Example",
+      "rules": "Rules",
+      "values": "Values by file",
+      "file": "File",
+      "status": "Status",
+      "value": "Value",
+      "actions": "Actions",
+      "notInFiles": "No env file lists this variable.",
+      "yes": "Yes",
+      "no": "No",
+      "ruleLabels": {
+        "requiredUnless": "Required unless",
+        "conflictsWith": "Conflicts with",
+        "distinctFrom": "Must differ from",
+        "within": "Must be within"
+      },
+      "optionLabels": {
+        "values": "Values",
+        "minLength": "Minimum length",
+        "maxLength": "Maximum length",
+        "pattern": "Pattern",
+        "patternMessage": "Pattern message",
+        "encoding": "Encoding",
+        "bytes": "Bytes",
+        "min": "Minimum",
+        "max": "Maximum",
+        "protocols": "Protocols",
+        "family": "Family",
+        "strict": "Strict",
+        "allowEmpty": "Allows an empty value"
+      }
     }
   }
 }

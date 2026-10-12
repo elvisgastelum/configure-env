@@ -153,11 +153,14 @@ describe('the variables table', () => {
   });
 
   it('selects the variable the palette jumped to', async () => {
-    await openVariables('/variables?focus=LOG_LEVEL');
+    await renderApp('/variables?focus=LOG_LEVEL');
+    // Its drawer opens over the table, which the dialog hides from the
+    // accessibility tree meanwhile.
+    await screen.findByRole('dialog', { name: 'LOG_LEVEL' });
 
-    const row = screen.getByRole('row', { name: /^LOG_LEVEL/ });
+    const row = document.querySelector('[data-variable="LOG_LEVEL"]')!;
     expect(row).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('grid', { name: 'Variables' })).toHaveAttribute(
+    expect(document.querySelector('[role=grid]')).toHaveAttribute(
       'aria-activedescendant',
       row.id,
     );
