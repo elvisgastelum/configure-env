@@ -844,6 +844,222 @@
         "summary": "Puts the variables in a new order",
         "tags": ["schema"]
       }
+    },
+    "/api/schema/files": {
+      "post": {
+        "operationId": "addFile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Adds a file the schema manages",
+        "tags": ["schema"]
+      },
+      "put": {
+        "operationId": "updateFile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Changes a file's fields",
+        "tags": ["schema"]
+      },
+      "delete": {
+        "operationId": "removeFile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Removes a file from the schema; its variables stay declared",
+        "tags": ["schema"]
+      }
+    },
+    "/api/schema/init": {
+      "post": {
+        "operationId": "initSchema",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitSchemaRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Writes a starting schema, inferred from an example env file",
+        "tags": ["schema"]
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "getEvents",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "An event stream. Each `changed` event holds `{\"paths\": [...]}`, relative to the root; refetch what they show.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Server-Sent Events: `changed`, with the paths, when the schema or an env file changes on disk",
+        "tags": ["events"]
+      }
     }
   },
   "info": {
