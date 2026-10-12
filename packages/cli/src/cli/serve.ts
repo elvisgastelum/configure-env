@@ -9,7 +9,6 @@ import { existsSync } from 'node:fs';
 import { createServer as createNetServer, isIP } from 'node:net';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ApiServer, ServerOptions } from '@configure-env/api';
 import {
   CliError,
   contextOf,
@@ -20,6 +19,7 @@ import {
 } from './common.ts';
 import { SERVE_HELP, VERSION } from './help.ts';
 import type { Io } from './io.ts';
+import { loadServer } from './load-server.js';
 import { PACKAGE_ROOT } from './package-root.ts';
 
 /** Where the search for a free port starts when --port is not given. */
@@ -29,6 +29,29 @@ export const DEFAULT_HOST = '127.0.0.1';
 const PORT_SEARCH = 100;
 /** How many times a start races another process for a free port. */
 const START_ATTEMPTS = 5;
+
+/**
+ * What `serve` passes to the API's createServer. Declared here,
+ * not imported, so TypeScript never loads the API (see load-server.js).
+ */
+export interface ServerOptions {
+  root: string;
+  schemaPath: string;
+  host?: string;
+  port: number;
+  token: string;
+  staticDir?: string;
+  version?: string;
+}
+
+/** The running server createServer resolves to. */
+export interface ApiServer {
+  host: string;
+  port: number;
+  url: string;
+  launchUrl: string;
+  close(): Promise<void>;
+}
 
 /** What `serve` touches outside the process: the server, signals, a browser. */
 export interface ServeRuntime {
@@ -141,7 +164,7 @@ function openInBrowser(url: string): void {
 
 const defaultRuntime: ServeRuntime = {
   async start(options) {
-    const { createServer } = await import('@configure-env/api');
+    const { createServer } = await loadServer();
     return createServer(options);
   },
   waitForSignal: waitForProcessSignal,
