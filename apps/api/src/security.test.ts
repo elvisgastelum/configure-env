@@ -220,6 +220,44 @@ describe('the static portal', () => {
     expect(response.text).toContain('portal');
   });
 
+  it('answers a deep link with the portal, so the router can take it', async () => {
+    expect((await request(portalServer.url).get('/files')).status).toBe(401);
+    const response = await request(portalServer.url)
+      .get('/variables?focus=PORT')
+      .set('Authorization', bearer)
+      .set('Accept', 'text/html');
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toMatch(/^text\/html/);
+    expect(response.text).toContain('portal');
+  });
+
+  it('keeps 404s for the API, missing assets and non-page requests', async () => {
+    const api = await request(portalServer.url)
+      .get('/api/nothing')
+      .set('Authorization', bearer)
+      .set('Accept', 'text/html');
+    expect(api.status).toBe(404);
+    expect(api.text).not.toContain('portal');
+
+    const asset = await request(portalServer.url)
+      .get('/assets/missing.js')
+      .set('Authorization', bearer)
+      .set('Accept', 'text/html');
+    expect(asset.status).toBe(404);
+
+    const json = await request(portalServer.url)
+      .get('/variables')
+      .set('Authorization', bearer)
+      .set('Accept', 'application/json');
+    expect(json.status).toBe(404);
+
+    const post = await request(portalServer.url)
+      .post('/variables')
+      .set('Authorization', bearer)
+      .set('Accept', 'text/html');
+    expect(post.status).toBe(404);
+  });
+
   it('never serves a file outside its directory', async () => {
     const response = await request(portalServer.url)
       .get(`/..%2f${basename(root)}%2fenv.schema.json`)

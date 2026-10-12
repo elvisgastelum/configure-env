@@ -5,6 +5,7 @@
 import 'reflect-metadata';
 import type { AddressInfo } from 'node:net';
 import { isIPv6 } from 'node:net';
+import { resolve } from 'node:path';
 import {
   type INestApplication,
   StandardSchemaSerializerInterceptor,
@@ -13,7 +14,7 @@ import {
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import type { Express } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import packageJson from '../package.json' with { type: 'json' };
 import { InspectErrorFilter, apiModule } from './api.module.ts';
@@ -36,7 +37,10 @@ export interface ServerOptions {
   port: number;
   /** The per-run secret every request must carry; at least 32 characters. */
   token: string;
-  /** A directory of static files (the portal) served behind the token. */
+  /**
+   * A directory of static files (the portal's `dist/`) served behind the
+   * token; a page request no file matches gets its index.html.
+   */
   staticDir?: string;
   /** Reported by GET /api/project; defaults to this package's version. */
   version?: string;
@@ -125,6 +129,29 @@ export async function buildOpenApiDocument() {
   }
 }
 
+/**
+ * Answers a page request the static files did not (a deep link such as
+ * `/variables`, opened or reloaded) with the portal's index.html, so its
+ * router can render it. API paths, file paths (an extension: a missing
+ * asset stays a 404) and non-HTML requests pass on. It runs after the
+ * token guard, like every static file.
+ */
+function portalFallback(index: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const path = req.path;
+    const page =
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      path !== '/api' &&
+      !path.startsWith('/api/') &&
+      !/\.[^/]*$/.test(path) &&
+      req.accepts(['html', 'json']) === 'html';
+    if (!page) return next();
+    res.sendFile(index, (error) => {
+      if (error) next(error);
+    });
+  };
+}
+
 /** Starts the API over a project and resolves once it listens. */
 export async function createServer(options: ServerOptions): Promise<ApiServer> {
   if (options.token.length < MIN_TOKEN_LENGTH)
@@ -149,11 +176,13 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       cookie: () => `configure_env_token_${port}`,
     }),
   );
-  if (options.staticDir)
+  if (options.staticDir) {
     app.useStaticAssets(options.staticDir, {
       dotfiles: 'deny',
       index: 'index.html',
     });
+    app.use(portalFallback(resolve(options.staticDir, 'index.html')));
+  }
 
   let document: unknown;
   (app.getHttpAdapter().getInstance() as Express).get(
