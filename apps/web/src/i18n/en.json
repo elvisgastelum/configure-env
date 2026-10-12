@@ -1,0 +1,14 @@
+{
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "launch": {
+    "unauthorized": {
+      "title": "Open the launch link again",
+      "description": "This tab has no session with the configure-env server. Open the launch URL it printed in your terminal."
+    }
+  }
+}
