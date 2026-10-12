@@ -7,11 +7,13 @@ import type { RequestHandler } from 'msw';
 import { setupWorker } from 'msw/browser';
 import { AppProviders } from '../src/app-providers';
 import { handlers } from '../src/mocks/handlers';
+import { resetMockState } from '../src/mocks/store';
 import { createQueryClient } from '../src/router';
 import '../src/styles.css';
 
 // Every request to /api goes to the msw handlers; a story lists its
-// overrides in `parameters.msw`, ahead of the healthy defaults.
+// overrides in `parameters.msw`, ahead of the healthy defaults. Each story
+// starts from the sample project again, whatever an earlier one edited.
 const worker = setupWorker(...handlers);
 const started = worker.start({
   onUnhandledRequest: 'bypass',
@@ -21,6 +23,7 @@ const started = worker.start({
 
 const withHandlers: Loader = async ({ parameters }) => {
   await started;
+  resetMockState();
   worker.resetHandlers(
     ...((parameters.msw as RequestHandler[] | undefined) ?? []),
     ...handlers,

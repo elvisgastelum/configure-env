@@ -6,6 +6,7 @@ import {
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import { resetMockState } from '../mocks/store';
 import { server } from './server';
 
 // Motion's animations finish at once, so tests see final states.
@@ -64,6 +65,18 @@ class NoopResizeObserver implements ResizeObserver {
   disconnect() {}
 }
 window.ResizeObserver ??= NoopResizeObserver;
+// Sonner reads the system color scheme; jsdom has no matchMedia.
+window.matchMedia ??= (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
 window.scrollTo = () => {};
 Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 Element.prototype.scrollTo ??= function scrollTo() {};
@@ -73,5 +86,9 @@ Element.prototype.hasPointerCapture ??= () => false;
 
 // The API, through msw. An unhandled request fails the test.
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  server.events.removeAllListeners();
+  resetMockState();
+});
 afterAll(() => server.close());

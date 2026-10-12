@@ -48,12 +48,15 @@ describe('navigation', () => {
     );
     await user.click(await within(palette).findByText('DB_PASSWORD'));
 
+    // The variable's drawer opens over the variables page.
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Variables' }),
+      await screen.findByRole('dialog', { name: 'DB_PASSWORD' }),
     ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/variables');
     expect(router.state.location.search).toEqual({ focus: 'DB_PASSWORD' });
-    expect(screen.getByText('Jumped to DB_PASSWORD.')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Command palette' }),
+    ).not.toBeInTheDocument();
   });
 
   it('opens the palette from the header and jumps to a file', async () => {

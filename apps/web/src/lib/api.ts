@@ -22,6 +22,8 @@ export class ApiRequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The error's body, as the API sent it (a 409 holds the file now). */
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -38,7 +40,7 @@ export async function unwrap<R extends { status: number; data: unknown }>(
     typeof data === 'object' && data !== null && 'message' in data
       ? String(data.message)
       : `request failed with ${status}`;
-  throw new ApiRequestError(status, message);
+  throw new ApiRequestError(status, message, data);
 }
 
 /** Whether the server refused the session: the cookie is missing or stale. */

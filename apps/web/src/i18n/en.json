@@ -130,5 +130,185 @@
       "open": "Open the schema"
     },
     "error": "The overview could not load: {{message}}"
+  },
+  "variables": {
+    "eyebrow": "Variables",
+    "lead": "Every variable of the schema, with its spec and its value in each env file.",
+    "loading": "Loading the variables",
+    "error": "The variables could not load: {{message}}",
+    "count_one": "{{count}} variable",
+    "count_other": "{{count}} variables",
+    "countFiltered": "{{shown}} of {{total}} variables",
+    "search": "Search variables",
+    "searchPlaceholder": "Search names, descriptions and comments",
+    "filters": {
+      "label": "Filters",
+      "type": "Type",
+      "anyType": "Any type",
+      "group": "Group",
+      "anyGroup": "Any group",
+      "ungrouped": "Ungrouped",
+      "file": "File",
+      "anyFile": "Any file",
+      "status": "Status",
+      "anyStatus": "Any status",
+      "required": "Required",
+      "secret": "Secret",
+      "protected": "Protected",
+      "clear": "Clear filters"
+    },
+    "status": {
+      "missing": "Missing",
+      "invalid": "Invalid",
+      "drift": "Drift",
+      "ok": "OK"
+    },
+    "statusHint": {
+      "missing": "Not set in a file that lists it",
+      "invalid": "Breaks its rules",
+      "drift": "A file that lists it does not have the key yet",
+      "ok": "No problem"
+    },
+    "sort": {
+      "label": "Sort",
+      "schema": "Schema order",
+      "name": "Name, A to Z",
+      "name-desc": "Name, Z to A",
+      "type": "Type",
+      "status": "Issues first"
+    },
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "value": "Value in {{file}}",
+      "valueNoFile": "Value",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "empty": "No variable matches.",
+    "emptySchema": "The schema declares no variables yet.",
+    "notListed": "Not in this file",
+    "notSet": "Not set",
+    "flags": {
+      "required": "Required",
+      "secret": "Secret",
+      "protected": "Protected"
+    },
+    "drawer": {
+      "close": "Close",
+      "noDescription": "No description.",
+      "details": "Details",
+      "comment": "Comment",
+      "default": "Default",
+      "example": "Example",
+      "rules": "Rules",
+      "values": "Values by file",
+      "file": "File",
+      "status": "Status",
+      "value": "Value",
+      "actions": "Actions",
+      "notInFiles": "No env file lists this variable.",
+      "yes": "Yes",
+      "no": "No",
+      "ruleLabels": {
+        "requiredUnless": "Required unless",
+        "conflictsWith": "Conflicts with",
+        "distinctFrom": "Must differ from",
+        "within": "Must be within"
+      },
+      "optionLabels": {
+        "values": "Values",
+        "minLength": "Minimum length",
+        "maxLength": "Maximum length",
+        "pattern": "Pattern",
+        "patternMessage": "Pattern message",
+        "encoding": "Encoding",
+        "bytes": "Bytes",
+        "min": "Minimum",
+        "max": "Maximum",
+        "protocols": "Protocols",
+        "family": "Family",
+        "strict": "Strict",
+        "allowEmpty": "Allows an empty value"
+      }
+    },
+    "secret": {
+      "reveal": "Reveal {{name}} in {{file}}",
+      "hide": "Hide {{name}} in {{file}}",
+      "failed": "Could not reveal: {{message}}"
+    },
+    "protected": {
+      "title": "Protected",
+      "because": "Protected: {{reason}}",
+      "explain": "configure-env keeps this value: an edit changes it only when it replaces it on purpose."
+    },
+    "copy": {
+      "menu": "Copy {{name}}",
+      "menuInFile": "Copy {{name}} in {{file}}",
+      "value": "Value",
+      "pair": "KEY=VALUE",
+      "export": "export KEY=VALUE",
+      "file": "The whole file as dotenv",
+      "group": "Copy the {{group}} group of {{file}} as dotenv",
+      "copied": {
+        "value": "Copied the value of {{name}}",
+        "pair": "Copied {{name}} as KEY=VALUE",
+        "export": "Copied {{name}} as export KEY=VALUE",
+        "file_one": "Copied {{count}} value of {{file}}",
+        "file_other": "Copied {{count}} values of {{file}}",
+        "group_one": "Copied {{count}} value of the {{group}} group",
+        "group_other": "Copied {{count}} values of the {{group}} group"
+      },
+      "notSet": "{{name}} is not set in {{file}}",
+      "failed": "Could not copy: {{message}}"
+    },
+    "edit": {
+      "edit": "Edit {{name}} in {{file}}",
+      "label": "New value of {{name}} in {{file}}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "checking": "Checking…",
+      "secretPlaceholder": "Type a new value",
+      "replaceProtected": "Replace the protected value",
+      "saved": "Saved {{name}} in {{file}}",
+      "problem": "{{name}} {{message}}",
+      "increment": "Increase",
+      "decrement": "Decrease"
+    },
+    "conflict": {
+      "title": "{{file}} changed since you opened it",
+      "description": "Something else wrote the file after the portal read it, so your value of {{name}} was not saved.",
+      "now": "Now",
+      "yours": "Yours",
+      "keep": "Keep the file as is",
+      "overwrite": "Save yours on top"
+    },
+    "actions": {
+      "more": "More actions for {{name}} in {{file}}",
+      "protected": "{{name}} is protected; this replaces its value on purpose.",
+      "generate": {
+        "item": "Generate a new value",
+        "confirmTitle": "Generate a new {{name}} in {{file}}?",
+        "confirmBody": "A new random value replaces the one {{file}} has. Nobody sees it; reveal it to read it.",
+        "confirm": "Generate",
+        "done": "Generated a new value for {{name}} in {{file}}",
+        "failed": "Could not generate {{name}}: {{message}}"
+      },
+      "unset": {
+        "item": "Unset",
+        "confirmTitle": "Unset {{name}} in {{file}}?",
+        "confirmBody": "The line of {{name}} is removed from {{file}}.",
+        "confirm": "Unset",
+        "done": "Unset {{name}} in {{file}}",
+        "failed": "Could not unset {{name}}: {{message}}"
+      }
+    },
+    "shortcuts": {
+      "label": "Keyboard shortcuts",
+      "search": "search",
+      "move": "move",
+      "copy": "copy",
+      "edit": "edit"
+    }
   }
 }

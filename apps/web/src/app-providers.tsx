@@ -1,7 +1,8 @@
 // Everything the portal renders inside: the query client, the copy, the
 // shared motion defaults (easing, and reduced motion honored everywhere)
-// and the tooltip delay group.
+// the tooltip delay group and the toasts.
 
+import { Toaster } from '@configure-env/design-system/components/atoms/sonner';
 import { TooltipProvider } from '@configure-env/design-system/components/atoms/tooltip';
 import { SiteMotionConfig } from '@configure-env/design-system/motion/site-motion-config';
 import { type QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -24,7 +25,10 @@ export function AppProviders({
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={instance}>
         <SiteMotionConfig>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            {children}
+            <Toaster />
+          </TooltipProvider>
         </SiteMotionConfig>
       </I18nextProvider>
     </QueryClientProvider>
