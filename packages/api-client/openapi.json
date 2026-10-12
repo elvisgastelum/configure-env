@@ -542,6 +542,308 @@
         "summary": "Writes the plan shown, when its fingerprint still matches",
         "tags": ["apply"]
       }
+    },
+    "/api/schema/variables": {
+      "post": {
+        "operationId": "addVariable",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddVariableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Declares a variable",
+        "tags": ["schema"]
+      }
+    },
+    "/api/schema/variables/{name}": {
+      "put": {
+        "operationId": "updateVariable",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "description": "The variable name.",
+            "schema": {}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVariableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a variable name, or an invalid body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Changes a variable's fields",
+        "tags": ["schema"]
+      },
+      "delete": {
+        "operationId": "removeVariable",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "description": "The variable name.",
+            "schema": {}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveVariableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a variable name, or an invalid body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Removes a variable; with cleanup, every reference to it too",
+        "tags": ["schema"]
+      }
+    },
+    "/api/schema/variables/{name}/rename": {
+      "post": {
+        "operationId": "renameVariable",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "description": "The variable name.",
+            "schema": {}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameVariableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a variable name, or an invalid body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Renames a variable and every reference to it",
+        "tags": ["schema"]
+      }
+    },
+    "/api/schema/variable-order": {
+      "put": {
+        "operationId": "reorderVariables",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderVariablesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Puts the variables in a new order",
+        "tags": ["schema"]
+      }
     }
   },
   "info": {

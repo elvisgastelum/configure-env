@@ -3385,3 +3385,802 @@ export const useApplyPlan = <
 > => {
   return useMutation(getApplyPlanMutationOptions(options), queryClient);
 };
+
+export type addVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type addVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type addVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type addVariableResponseSuccess = addVariableResponse200 & {
+  headers: Headers;
+};
+export type addVariableResponseError = (
+  addVariableResponse409 | addVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type addVariableResponse =
+  addVariableResponseSuccess | addVariableResponseError;
+
+export const getAddVariableUrl = () => {
+  return `/api/schema/variables`;
+};
+
+/**
+ * @summary Declares a variable
+ */
+export const addVariable = async (
+  addVariableRequest: AddVariableRequest,
+  options?: RequestInit,
+): Promise<addVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getAddVariableUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(addVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: addVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as addVariableResponse;
+};
+
+export const getAddVariableMutationKey = () => ['addVariable'] as const;
+
+export const getAddVariableMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addVariable>>,
+    TError,
+    AddVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addVariable>>,
+  TError,
+  AddVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAddVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addVariable>>,
+    AddVariableMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return addVariable(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addVariable>>
+>;
+export type AddVariableMutationBody = AddVariableRequest;
+export type AddVariableMutationError = StaleSchema | SchemaEditRefused;
+export type AddVariableMutationVariables = { data: AddVariableRequest };
+
+/**
+ * @summary Declares a variable
+ */
+export const useAddVariable = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof addVariable>>,
+      TError,
+      AddVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof addVariable>>,
+  TError,
+  AddVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getAddVariableMutationOptions(options), queryClient);
+};
+
+export type updateVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type updateVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type updateVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type updateVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type updateVariableResponseSuccess = updateVariableResponse200 & {
+  headers: Headers;
+};
+export type updateVariableResponseError = (
+  | updateVariableResponse400
+  | updateVariableResponse409
+  | updateVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type updateVariableResponse =
+  updateVariableResponseSuccess | updateVariableResponseError;
+
+export const getUpdateVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}`;
+};
+
+/**
+ * @summary Changes a variable's fields
+ */
+export const updateVariable = async (
+  name: unknown,
+  updateVariableRequest: UpdateVariableRequest,
+  options?: RequestInit,
+): Promise<updateVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getUpdateVariableUrl(name), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(updateVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: updateVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as updateVariableResponse;
+};
+
+export const getUpdateVariableMutationKey = () => ['updateVariable'] as const;
+
+export const getUpdateVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateVariable>>,
+    TError,
+    UpdateVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateVariable>>,
+  TError,
+  UpdateVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateVariable>>,
+    UpdateVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return updateVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateVariable>>
+>;
+export type UpdateVariableMutationBody = UpdateVariableRequest;
+export type UpdateVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type UpdateVariableMutationVariables = {
+  name: unknown;
+  data: UpdateVariableRequest;
+};
+
+/**
+ * @summary Changes a variable's fields
+ */
+export const useUpdateVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateVariable>>,
+      TError,
+      UpdateVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateVariable>>,
+  TError,
+  UpdateVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateVariableMutationOptions(options), queryClient);
+};
+
+export type removeVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type removeVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type removeVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type removeVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type removeVariableResponseSuccess = removeVariableResponse200 & {
+  headers: Headers;
+};
+export type removeVariableResponseError = (
+  | removeVariableResponse400
+  | removeVariableResponse409
+  | removeVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type removeVariableResponse =
+  removeVariableResponseSuccess | removeVariableResponseError;
+
+export const getRemoveVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}`;
+};
+
+/**
+ * @summary Removes a variable; with cleanup, every reference to it too
+ */
+export const removeVariable = async (
+  name: unknown,
+  removeVariableRequest: RemoveVariableRequest,
+  options?: RequestInit,
+): Promise<removeVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getRemoveVariableUrl(name), {
+    ...options,
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(removeVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: removeVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as removeVariableResponse;
+};
+
+export const getRemoveVariableMutationKey = () => ['removeVariable'] as const;
+
+export const getRemoveVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeVariable>>,
+    TError,
+    RemoveVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeVariable>>,
+  TError,
+  RemoveVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeVariable>>,
+    RemoveVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return removeVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeVariable>>
+>;
+export type RemoveVariableMutationBody = RemoveVariableRequest;
+export type RemoveVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type RemoveVariableMutationVariables = {
+  name: unknown;
+  data: RemoveVariableRequest;
+};
+
+/**
+ * @summary Removes a variable; with cleanup, every reference to it too
+ */
+export const useRemoveVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeVariable>>,
+      TError,
+      RemoveVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeVariable>>,
+  TError,
+  RemoveVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveVariableMutationOptions(options), queryClient);
+};
+
+export type renameVariableResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type renameVariableResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type renameVariableResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type renameVariableResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type renameVariableResponseSuccess = renameVariableResponse200 & {
+  headers: Headers;
+};
+export type renameVariableResponseError = (
+  | renameVariableResponse400
+  | renameVariableResponse409
+  | renameVariableResponse422
+) & {
+  headers: Headers;
+};
+
+export type renameVariableResponse =
+  renameVariableResponseSuccess | renameVariableResponseError;
+
+export const getRenameVariableUrl = (name: unknown) => {
+  return `/api/schema/variables/${name}/rename`;
+};
+
+/**
+ * @summary Renames a variable and every reference to it
+ */
+export const renameVariable = async (
+  name: unknown,
+  renameVariableRequest: RenameVariableRequest,
+  options?: RequestInit,
+): Promise<renameVariableResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getRenameVariableUrl(name), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(renameVariableRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: renameVariableResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as renameVariableResponse;
+};
+
+export const getRenameVariableMutationKey = () => ['renameVariable'] as const;
+
+export const getRenameVariableMutationOptions = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof renameVariable>>,
+    TError,
+    RenameVariableMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof renameVariable>>,
+  TError,
+  RenameVariableMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRenameVariableMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof renameVariable>>,
+    RenameVariableMutationVariables
+  > = (props) => {
+    const { name, data } = props ?? {};
+
+    return renameVariable(name, data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RenameVariableMutationResult = NonNullable<
+  Awaited<ReturnType<typeof renameVariable>>
+>;
+export type RenameVariableMutationBody = RenameVariableRequest;
+export type RenameVariableMutationError =
+  ApiError | StaleSchema | SchemaEditRefused;
+export type RenameVariableMutationVariables = {
+  name: unknown;
+  data: RenameVariableRequest;
+};
+
+/**
+ * @summary Renames a variable and every reference to it
+ */
+export const useRenameVariable = <
+  TError = ApiError | StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof renameVariable>>,
+      TError,
+      RenameVariableMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof renameVariable>>,
+  TError,
+  RenameVariableMutationVariables,
+  TContext
+> => {
+  return useMutation(getRenameVariableMutationOptions(options), queryClient);
+};
+
+export type reorderVariablesResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type reorderVariablesResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type reorderVariablesResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type reorderVariablesResponseSuccess = reorderVariablesResponse200 & {
+  headers: Headers;
+};
+export type reorderVariablesResponseError = (
+  reorderVariablesResponse409 | reorderVariablesResponse422
+) & {
+  headers: Headers;
+};
+
+export type reorderVariablesResponse =
+  reorderVariablesResponseSuccess | reorderVariablesResponseError;
+
+export const getReorderVariablesUrl = () => {
+  return `/api/schema/variable-order`;
+};
+
+/**
+ * @summary Puts the variables in a new order
+ */
+export const reorderVariables = async (
+  reorderVariablesRequest: ReorderVariablesRequest,
+  options?: RequestInit,
+): Promise<reorderVariablesResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getReorderVariablesUrl(), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(reorderVariablesRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: reorderVariablesResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as reorderVariablesResponse;
+};
+
+export const getReorderVariablesMutationKey = () =>
+  ['reorderVariables'] as const;
+
+export const getReorderVariablesMutationOptions = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderVariables>>,
+    TError,
+    ReorderVariablesMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderVariables>>,
+  TError,
+  ReorderVariablesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderVariablesMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderVariables>>,
+    ReorderVariablesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderVariables(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderVariablesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderVariables>>
+>;
+export type ReorderVariablesMutationBody = ReorderVariablesRequest;
+export type ReorderVariablesMutationError = StaleSchema | SchemaEditRefused;
+export type ReorderVariablesMutationVariables = {
+  data: ReorderVariablesRequest;
+};
+
+/**
+ * @summary Puts the variables in a new order
+ */
+export const useReorderVariables = <
+  TError = StaleSchema | SchemaEditRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderVariables>>,
+      TError,
+      ReorderVariablesMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderVariables>>,
+  TError,
+  ReorderVariablesMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderVariablesMutationOptions(options), queryClient);
+};
