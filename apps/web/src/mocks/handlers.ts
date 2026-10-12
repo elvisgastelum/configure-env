@@ -166,6 +166,22 @@ const schemaNeeded = () =>
 
 /** Overrides for named situations; put them before `handlers`. */
 export const scenarios = {
+  /** One more variable per editable type, in `.env`. */
+  allTypes: [
+    http.get('/api/variables', () => {
+      if (!findVariable(fixtures.typedVariables[0]!.name))
+        mockState.variables.variables.push(
+          ...structuredClone(fixtures.typedVariables),
+        );
+      return json(mockState.variables);
+    }),
+  ],
+  /** A schema of two thousand variables. */
+  largeSchema: [
+    http.get('/api/variables', () =>
+      json({ variables: fixtures.manyVariables(2000) }),
+    ),
+  ],
   /** The project has no schema file yet. */
   noSchema: [
     http.get('/api/schema', () => json(fixtures.missingSchema)),

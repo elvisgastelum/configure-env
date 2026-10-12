@@ -266,7 +266,7 @@ function GroupRow({
       data-group={item.group ?? ''}
       style={{ ...style, height: GROUP_HEIGHT }}
       className={cn(
-        'flex items-center gap-2 border-b bg-card/95 px-3 backdrop-blur',
+        'flex min-w-[46rem] items-center gap-2 border-b bg-card/95 px-3 backdrop-blur',
         className,
       )}
     >
