@@ -16,6 +16,7 @@ import type { SchemaDocument } from './document.ts';
 import { renameVariable } from './rename.ts';
 import { updateVariable } from './variables.ts';
 import {
+  createSchemaFile,
   editSchemaFile,
   readSchemaFile,
   schemaFingerprint,
@@ -248,5 +249,44 @@ describe('editSchemaFile', () => {
     expect(await readFile(path, 'utf8')).toBe(
       TEXT.replace('"HOST"', '"BIND_HOST"'),
     );
+  });
+});
+
+describe('createSchemaFile', () => {
+  const document = (): SchemaDocument => ({
+    version: 1,
+    variables: { PORT: { type: 'port', default: 8080 } },
+    files: [],
+  });
+
+  it('creates the file with the document, formatted', async () => {
+    const path = join(dir, 'new.schema.json');
+    const result = await createSchemaFile(path, document());
+    expect(result).toMatchObject({ ok: true, written: true });
+    const text = await readFile(path, 'utf8');
+    expect(JSON.parse(text)).toEqual(document());
+    expect(text.endsWith('\n')).toBe(true);
+    expect(result.ok && result.file.fingerprint).toBe(schemaFingerprint(text));
+    expect(
+      (await readdir(dir)).filter((name) => name.endsWith('.tmp')),
+    ).toEqual([]);
+  });
+
+  it('refuses a file that exists, keeping it', async () => {
+    const path = join(dir, 'taken.schema.json');
+    await writeFile(path, 'keep');
+    const result = await createSchemaFile(path, document());
+    expect(result).toMatchObject({ ok: false, kind: 'stale' });
+    expect(await readFile(path, 'utf8')).toBe('keep');
+  });
+
+  it('refuses an invalid document', async () => {
+    const path = join(dir, 'bad.schema.json');
+    const result = await createSchemaFile(path, {
+      ...document(),
+      version: 2,
+    } as unknown as SchemaDocument);
+    expect(result).toMatchObject({ ok: false, kind: 'invalid' });
+    await expect(stat(path)).rejects.toThrow();
   });
 });

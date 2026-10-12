@@ -1,9 +1,10 @@
 // The engine every configure-env surface shares: the schema and its values,
 // dotenv text, planning and applying files, checking them for drift, and the
 // protected variables' state with the history of edits, and the per-key
-// edits with their protected checks, and the schema writer that edits
-// env.schema.json. The published CLI bundles it; its public API
-// (packages/cli/src/index.ts) re-exports a chosen part of it.
+// edits with their protected checks and generated secrets, and the schema
+// writer that edits env.schema.json or infers a starting one. The published
+// CLI bundles it; its public API (packages/cli/src/index.ts) re-exports a
+// chosen part of it.
 
 export * from './schema/definition.ts';
 export * from './schema/ip.ts';
@@ -20,6 +21,7 @@ export * from './engine/history.ts';
 export * from './edit/file.ts';
 export * from './edit/protect.ts';
 export * from './edit/edit.ts';
+export * from './edit/generate.ts';
 export * from './writer/document.ts';
 export * from './writer/format.ts';
 export * from './writer/store.ts';
@@ -27,3 +29,4 @@ export * from './writer/references.ts';
 export * from './writer/variables.ts';
 export * from './writer/rename.ts';
 export * from './writer/files.ts';
+export * from './writer/infer.ts';
