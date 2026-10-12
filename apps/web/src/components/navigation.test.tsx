@@ -52,7 +52,9 @@ describe('navigation', () => {
       await screen.findByRole('heading', { level: 1, name: 'Variables' }),
     ).toBeInTheDocument();
     expect(router.state.location.search).toEqual({ focus: 'DB_PASSWORD' });
-    expect(screen.getByText('Jumped to DB_PASSWORD.')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('row', { name: /^DB_PASSWORD/ }),
+    ).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

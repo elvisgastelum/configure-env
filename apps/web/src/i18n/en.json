@@ -130,5 +130,69 @@
       "open": "Open the schema"
     },
     "error": "The overview could not load: {{message}}"
+  },
+  "variables": {
+    "eyebrow": "Variables",
+    "lead": "Every variable of the schema, with its spec and its value in each env file.",
+    "loading": "Loading the variables",
+    "error": "The variables could not load: {{message}}",
+    "count_one": "{{count}} variable",
+    "count_other": "{{count}} variables",
+    "countFiltered": "{{shown}} of {{total}} variables",
+    "search": "Search variables",
+    "searchPlaceholder": "Search names, descriptions and comments",
+    "filters": {
+      "label": "Filters",
+      "type": "Type",
+      "anyType": "Any type",
+      "group": "Group",
+      "anyGroup": "Any group",
+      "ungrouped": "Ungrouped",
+      "file": "File",
+      "anyFile": "Any file",
+      "status": "Status",
+      "anyStatus": "Any status",
+      "required": "Required",
+      "secret": "Secret",
+      "protected": "Protected",
+      "clear": "Clear filters"
+    },
+    "status": {
+      "missing": "Missing",
+      "invalid": "Invalid",
+      "drift": "Drift",
+      "ok": "OK"
+    },
+    "statusHint": {
+      "missing": "Not set in a file that lists it",
+      "invalid": "Breaks its rules",
+      "drift": "A file that lists it does not have the key yet",
+      "ok": "No problem"
+    },
+    "sort": {
+      "label": "Sort",
+      "schema": "Schema order",
+      "name": "Name, A to Z",
+      "name-desc": "Name, Z to A",
+      "type": "Type",
+      "status": "Issues first"
+    },
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "value": "Value in {{file}}",
+      "valueNoFile": "Value",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "empty": "No variable matches.",
+    "emptySchema": "The schema declares no variables yet.",
+    "notListed": "Not in this file",
+    "notSet": "Not set",
+    "flags": {
+      "required": "Required",
+      "secret": "Secret",
+      "protected": "Protected"
+    }
   }
 }
