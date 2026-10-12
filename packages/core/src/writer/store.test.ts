@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SchemaDocument } from './document.ts';
+import { renameVariable } from './rename.ts';
+import { updateVariable } from './variables.ts';
 import {
   editSchemaFile,
   readSchemaFile,
@@ -227,5 +229,24 @@ describe('editSchemaFile', () => {
     }));
     expect(result).toEqual({ ok: false, kind: 'invalid', errors });
     expect(await readFile(path, 'utf8')).toBe(TEXT);
+  });
+
+  it('writes an operation that changes nothing as no change at all', async () => {
+    const { fingerprint } = await read();
+    const result = await editSchemaFile(path, fingerprint, (document) =>
+      updateVariable(document, 'PORT', { default: 8080 }),
+    );
+    expect(result).toMatchObject({ ok: true, written: false });
+    expect(await readFile(path, 'utf8')).toBe(TEXT);
+  });
+
+  it('changes only the lines an operation touches', async () => {
+    const { fingerprint } = await read();
+    await editSchemaFile(path, fingerprint, (document) =>
+      renameVariable(document, 'HOST', 'BIND_HOST'),
+    );
+    expect(await readFile(path, 'utf8')).toBe(
+      TEXT.replace('"HOST"', '"BIND_HOST"'),
+    );
   });
 });

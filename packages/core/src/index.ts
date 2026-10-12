@@ -24,3 +24,4 @@ export * from './writer/store.ts';
 export * from './writer/references.ts';
 export * from './writer/variables.ts';
 export * from './writer/rename.ts';
+export * from './writer/files.ts';
