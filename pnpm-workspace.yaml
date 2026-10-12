@@ -1,5 +1,5 @@
-# Libraries and the published CLI live in packages/. apps/ is empty for now:
-# the planned `configure-env serve` API and web portal will live there.
+# Libraries and the published CLI live in packages/; the local API (and the
+# planned web portal) live in apps/.
 packages:
   - apps/*
   - packages/*
@@ -13,3 +13,5 @@ allowBuilds:
   # fallback still installs.
   better-sqlite3: true
   esbuild: false
+  # Usage telemetry pulled in by @nestjs/swagger's swagger-ui-dist; never run.
+  '@scarf/scarf': false
