@@ -40,15 +40,15 @@ const show = (value: string | number | boolean) => String(value);
 export function VariableDrawer({
   variable,
   files,
-  known,
+  all,
   onNavigate,
   onClose,
 }: {
   /** The variable to show; the drawer is closed without one. */
   variable?: Variable;
   files: readonly FileInfo[];
-  /** The declared variable names: a rule's name links only to these. */
-  known: ReadonlySet<string>;
+  /** Every declared variable: a rule's name links only to these. */
+  all: readonly Variable[];
   onNavigate: (name: string) => void;
   onClose: () => void;
 }) {
@@ -69,7 +69,7 @@ export function VariableDrawer({
           <DrawerBody
             variable={variable}
             files={files}
-            known={known}
+            all={all}
             onNavigate={onNavigate}
           />
         )}
@@ -81,15 +81,16 @@ export function VariableDrawer({
 function DrawerBody({
   variable,
   files,
-  known,
+  all,
   onNavigate,
 }: {
   variable: Variable;
   files: readonly FileInfo[];
-  known: ReadonlySet<string>;
+  all: readonly Variable[];
   onNavigate: (name: string) => void;
 }) {
   const { t } = useTranslation();
+  const known = new Set(all.map((other) => other.name));
   const { name, spec } = variable;
   const rules = rulesOf(spec);
   const options = optionsOf(spec);
@@ -183,7 +184,7 @@ function DrawerBody({
           )}
         </dl>
 
-        <ValueMatrix variable={variable} files={files} />
+        <ValueMatrix variable={variable} files={files} all={all} />
       </div>
     </>
   );

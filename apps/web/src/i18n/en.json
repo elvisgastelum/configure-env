@@ -241,6 +241,26 @@
       "title": "Protected",
       "because": "Protected: {{reason}}",
       "explain": "configure-env keeps this value: an edit changes it only when it replaces it on purpose."
+    },
+    "copy": {
+      "menu": "Copy {{name}}",
+      "menuInFile": "Copy {{name}} in {{file}}",
+      "value": "Value",
+      "pair": "KEY=VALUE",
+      "export": "export KEY=VALUE",
+      "file": "The whole file as dotenv",
+      "group": "Copy the {{group}} group of {{file}} as dotenv",
+      "copied": {
+        "value": "Copied the value of {{name}}",
+        "pair": "Copied {{name}} as KEY=VALUE",
+        "export": "Copied {{name}} as export KEY=VALUE",
+        "file_one": "Copied {{count}} value of {{file}}",
+        "file_other": "Copied {{count}} values of {{file}}",
+        "group_one": "Copied {{count}} value of the {{group}} group",
+        "group_other": "Copied {{count}} values of the {{group}} group"
+      },
+      "notSet": "{{name}} is not set in {{file}}",
+      "failed": "Could not copy: {{message}}"
     }
   }
 }

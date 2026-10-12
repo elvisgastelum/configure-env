@@ -64,6 +64,18 @@ class NoopResizeObserver implements ResizeObserver {
   disconnect() {}
 }
 window.ResizeObserver ??= NoopResizeObserver;
+// Sonner reads the system color scheme; jsdom has no matchMedia.
+window.matchMedia ??= (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
 window.scrollTo = () => {};
 Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 Element.prototype.scrollTo ??= function scrollTo() {};

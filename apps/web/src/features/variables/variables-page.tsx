@@ -15,6 +15,7 @@ import {
   hasUngrouped,
   typesOf,
 } from './model';
+import { CopyDotenvButton, CopyMenu } from './copy-menu';
 import { RevealProvider, SecretValue } from './secret-value';
 import { VariableDrawer } from './variable-drawer';
 import { VariablesTable } from './variables-table';
@@ -71,10 +72,6 @@ function VariablesBrowser({ focus }: { focus?: string }) {
 
   const list = useMemo(() => variables.data?.variables ?? [], [variables.data]);
   const fileList = useMemo(() => files.data?.files ?? [], [files.data]);
-  const known = useMemo(
-    () => new Set(list.map((variable) => variable.name)),
-    [list],
-  );
   const open = (name: string) => {
     setSelected(name);
     setOpened(name);
@@ -128,6 +125,40 @@ function VariablesBrowser({ focus }: { focus?: string }) {
           renderValue={(variable, file) => (
             <SecretValue variable={variable} file={file} />
           )}
+          renderActions={(variable) =>
+            valueFile &&
+            variable.files.some((entry) => entry.file === valueFile) && (
+              <CopyMenu
+                variable={variable}
+                file={valueFile}
+                label={t('variables.copy.menu', { name: variable.name })}
+              />
+            )
+          }
+          renderGroupActions={(group) => {
+            if (!valueFile) return null;
+            const members = list.filter(
+              (variable) =>
+                (variable.spec.group ?? null) === group &&
+                variable.files.some((entry) => entry.file === valueFile),
+            );
+            const name = group ?? t('variables.filters.ungrouped');
+            return (
+              members.length > 0 && (
+                <CopyDotenvButton
+                  variables={members}
+                  file={valueFile}
+                  label={t('variables.copy.group', {
+                    group: name,
+                    file: valueFile,
+                  })}
+                  done={(count) =>
+                    t('variables.copy.copied.group', { count, group: name })
+                  }
+                />
+              )
+            );
+          }}
           empty={
             list.length === 0
               ? t('variables.emptySchema')
@@ -137,7 +168,7 @@ function VariablesBrowser({ focus }: { focus?: string }) {
         <VariableDrawer
           variable={list.find((variable) => variable.name === opened)}
           files={fileList}
-          known={known}
+          all={list}
           onNavigate={open}
           onClose={() => setOpened(undefined)}
         />
