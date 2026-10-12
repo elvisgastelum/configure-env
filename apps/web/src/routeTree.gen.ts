@@ -10,33 +10,115 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CheckRouteImport } from './routes/check'
+import { Route as FilesRouteImport } from './routes/files'
+import { Route as GroupsRouteImport } from './routes/groups'
+import { Route as SchemaRouteImport } from './routes/schema'
+import { Route as ValidateRouteImport } from './routes/validate'
+import { Route as VariablesRouteImport } from './routes/variables'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CheckRoute = CheckRouteImport.update({
+  id: '/check',
+  path: '/check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FilesRoute = FilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GroupsRoute = GroupsRouteImport.update({
+  id: '/groups',
+  path: '/groups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchemaRoute = SchemaRouteImport.update({
+  id: '/schema',
+  path: '/schema',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ValidateRoute = ValidateRouteImport.update({
+  id: '/validate',
+  path: '/validate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VariablesRoute = VariablesRouteImport.update({
+  id: '/variables',
+  path: '/variables',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/check': typeof CheckRoute
+  '/files': typeof FilesRoute
+  '/groups': typeof GroupsRoute
+  '/schema': typeof SchemaRoute
+  '/validate': typeof ValidateRoute
+  '/variables': typeof VariablesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/check': typeof CheckRoute
+  '/files': typeof FilesRoute
+  '/groups': typeof GroupsRoute
+  '/schema': typeof SchemaRoute
+  '/validate': typeof ValidateRoute
+  '/variables': typeof VariablesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/check': typeof CheckRoute
+  '/files': typeof FilesRoute
+  '/groups': typeof GroupsRoute
+  '/schema': typeof SchemaRoute
+  '/validate': typeof ValidateRoute
+  '/variables': typeof VariablesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/check'
+    | '/files'
+    | '/groups'
+    | '/schema'
+    | '/validate'
+    | '/variables'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/check'
+    | '/files'
+    | '/groups'
+    | '/schema'
+    | '/validate'
+    | '/variables'
+  id:
+    | '__root__'
+    | '/'
+    | '/check'
+    | '/files'
+    | '/groups'
+    | '/schema'
+    | '/validate'
+    | '/variables'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CheckRoute: typeof CheckRoute
+  FilesRoute: typeof FilesRoute
+  GroupsRoute: typeof GroupsRoute
+  SchemaRoute: typeof SchemaRoute
+  ValidateRoute: typeof ValidateRoute
+  VariablesRoute: typeof VariablesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +130,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/check': {
+      id: '/check'
+      path: '/check'
+      fullPath: '/check'
+      preLoaderRoute: typeof CheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/files': {
+      id: '/files'
+      path: '/files'
+      fullPath: '/files'
+      preLoaderRoute: typeof FilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/groups': {
+      id: '/groups'
+      path: '/groups'
+      fullPath: '/groups'
+      preLoaderRoute: typeof GroupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schema': {
+      id: '/schema'
+      path: '/schema'
+      fullPath: '/schema'
+      preLoaderRoute: typeof SchemaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/validate': {
+      id: '/validate'
+      path: '/validate'
+      fullPath: '/validate'
+      preLoaderRoute: typeof ValidateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/variables': {
+      id: '/variables'
+      path: '/variables'
+      fullPath: '/variables'
+      preLoaderRoute: typeof VariablesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CheckRoute: CheckRoute,
+  FilesRoute: FilesRoute,
+  GroupsRoute: GroupsRoute,
+  SchemaRoute: SchemaRoute,
+  ValidateRoute: ValidateRoute,
+  VariablesRoute: VariablesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

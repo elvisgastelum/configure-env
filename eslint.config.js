@@ -36,14 +36,11 @@ export default defineConfig(
     ],
   },
   {
-    // TanStack Router's file routes export their `Route` beside components.
+    // TanStack Router's file routes export their `Route` beside their
+    // components; its code splitting moves the components out, so they
+    // still hot-reload.
     files: ['apps/web/src/routes/**/*.tsx'],
-    rules: {
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowExportNames: ['Route'] },
-      ],
-    },
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
   {
     // The build config and the Node test that serves the built portal.

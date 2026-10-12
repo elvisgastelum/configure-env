@@ -5,7 +5,8 @@ import {
 } from '@configure-env/design-system/theme';
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import { server } from './server';
 
 // Motion's animations finish at once, so tests see final states.
 MotionGlobalConfig.skipAnimations = true;
@@ -69,3 +70,8 @@ Element.prototype.scrollTo ??= function scrollTo() {};
 Element.prototype.setPointerCapture ??= function setPointerCapture() {};
 Element.prototype.releasePointerCapture ??= function releasePointerCapture() {};
 Element.prototype.hasPointerCapture ??= () => false;
+
+// The API, through msw. An unhandled request fails the test.
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());

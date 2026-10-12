@@ -1,4 +1,58 @@
 {
+  "app": {
+    "name": "configure-env",
+    "skipToContent": "Skip to content"
+  },
+  "nav": {
+    "label": "Portal",
+    "overview": "Overview",
+    "variables": "Variables",
+    "groups": "Groups",
+    "files": "Files",
+    "schema": "Schema",
+    "check": "Check",
+    "validate": "Validate",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
+    "open": "Open navigation",
+    "close": "Close navigation"
+  },
+  "header": {
+    "projectLoading": "Loading project",
+    "root": "Project root",
+    "search": "Search",
+    "searchHint": "Jump to a variable, file or action"
+  },
+  "schema": {
+    "valid": "Schema valid",
+    "invalid_one": "Schema: {{count}} error",
+    "invalid_other": "Schema: {{count}} errors",
+    "missing": "No schema",
+    "loading": "Schema…"
+  },
+  "palette": {
+    "title": "Command palette",
+    "description": "Jump to any page, variable or file, or run an action.",
+    "placeholder": "Type a variable, a file or an action…",
+    "empty": "Nothing matches.",
+    "pages": "Pages",
+    "variables": "Variables",
+    "files": "Files",
+    "actions": "Actions",
+    "runCheck": "Run check",
+    "runValidate": "Run validate",
+    "theme": "Switch to the {{theme}} theme"
+  },
+  "placeholder": {
+    "soon": "Coming soon",
+    "focus": "Jumped to {{name}}.",
+    "variables": "Every variable with its spec and its value in each file.",
+    "groups": "Variables by their group heading.",
+    "files": "Each env file with its policy, mode, drift and parse errors.",
+    "schema": "The schema document and its errors.",
+    "check": "The drift report of configure-env check.",
+    "validate": "The rule and value errors of configure-env validate."
+  },
   "theme": {
     "label": "Theme",
     "system": "System",
