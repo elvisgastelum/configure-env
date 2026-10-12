@@ -261,10 +261,17 @@ export const checkResponse = named(
 const problem = named(
   'Problem',
   z.object({
+    kind: z.literal('protected').optional().meta({
+      description:
+        'protected: a protected value that no longer matches the one the state recorded.',
+    }),
     key: z.string().optional(),
     keys: z.array(z.string()).optional(),
     line: z.int().optional(),
     message: z.string(),
+    reason: z.string().optional().meta({
+      description: "A protected variable's reason, when it gives one.",
+    }),
   }),
 );
 

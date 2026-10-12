@@ -17,6 +17,7 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiQuery,
+  ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { EnvSchema } from '@configure-env/core';
@@ -51,6 +52,7 @@ import {
 } from './inspect.ts';
 import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
+import { protectedState } from './state.ts';
 import { EventsController } from './events.controller.ts';
 import { ProjectEvents } from './events.ts';
 import { PlanController } from './plan.controller.ts';
@@ -67,6 +69,13 @@ const StrictQuery = () =>
     required: false,
     enum: ['true', 'false'],
     description: 'Treat keys the schema does not list for a file as errors.',
+  });
+
+/** For the routes that read the protected variables' state. */
+const NeedsState = () =>
+  ApiServiceUnavailableResponse({
+    description: "The protected variables' state cannot be read.",
+    schema: ref(errorResponse),
   });
 
 const isStrict = (query: z.output<typeof strictQuery>) =>
@@ -169,13 +178,16 @@ export class ProjectController {
   )
   @StrictQuery()
   @NeedsSchema()
+  @NeedsState()
   async check(
     @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
   ) {
+    const schema = await this.schema();
     return checkProject(
-      await this.schema(),
+      schema,
       this.project.root,
       isStrict(query),
+      await protectedState(schema, this.project),
     );
   }
 
@@ -187,13 +199,16 @@ export class ProjectController {
   )
   @StrictQuery()
   @NeedsSchema()
+  @NeedsState()
   async validate(
     @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
   ) {
+    const schema = await this.schema();
     return validateProject(
-      await this.schema(),
+      schema,
       this.project.root,
       isStrict(query),
+      await protectedState(schema, this.project),
     );
   }
 }

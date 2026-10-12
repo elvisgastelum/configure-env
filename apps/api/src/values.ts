@@ -12,15 +12,12 @@ import {
   type EnvFile,
   type EnvSchema,
   type ProtectedProblem,
-  type RunState,
   UNKNOWN_SPEC,
   type VariableSpec,
   generatableProblem,
   generateValue,
   getValue,
-  loadState,
   parseDotenv,
-  protectsAny,
   readEnvFile,
   recordChanges,
   serialize,
@@ -39,6 +36,7 @@ import { contentFingerprint } from './fingerprint.ts';
 import { ApiError } from './http.ts';
 import { fileInfoOf } from './inspect.ts';
 import type { Project } from './project.ts';
+import { protectedState } from './state.ts';
 
 type ValuesEdit = z.output<typeof valuesResponse>;
 type EditProblem = z.output<typeof editProblem>;
@@ -72,24 +70,14 @@ async function openFile(
   return read.file;
 }
 
-/** The protected state, when the schema protects anything. */
-async function runState(
-  schema: EnvSchema,
-  project: Project,
-): Promise<RunState | undefined> {
-  if (!protectsAny(schema)) return undefined;
-  const result = await loadState(project.statePath);
-  if (!result.ok) throw new ApiError(503, `invalid state ${result.message}`);
-  return { path: project.statePath, state: result.state };
-}
-
 async function editContext(
   schema: EnvSchema,
   project: Project,
 ): Promise<EditContext> {
+  const state = await protectedState(schema, project);
   return {
     schema,
-    run: await runState(schema, project),
+    run: state && { path: project.statePath, state },
     cwd: project.root,
   };
 }
