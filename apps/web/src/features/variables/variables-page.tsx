@@ -1,3 +1,4 @@
+import { Kbd } from '@configure-env/design-system/components/atoms/kbd';
 import { Skeleton } from '@configure-env/design-system/components/atoms/skeleton';
 import { TYPE } from '@configure-env/design-system/recipes';
 import { useQuery } from '@tanstack/react-query';
@@ -15,10 +16,13 @@ import {
   hasUngrouped,
   typesOf,
 } from './model';
+import { variableText } from './copy';
 import { CopyDotenvButton, CopyMenu } from './copy-menu';
 import { RevealProvider, SecretValue } from './secret-value';
 import { VariableDrawer } from './variable-drawer';
 import { VariablesTable } from './variables-table';
+import { useCopy } from './use-copy';
+import { useShortcuts } from './use-shortcuts';
 import { VariablesToolbar } from './variables-toolbar';
 
 /** Every variable: find it, understand it, and see its value per file. */
@@ -88,6 +92,37 @@ function VariablesBrowser({ focus }: { focus?: string }) {
     (count, section) => count + section.variables.length,
     0,
   );
+  const valueFile = filters.file ?? fileList[0]?.path;
+  const copy = useCopy();
+
+  useShortcuts({
+    search: () => searchRef.current?.focus(),
+    move: (delta) => {
+      const names = sections.flatMap((section) =>
+        section.variables.map((variable) => variable.name),
+      );
+      if (names.length === 0) return;
+      const index = selected === undefined ? -1 : names.indexOf(selected);
+      const next =
+        index === -1
+          ? delta === 1
+            ? 0
+            : names.length - 1
+          : Math.min(Math.max(index + delta, 0), names.length - 1);
+      setSelected(names[next]);
+    },
+    copy: () => {
+      const variable = list.find((entry) => entry.name === selected);
+      if (!variable || !valueFile) return;
+      void copy(async () => ({
+        text: await variableText(variable, valueFile, 'value'),
+        message: t('variables.copy.copied.value', { name: variable.name }),
+      }));
+    },
+    edit: () => {
+      if (selected && valueFile) open(selected, valueFile);
+    },
+  });
 
   if (variables.error)
     return (
@@ -96,8 +131,6 @@ function VariablesBrowser({ focus }: { focus?: string }) {
       </p>
     );
   if (!variables.data || !files.data) return <BrowserSkeleton />;
-
-  const valueFile = filters.file ?? fileList[0]?.path;
 
   return (
     <RevealProvider>
@@ -113,11 +146,14 @@ function VariablesBrowser({ focus }: { focus?: string }) {
           files={fileList.map((file) => file.path)}
           searchRef={searchRef}
         />
-        <p className="text-sm text-muted-foreground" aria-live="polite">
-          {shown === list.length
-            ? t('variables.count', { count: list.length })
-            : t('variables.countFiltered', { shown, total: list.length })}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+          <p aria-live="polite">
+            {shown === list.length
+              ? t('variables.count', { count: list.length })
+              : t('variables.countFiltered', { shown, total: list.length })}
+          </p>
+          <ShortcutHints />
+        </div>
         <VariablesTable
           sections={sections}
           files={fileList}
@@ -183,6 +219,34 @@ function VariablesBrowser({ focus }: { focus?: string }) {
         />
       </div>
     </RevealProvider>
+  );
+}
+
+/** The page's single-key shortcuts, in one quiet line. */
+function ShortcutHints() {
+  const { t } = useTranslation();
+  const hints = [
+    [['/'], t('variables.shortcuts.search')],
+    [['j', 'k'], t('variables.shortcuts.move')],
+    [['c'], t('variables.shortcuts.copy')],
+    [['e'], t('variables.shortcuts.edit')],
+  ] as const;
+  return (
+    <p
+      role="note"
+      aria-label={t('variables.shortcuts.label')}
+      className="hidden items-center gap-1.5 text-xs md:flex"
+    >
+      {hints.map(([keys, label], index) => (
+        <span key={label} className="inline-flex items-center gap-1">
+          {index > 0 && <span aria-hidden="true">·</span>}
+          {keys.map((key) => (
+            <Kbd key={key}>{key}</Kbd>
+          ))}
+          {label}
+        </span>
+      ))}
+    </p>
   );
 }
 

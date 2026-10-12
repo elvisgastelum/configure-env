@@ -302,6 +302,13 @@
         "done": "Unset {{name}} in {{file}}",
         "failed": "Could not unset {{name}}: {{message}}"
       }
+    },
+    "shortcuts": {
+      "label": "Keyboard shortcuts",
+      "search": "search",
+      "move": "move",
+      "copy": "copy",
+      "edit": "edit"
     }
   }
 }
