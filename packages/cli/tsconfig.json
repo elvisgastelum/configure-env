@@ -4,7 +4,10 @@
     "types": ["node"],
     // tsx runs the sources directly; tsc only type-checks them.
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // serve bundles @configure-env/api, whose Nest decorators are
+    // TypeScript's legacy ones (see apps/api/tsconfig.json).
+    "experimentalDecorators": true
   },
   "include": ["src", "scripts"]
 }

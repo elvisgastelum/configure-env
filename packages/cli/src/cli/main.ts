@@ -9,6 +9,7 @@ import { initCommand } from './init.ts';
 import { installCommand } from './install.ts';
 import { listCommand, validateCommand } from './inspect.ts';
 import type { Io } from './io.ts';
+import { serveCommand } from './serve.ts';
 
 type Command = (args: string[], io: Io) => Promise<number>;
 
@@ -22,6 +23,7 @@ export const COMMANDS: Record<string, Command> = {
   list: listCommand,
   validate: validateCommand,
   install: installCommand,
+  serve: serveCommand,
 };
 
 const has = (args: readonly string[], ...flags: string[]) =>

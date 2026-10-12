@@ -397,6 +397,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@configure-env/api':
+        specifier: workspace:*
+        version: link:../../apps/api
       '@configure-env/core':
         specifier: workspace:*
         version: link:../core
