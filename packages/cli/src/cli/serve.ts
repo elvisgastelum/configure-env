@@ -32,7 +32,7 @@ const START_ATTEMPTS = 5;
 
 /** What `serve` touches outside the process: the server, signals, a browser. */
 export interface ServeRuntime {
-  /** Starts the API; the default imports @configure-env/api lazily. */
+  /** Starts the API; the default imports the API server lazily. */
   start(options: ServerOptions): Promise<ApiServer>;
   /** Resolves with the first SIGINT or SIGTERM. */
   waitForSignal(): Promise<NodeJS.Signals>;
