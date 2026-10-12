@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@configure-env/api": "workspace:*",
+    "@storybook/addon-a11y": "10.6.1",
     "@storybook/react-vite": "10.6.1",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/router-cli": "1.167.41",
