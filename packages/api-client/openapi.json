@@ -216,6 +216,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The protected variables' state cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         },
         "summary": "The drift report, as configure-env check gives it",
@@ -257,10 +267,280 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The protected variables' state cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         },
         "summary": "Rule and value errors per file, as configure-env validate gives them",
         "tags": ["project"]
+      }
+    },
+    "/api/values/set": {
+      "post": {
+        "operationId": "setValues",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetValuesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValuesEdit"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The file path is refused: it leaves the root.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a schema file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The file changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleFile"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Values that break their rules, or protected values the edit may not change; nothing was written. Also an invalid schema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditRefused"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The protected state cannot be read or used; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Sets values in one file, given or generated; protected values only when replaced by key",
+        "tags": ["values"]
+      }
+    },
+    "/api/values/unset": {
+      "post": {
+        "operationId": "unsetValues",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnsetValuesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValuesEdit"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The file path is refused: it leaves the root.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a schema file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The file changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleFile"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Values that break their rules, or protected values the edit may not change; nothing was written. Also an invalid schema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditRefused"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The protected state cannot be read or used; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Removes keys from one file; protected values only when replaced by key",
+        "tags": ["values"]
+      }
+    },
+    "/api/plan": {
+      "post": {
+        "operationId": "planChanges",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "What applying would do to each file, with masked diffs; writes nothing",
+        "tags": ["apply"]
+      }
+    },
+    "/api/apply": {
+      "post": {
+        "operationId": "applyPlan",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Applied"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The plan changed since it was shown (a file, the schema or the inputs); nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The plan has errors or changes protected values; nothing was written. Also an invalid schema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanConflict"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The protected state cannot be read or used; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Writes the plan shown, when its fingerprint still matches",
+        "tags": ["apply"]
       }
     }
   },
@@ -281,6 +561,59 @@
       }
     },
     "schemas": {
+      "AddFileRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "The file, as env.schema.json writes it."
+          },
+          "index": {
+            "description": "Where; last by default.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["fingerprint", "spec"],
+        "additionalProperties": false
+      },
+      "AddVariableRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "A variable name, like `API_URL`."
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "The variable, as env.schema.json writes it."
+          },
+          "files": {
+            "description": "Files whose variable list it joins; a file that takes `\"*\"` holds it already.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": ["fingerprint", "name", "spec"],
+        "additionalProperties": false
+      },
       "ApiError": {
         "type": "object",
         "properties": {
@@ -294,6 +627,105 @@
           }
         },
         "required": ["statusCode", "message"],
+        "additionalProperties": false
+      },
+      "Applied": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Every file was written as planned."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["create", "update", "mode", "unchanged", "skip"]
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "written": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": ["path", "action", "ok", "written"],
+              "additionalProperties": false
+            }
+          },
+          "replaced": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": ["file", "key"],
+              "additionalProperties": false
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["ok", "files", "replaced", "warnings"],
+        "additionalProperties": false
+      },
+      "ApplyRequest": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "description": "Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "files": {
+            "description": "Only these schema files; every file when absent.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "prune": {
+            "description": "Remove the keys a merge or create-only file holds that the schema does not list for it.",
+            "type": "boolean"
+          },
+          "replaceProtected": {
+            "description": "The protected keys the edit may replace or remove; any other protected change is refused.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409)."
+          }
+        },
+        "required": ["fingerprint"],
         "additionalProperties": false
       },
       "Check": {
@@ -320,6 +752,63 @@
           }
         },
         "required": ["ok", "drift", "files", "errors"],
+        "additionalProperties": false
+      },
+      "DiffLine": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["same", "added", "removed"]
+          },
+          "line": {
+            "type": "string",
+            "description": "The line, secrets masked."
+          }
+        },
+        "required": ["kind", "line"],
+        "additionalProperties": false
+      },
+      "EditProblem": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "A protected variable's reason, when it gives one.",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "EditRefused": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [422]
+          },
+          "message": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["invalid", "protected"],
+            "description": "invalid: values that break their rules; protected: protected values the edit may not change."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EditProblem"
+            }
+          }
+        },
+        "required": ["statusCode", "message", "kind", "errors"],
         "additionalProperties": false
       },
       "FileDrift": {
@@ -510,6 +999,11 @@
               "$ref": "#/components/schemas/ParseError"
             }
           },
+          "fingerprint": {
+            "description": "Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.",
+            "nullable": true,
+            "type": "string"
+          },
           "error": {
             "description": "Why the path was refused.",
             "type": "string"
@@ -523,6 +1017,76 @@
           "mode",
           "drift",
           "parseErrors"
+        ],
+        "additionalProperties": false
+      },
+      "FilePlan": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": ["generate", "merge", "create-only"]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "update", "mode", "unchanged", "skip"],
+            "description": "mode: the content is current, only the permissions change."
+          },
+          "reason": {
+            "description": "Why a file is skipped: create-only and present, an unsafe path, or a mode that would loosen it.",
+            "type": "string",
+            "enum": ["exists", "refused", "loosens"]
+          },
+          "error": {
+            "type": "string"
+          },
+          "addedKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "prunedKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "description": "The permissions it is written with, like `600`."
+          },
+          "currentMode": {
+            "nullable": true,
+            "description": "Its permissions now; null when it does not exist.",
+            "type": "string"
+          },
+          "fingerprint": {
+            "nullable": true,
+            "description": "The file's fingerprint now; null when it does not exist.",
+            "type": "string"
+          },
+          "diff": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffLine"
+            },
+            "description": "From the file now to the file after; empty for a skipped one."
+          }
+        },
+        "required": [
+          "path",
+          "policy",
+          "action",
+          "addedKeys",
+          "prunedKeys",
+          "mode",
+          "currentMode",
+          "fingerprint",
+          "diff"
         ],
         "additionalProperties": false
       },
@@ -604,6 +1168,23 @@
         "required": ["status"],
         "additionalProperties": false
       },
+      "InitSchemaRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.",
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "description": "To replace an existing schema, its fingerprint; without it an existing schema is kept (409).",
+            "nullable": true,
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
       "InvalidSchema": {
         "type": "object",
         "properties": {
@@ -639,6 +1220,64 @@
         "required": ["line", "message"],
         "additionalProperties": false
       },
+      "Plan": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "description": "Identifies this plan; POST /api/apply names it."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "Whether it can be applied: no error and no protected refusal."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FilePlan"
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanError"
+            }
+          },
+          "protected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProtectedRefusal"
+            },
+            "description": "Protected values the plan would change without replaceProtected naming them."
+          }
+        },
+        "required": ["fingerprint", "ok", "files", "errors", "protected"],
+        "additionalProperties": false
+      },
+      "PlanConflict": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "409 or 422."
+          },
+          "message": {
+            "type": "string"
+          },
+          "plan": {
+            "description": "The plan as it is now.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Plan"
+              }
+            ]
+          }
+        },
+        "required": ["statusCode", "message", "plan"],
+        "additionalProperties": false
+      },
       "PlanError": {
         "type": "object",
         "properties": {
@@ -665,9 +1304,48 @@
         "required": ["kind", "message"],
         "additionalProperties": false
       },
+      "PlanRequest": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "description": "Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "files": {
+            "description": "Only these schema files; every file when absent.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "prune": {
+            "description": "Remove the keys a merge or create-only file holds that the schema does not list for it.",
+            "type": "boolean"
+          },
+          "replaceProtected": {
+            "description": "The protected keys the edit may replace or remove; any other protected change is refused.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "Problem": {
         "type": "object",
         "properties": {
+          "kind": {
+            "description": "protected: a protected value that no longer matches the one the state recorded.",
+            "type": "string",
+            "enum": ["protected"]
+          },
           "key": {
             "type": "string"
           },
@@ -683,6 +1361,10 @@
             "maximum": 9007199254740991
           },
           "message": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "A protected variable's reason, when it gives one.",
             "type": "string"
           }
         },
@@ -706,6 +1388,93 @@
           }
         },
         "required": ["root", "schemaPath", "version"],
+        "additionalProperties": false
+      },
+      "ProtectedRefusal": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["file", "key", "message"],
+        "additionalProperties": false
+      },
+      "RemoveFileRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["fingerprint", "path"],
+        "additionalProperties": false
+      },
+      "RemoveVariableRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "cleanup": {
+            "description": "Also remove every rule and file entry naming it; without it, a reference refuses the edit.",
+            "type": "boolean"
+          }
+        },
+        "required": ["fingerprint"],
+        "additionalProperties": false
+      },
+      "RenameVariableRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "A variable name, like `API_URL`."
+          }
+        },
+        "required": ["fingerprint", "to"],
+        "additionalProperties": false
+      },
+      "ReorderVariablesRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every declared variable, once, in its new place."
+          }
+        },
+        "required": ["fingerprint", "order"],
         "additionalProperties": false
       },
       "Reveal": {
@@ -787,9 +1556,41 @@
             "items": {
               "$ref": "#/components/schemas/SchemaError"
             }
+          },
+          "fingerprint": {
+            "description": "Identifies the bytes read; a schema edit names it. Absent when the file cannot be read.",
+            "type": "string"
           }
         },
         "required": ["path", "valid", "document", "errors"],
+        "additionalProperties": false
+      },
+      "SchemaEditRefused": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [422]
+          },
+          "message": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchemaError"
+            }
+          },
+          "schema": {
+            "description": "The schema as it is now.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Schema"
+              }
+            ]
+          }
+        },
+        "required": ["statusCode", "message", "errors", "schema"],
         "additionalProperties": false
       },
       "SchemaError": {
@@ -816,6 +1617,165 @@
         "required": ["path", "message"],
         "additionalProperties": false
       },
+      "SetValuesRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schema file path."
+          },
+          "fingerprint": {
+            "nullable": true,
+            "description": "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
+            "type": "string"
+          },
+          "values": {
+            "description": "The values to set, by key, as a person would type them.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "generate": {
+            "description": "Secret string variables to set to a new random value, never returned.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          },
+          "replaceProtected": {
+            "description": "The protected keys the edit may replace or remove; any other protected change is refused.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          }
+        },
+        "required": ["file", "fingerprint"],
+        "additionalProperties": false
+      },
+      "StaleFile": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [409]
+          },
+          "message": {
+            "type": "string"
+          },
+          "file": {
+            "description": "The file as it is now.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FileInfo"
+              }
+            ]
+          }
+        },
+        "required": ["statusCode", "message", "file"],
+        "additionalProperties": false
+      },
+      "StaleSchema": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [409]
+          },
+          "message": {
+            "type": "string"
+          },
+          "schema": {
+            "description": "The schema as it is now.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Schema"
+              }
+            ]
+          }
+        },
+        "required": ["statusCode", "message", "schema"],
+        "additionalProperties": false
+      },
+      "UnsetValuesRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schema file path."
+          },
+          "fingerprint": {
+            "nullable": true,
+            "description": "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
+            "type": "string"
+          },
+          "keys": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          },
+          "replaceProtected": {
+            "description": "The protected keys the edit may replace or remove; any other protected change is refused.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
+          }
+        },
+        "required": ["file", "fingerprint", "keys"],
+        "additionalProperties": false
+      },
+      "UpdateFileRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "changes": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Fields to set; null removes one; `path` renames the file."
+          }
+        },
+        "required": ["fingerprint", "path", "changes"],
+        "additionalProperties": false
+      },
+      "UpdateVariableRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema's fingerprint the edit is based on, from GET /api/schema. A schema that changed since is not written (409)."
+          },
+          "changes": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Fields to set; null removes one. A new `type` drops the options it does not take."
+          }
+        },
+        "required": ["fingerprint", "changes"],
+        "additionalProperties": false
+      },
       "Validate": {
         "type": "object",
         "properties": {
@@ -830,6 +1790,66 @@
           }
         },
         "required": ["ok", "files"],
+        "additionalProperties": false
+      },
+      "ValuesEdit": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "nullable": true,
+            "description": "The file's fingerprint after the edit.",
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["updated", "added", "unchanged", "removed", "absent"]
+                }
+              },
+              "required": ["key", "status"],
+              "additionalProperties": false
+            }
+          },
+          "replaced": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The protected keys replaced."
+          },
+          "generated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The keys set to a generated value."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What went wrong after the file was written: the protected state or the history not recorded."
+          }
+        },
+        "required": [
+          "file",
+          "fingerprint",
+          "keys",
+          "replaced",
+          "generated",
+          "warnings"
+        ],
         "additionalProperties": false
       },
       "Variable": {
