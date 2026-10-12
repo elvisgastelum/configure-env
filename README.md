@@ -685,7 +685,7 @@ The endpoints that need a valid schema answer 422 with its errors otherwise. Che
 
 The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
-CI runs lint, format:check, typecheck, schema:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. A third job builds the design system's Storybook and runs `pnpm test:storybook`.
+CI runs lint, format:check, typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. A third job builds the design system's Storybook and runs `pnpm test:storybook`.
 
 `dist/` is built, never committed; packing and publishing build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/` (with the state database's migrations in `dist/migrations`), `schema/`, this README, the license and the changelog, and no tests or fixtures. `@configure-env/core` is private and never published: the build inlines it, so the published package depends only on zod, @clack/prompts, better-sqlite3 and drizzle-orm, and `pnpm smoke` fails if the tarball names a workspace package.
 
