@@ -64,5 +64,71 @@
       "title": "Open the launch link again",
       "description": "This tab has no session with the configure-env server. Open the launch URL it printed in your terminal."
     }
+  },
+  "overview": {
+    "eyebrow": "Overview",
+    "lead": "The env health of {{name}}: its variables, its files and how they match the schema.",
+    "leadLoading": "The env health of this project.",
+    "loading": "Loading the overview",
+    "stats": {
+      "label": "Counts",
+      "variables": "Variables",
+      "secrets": "Secrets",
+      "required": "Required",
+      "groups": "Groups"
+    },
+    "files": {
+      "title": "Env files",
+      "empty": "The schema lists no files yet.",
+      "template": "Template",
+      "mode": "Mode",
+      "modeMismatch": "{{actual}}, expects {{expected}}",
+      "details": "Details",
+      "missingKeys": "Missing keys",
+      "unknownKeys": "Keys the schema does not list",
+      "parseErrors": "Lines that do not parse",
+      "line": "Line {{line}}: {{message}}",
+      "refused": "Refused: {{message}}",
+      "nothing": "Nothing to report.",
+      "policy": "Policy",
+      "drift": "Drift"
+    },
+    "drift": {
+      "current": "Current",
+      "missing": "Not created",
+      "differs": "Differs",
+      "missing-keys": "Missing keys",
+      "refused": "Refused"
+    },
+    "health": {
+      "title": "Health",
+      "check": "Check",
+      "checkHint": "Do the env files match what the schema would write?",
+      "validate": "Validate",
+      "validateHint": "Do the values follow their rules?",
+      "passing": "Passing",
+      "issues_one": "{{count}} issue",
+      "issues_other": "{{count}} issues",
+      "errors_one": "{{count}} error",
+      "errors_other": "{{count}} errors",
+      "runCheck": "Run check",
+      "runValidate": "Run validate",
+      "report": "Open the report",
+      "failed": "Could not run: {{message}}"
+    },
+    "noSchema": {
+      "title": "No schema yet",
+      "description": "This project has no {{path}}. Create one with init: it reads your existing env files and writes a schema to start from.",
+      "command": "Terminal",
+      "copy": "Copy the command",
+      "copied": "Copied",
+      "docs": "How init works"
+    },
+    "invalidSchema": {
+      "title": "The schema has errors",
+      "description": "{{path}} is not a valid schema, so the variables and files cannot be read. Fix these first:",
+      "open": "Open the schema"
+    },
+    "error": "The overview could not load: {{message}}"
   }
 }
