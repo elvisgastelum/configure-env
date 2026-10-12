@@ -28,7 +28,7 @@
     "./dist/cli.js"
   ],
   "bin": {
-    "configure-env": "./dist/cli.js"
+    "configure-env": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -61,7 +61,7 @@
     "test": "vitest run",
     "schema:generate": "tsx scripts/generate-json-schema.ts",
     "schema:check": "tsx scripts/generate-json-schema.ts --check",
-    "build": "node scripts/pack-docs.mjs remove && tsdown --config-loader native && node scripts/copy-migrations.mjs",
+    "build": "node scripts/pack-docs.mjs remove && tsdown --config-loader native && node scripts/copy-migrations.mjs && node scripts/copy-web.mjs",
     "prepack": "npm run build && node scripts/pack-docs.mjs copy",
     "postpack": "node scripts/pack-docs.mjs remove",
     "smoke": "bash scripts/pack-smoke.sh",
@@ -70,13 +70,20 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@nestjs/swagger": "12.0.2",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@configure-env/api": "workspace:*",
     "@configure-env/core": "workspace:*",
+    "@configure-env/web": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.5",
     "tsdown": "0.23.1",
