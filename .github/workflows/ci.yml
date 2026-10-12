@@ -1,7 +1,8 @@
-# Lint, format check, typecheck, JSON Schema drift and tests on every pull
-# request and on every push to main. Every step runs a root script, which
-# covers the whole pnpm workspace. Each action is pinned to a full commit
-# SHA (the tag in the comment) so a moved tag cannot change what runs.
+# Lint, format check, typecheck, JSON Schema and API client drift, and
+# tests on every pull request and on every push to main. Every step runs a
+# root script, which covers the whole pnpm workspace. Each action is pinned
+# to a full commit SHA (the tag in the comment) so a moved tag cannot change
+# what runs.
 name: CI
 
 on:
@@ -41,6 +42,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm schema:check
+      # The committed OpenAPI document and generated client match the API.
+      - run: pnpm gen:api:check
       - run: pnpm test
 
   # Packs the package as npm would publish it, installs the tarball into a

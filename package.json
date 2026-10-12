@@ -21,6 +21,8 @@
     "test:storybook": "pnpm --filter @configure-env/design-system test:storybook",
     "schema:generate": "pnpm --filter @elvisgastelum/configure-env schema:generate",
     "schema:check": "pnpm --filter @elvisgastelum/configure-env schema:check",
+    "gen:api": "pnpm --filter @configure-env/api-client gen:api",
+    "gen:api:check": "pnpm --filter @configure-env/api-client gen:api:check",
     "smoke": "pnpm --filter @elvisgastelum/configure-env smoke",
     "link:local": "pnpm --filter @elvisgastelum/configure-env link:local",
     "unlink:local": "pnpm --filter @elvisgastelum/configure-env unlink:local",

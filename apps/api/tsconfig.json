@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Nest's decorators are TypeScript's legacy ones. Every injection names
+    // its token with @Inject, so nothing needs emitDecoratorMetadata, which
+    // tsx (esbuild) cannot emit.
+    "experimentalDecorators": true,
+    // tsx and Vitest run the sources directly; tsc only type-checks them.
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "scripts", "vitest.config.ts", "tsdown.config.js"]
+}
