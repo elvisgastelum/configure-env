@@ -21,3 +21,5 @@ export * from './edit/edit.ts';
 export * from './writer/document.ts';
 export * from './writer/format.ts';
 export * from './writer/store.ts';
+export * from './writer/references.ts';
+export * from './writer/variables.ts';
