@@ -50,8 +50,23 @@ export const variables: Variables = {
         secret: false,
         group: 'Network',
         description: 'Where the API lives.',
+        comment: 'Without a trailing slash.',
+        example: 'https://api.example.com',
+        protocols: ['https'],
       },
-      files: [{ file: '.env', status: 'invalid', error: 'is not a URL' }],
+      files: [
+        {
+          file: '.env',
+          status: 'invalid',
+          value: 'localhost:4000',
+          error: 'is not a URL',
+        },
+        {
+          file: '.env.example',
+          status: 'set',
+          value: 'https://api.example.com',
+        },
+      ],
     },
     {
       name: 'PORT',
@@ -60,18 +75,41 @@ export const variables: Variables = {
         required: false,
         secret: false,
         group: 'Network',
+        description: 'The port the server listens on.',
         default: 3000,
       },
-      files: [{ file: '.env', status: 'set', value: '8080' }],
+      files: [
+        { file: '.env', status: 'set', value: '8080' },
+        { file: '.env.example', status: 'set', value: '3000' },
+        { file: 'config/app.env', status: 'missing' },
+      ],
     },
     {
       name: 'DB_PASSWORD',
-      spec: { type: 'string', required: true, secret: true, group: 'Database' },
-      files: [{ file: '.env', status: 'masked', value: '••••••••' }],
+      spec: {
+        type: 'string',
+        required: true,
+        secret: true,
+        group: 'Database',
+        description: 'The database password.',
+        distinctFrom: 'API_KEY',
+        protected: { reason: 'The database was created with it.' },
+        minLength: 12,
+      },
+      files: [
+        { file: '.env', status: 'masked', value: '••••••••' },
+        { file: '.env.example', status: 'missing' },
+      ],
     },
     {
       name: 'API_KEY',
-      spec: { type: 'string', required: false, secret: true },
+      spec: {
+        type: 'string',
+        required: false,
+        secret: true,
+        description: 'A key for the partner API.',
+        requiredUnless: ['DB_PASSWORD'],
+      },
       files: [{ file: '.env', status: 'missing' }],
     },
     {
@@ -82,8 +120,12 @@ export const variables: Variables = {
         required: false,
         secret: false,
         default: 'info',
+        comment: 'debug logs every request.',
       },
-      files: [{ file: '.env', status: 'set', value: 'debug' }],
+      files: [
+        { file: '.env', status: 'set', value: 'debug' },
+        { file: 'config/app.env', status: 'missing' },
+      ],
     },
   ],
 };
@@ -103,6 +145,7 @@ export const files: Files = {
         unknownKeys: ['EXTRA'],
       },
       parseErrors: [{ line: 6, message: 'not a KEY=value line' }],
+      fingerprint: 'env-1',
     },
     {
       path: '.env.example',
@@ -117,6 +160,7 @@ export const files: Files = {
         unknownKeys: [],
       },
       parseErrors: [],
+      fingerprint: 'example-1',
     },
     {
       path: 'config/app.env',
@@ -131,6 +175,7 @@ export const files: Files = {
         unknownKeys: [],
       },
       parseErrors: [],
+      fingerprint: null,
     },
   ],
 };
@@ -164,3 +209,21 @@ export const passingCheck: Check = {
 };
 
 export const passingValidate: Validate = { ok: true, files: [] };
+
+/** A large schema: `count` string variables, a group per hundred. */
+export function manyVariables(count: number): Variables['variables'] {
+  return Array.from({ length: count }, (_, index) => {
+    const name = `VAR_${String(index).padStart(4, '0')}`;
+    return {
+      name,
+      spec: {
+        type: 'string',
+        required: false,
+        secret: false,
+        group: `Group ${Math.floor(index / 100) + 1}`,
+        description: `Variable number ${index}.`,
+      },
+      files: [{ file: '.env', status: 'set', value: `value-${index}` }],
+    };
+  });
+}
