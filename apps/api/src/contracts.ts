@@ -235,7 +235,7 @@ const fileDrift = named(
   }),
 );
 
-const planError = named(
+export const planError = named(
   'PlanError',
   z.object({
     kind: z.enum(['value', 'file']),
@@ -400,5 +400,131 @@ export const staleFileResponse = named(
     statusCode: z.literal(409),
     message: z.string(),
     file: fileInfo.meta({ description: 'The file as it is now.' }),
+  }),
+);
+
+const planInputs = {
+  values: z.record(variableName, z.string()).optional().meta({
+    description:
+      'Values by key, as `apply --set` takes them; defaults fill the rest. Templates never take them.',
+  }),
+  files: z
+    .array(z.string().min(1))
+    .optional()
+    .meta({ description: 'Only these schema files; every file when absent.' }),
+  prune: z.boolean().optional().meta({
+    description:
+      'Remove the keys a merge or create-only file holds that the schema does not list for it.',
+  }),
+  replaceProtected,
+};
+
+export const planRequest = named('PlanRequest', z.strictObject(planInputs));
+
+export const applyRequest = named(
+  'ApplyRequest',
+  z.strictObject({
+    ...planInputs,
+    fingerprint: z.string().min(1).meta({
+      description:
+        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).',
+    }),
+  }),
+);
+
+const FILE_ACTIONS = ['create', 'update', 'mode', 'unchanged', 'skip'] as const;
+
+const diffLine = named(
+  'DiffLine',
+  z.object({
+    kind: z.enum(['same', 'added', 'removed']),
+    line: z.string().meta({ description: 'The line, secrets masked.' }),
+  }),
+);
+
+const filePlan = named(
+  'FilePlan',
+  z.object({
+    path: z.string(),
+    policy: z.enum(FILE_POLICIES),
+    action: z.enum(FILE_ACTIONS).meta({
+      description: 'mode: the content is current, only the permissions change.',
+    }),
+    reason: z.enum(['exists', 'refused', 'loosens']).optional().meta({
+      description:
+        'Why a file is skipped: create-only and present, an unsafe path, or a mode that would loosen it.',
+    }),
+    error: z.string().optional(),
+    addedKeys: z.array(z.string()),
+    prunedKeys: z.array(z.string()),
+    mode: z
+      .string()
+      .meta({ description: 'The permissions it is written with, like `600`.' }),
+    currentMode: z.string().nullable().meta({
+      description: 'Its permissions now; null when it does not exist.',
+    }),
+    fingerprint: fileFingerprint.meta({
+      description: "The file's fingerprint now; null when it does not exist.",
+    }),
+    diff: z.array(diffLine).meta({
+      description:
+        'From the file now to the file after; empty for a skipped one.',
+    }),
+  }),
+);
+
+const protectedRefusal = named(
+  'ProtectedRefusal',
+  z.object({
+    file: z.string(),
+    key: z.string(),
+    message: z.string(),
+    reason: z.string().optional(),
+  }),
+);
+
+export const planResponse = named(
+  'Plan',
+  z.object({
+    fingerprint: z.string().meta({
+      description: 'Identifies this plan; POST /api/apply names it.',
+    }),
+    ok: z.boolean().meta({
+      description:
+        'Whether it can be applied: no error and no protected refusal.',
+    }),
+    files: z.array(filePlan),
+    errors: z.array(planError),
+    protected: z.array(protectedRefusal).meta({
+      description:
+        'Protected values the plan would change without replaceProtected naming them.',
+    }),
+  }),
+);
+
+export const planConflictResponse = named(
+  'PlanConflict',
+  z.object({
+    statusCode: z.int().meta({ description: '409 or 422.' }),
+    message: z.string(),
+    plan: planResponse.meta({ description: 'The plan as it is now.' }),
+  }),
+);
+
+export const applyResponse = named(
+  'Applied',
+  z.object({
+    ok: z.boolean().meta({ description: 'Every file was written as planned.' }),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        action: z.enum(FILE_ACTIONS),
+        ok: z.boolean(),
+        written: z.boolean(),
+        error: z.string().optional(),
+      }),
+    ),
+    replaced: z.array(z.object({ file: z.string(), key: z.string() })),
+    warnings: z.array(z.string()),
   }),
 );

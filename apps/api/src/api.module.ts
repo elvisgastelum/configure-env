@@ -50,6 +50,7 @@ import {
   validateProject,
 } from './inspect.ts';
 import { type Project, readSchema } from './project.ts';
+import { PlanController } from './plan.controller.ts';
 import { ValuesController } from './values.controller.ts';
 
 export { PROJECT, VERSION } from './http.ts';
@@ -203,7 +204,7 @@ export class ProjectController {
 /** The module for a bound project. */
 export function apiModule(project: Project, version: string) {
   @Module({
-    controllers: [ProjectController, ValuesController],
+    controllers: [ProjectController, ValuesController, PlanController],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },

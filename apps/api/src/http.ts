@@ -77,10 +77,13 @@ export class ApiErrorFilter implements ExceptionFilter {
   }
 }
 
-/** The valid schema, or a 422 with its errors. */
-export async function requireSchema(project: Project): Promise<EnvSchema> {
+/** The valid schema with the fingerprint of its bytes, or a 422 with its errors. */
+export async function requireSchemaRead(
+  project: Project,
+): Promise<{ schema: EnvSchema; fingerprint: string }> {
   const read = await readSchema(project);
-  if (read.schema) return read.schema;
+  if (read.schema && read.fingerprint)
+    return { schema: read.schema, fingerprint: read.fingerprint };
   throw new HttpException(
     {
       statusCode: 422,
@@ -90,3 +93,7 @@ export async function requireSchema(project: Project): Promise<EnvSchema> {
     422,
   );
 }
+
+/** The valid schema, or a 422 with its errors. */
+export const requireSchema = async (project: Project): Promise<EnvSchema> =>
+  (await requireSchemaRead(project)).schema;
