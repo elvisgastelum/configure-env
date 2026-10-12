@@ -92,7 +92,7 @@ describe('the variables table', () => {
     expect(screen.getByText('No variable matches.')).toBeInTheDocument();
   });
 
-  it('filters by type, group, flags, file and status', async () => {
+  it('filters by type and group', async () => {
     const { user } = await openVariables();
 
     await choose(user, 'Type', 'enum');
@@ -104,6 +104,11 @@ describe('the variables table', () => {
     await choose(user, 'Group', 'Ungrouped');
     expect(rowNames()).toEqual(['API_KEY', 'LOG_LEVEL']);
     await choose(user, 'Group', 'Any group');
+    expect(rowNames()).toHaveLength(5);
+  });
+
+  it('filters by the required, secret and protected flags', async () => {
+    const { user } = await openVariables();
 
     await user.click(screen.getByRole('button', { name: 'Secret' }));
     expect(rowNames()).toEqual(['DB_PASSWORD', 'API_KEY']);
@@ -114,6 +119,11 @@ describe('the variables table', () => {
     await user.click(screen.getByRole('button', { name: 'Required' }));
     expect(rowNames()).toEqual(['API_URL', 'DB_PASSWORD']);
     await user.click(screen.getByRole('button', { name: 'Required' }));
+    expect(rowNames()).toHaveLength(5);
+  });
+
+  it('filters by file and status', async () => {
+    const { user } = await openVariables();
 
     await choose(user, 'File', 'config/app.env');
     expect(rowNames()).toEqual(['PORT', 'LOG_LEVEL']);

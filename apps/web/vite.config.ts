@@ -58,6 +58,9 @@ export default defineConfig({
           environment: 'jsdom',
           include: ['src/**/*.test.{ts,tsx}'],
           setupFiles: ['src/test/setup.ts'],
+          // Most tests render the whole app and click through menus and
+          // dialogs, which takes a few seconds on a slow CI runner.
+          testTimeout: 15_000,
         },
       },
       {
