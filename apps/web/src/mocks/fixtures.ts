@@ -227,3 +227,10 @@ export function manyVariables(count: number): Variables['variables'] {
     };
   });
 }
+
+/**
+ * The plain value POST /api/reveal answers for a masked secret: readable
+ * and obviously fake, built from its file and key.
+ */
+export const secretValue = (file: string, key: string) =>
+  `${key.toLowerCase()}-from-${file.replace(/^\./, '')}`;

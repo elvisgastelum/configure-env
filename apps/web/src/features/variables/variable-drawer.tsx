@@ -8,8 +8,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@configure-env/design-system/components/atoms/sheet';
+import { Lock } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isProtected, protectedReason } from './model';
 import { optionsOf, rulesOf } from './spec';
 import { ValueMatrix } from './value-matrix';
 
@@ -114,6 +116,7 @@ function DrawerBody({
       </SheetHeader>
 
       <div className="flex flex-col gap-6 px-4 pb-6">
+        {isProtected(spec) && <ProtectedNote reason={protectedReason(spec)} />}
         <dl
           aria-label={t('variables.drawer.details')}
           className="divide-y text-sm"
@@ -183,5 +186,28 @@ function DrawerBody({
         <ValueMatrix variable={variable} files={files} />
       </div>
     </>
+  );
+}
+
+/** Why a protected variable's value is kept, and how to change it. */
+function ProtectedNote({ reason }: { reason?: string }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="note"
+      className="flex gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+    >
+      <Lock
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+      />
+      <div className="flex flex-col gap-1">
+        <p className="font-medium">{t('variables.protected.title')}</p>
+        {reason && <p>{reason}</p>}
+        <p className="text-muted-foreground">
+          {t('variables.protected.explain')}
+        </p>
+      </div>
+    </div>
   );
 }

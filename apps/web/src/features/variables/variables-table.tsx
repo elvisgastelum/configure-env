@@ -17,7 +17,13 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type Section, isProtected, rowId, statusesOf } from './model';
+import {
+  type Section,
+  isProtected,
+  protectedReason,
+  rowId,
+  statusesOf,
+} from './model';
 import { StatusBadges } from './status-badges';
 
 /** From this many rows on, only the rows in view are rendered. */
@@ -297,6 +303,10 @@ function VariableRow({
   const { t } = useTranslation();
   const { name, spec } = variable;
   const isSelected = selected === name;
+  const reason = protectedReason(spec);
+  const protectedLabel = reason
+    ? t('variables.protected.because', { reason })
+    : t('variables.protected.title');
   return (
     <div
       role="row"
@@ -342,11 +352,13 @@ function VariableRow({
             />
           )}
           {isProtected(spec) && (
-            <Lock
-              role="img"
-              aria-label={t('variables.flags.protected')}
-              className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
-            />
+            <span title={protectedLabel} className="inline-flex">
+              <Lock
+                role="img"
+                aria-label={protectedLabel}
+                className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
+              />
+            </span>
           )}
         </span>
         {spec.description && (

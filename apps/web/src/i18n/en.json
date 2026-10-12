@@ -231,6 +231,16 @@
         "strict": "Strict",
         "allowEmpty": "Allows an empty value"
       }
+    },
+    "secret": {
+      "reveal": "Reveal {{name}} in {{file}}",
+      "hide": "Hide {{name}} in {{file}}",
+      "failed": "Could not reveal: {{message}}"
+    },
+    "protected": {
+      "title": "Protected",
+      "because": "Protected: {{reason}}",
+      "explain": "configure-env keeps this value: an edit changes it only when it replaces it on purpose."
     }
   }
 }

@@ -12,7 +12,7 @@ import { TYPE } from '@configure-env/design-system/recipes';
 import { useTranslation } from 'react-i18next';
 import { statusesOf } from './model';
 import { StatusBadges } from './status-badges';
-import { PlainValue } from './variables-table';
+import { SecretValue } from './secret-value';
 
 /** A variable's value in each env file that lists it. */
 export function ValueMatrix({
@@ -53,7 +53,7 @@ export function ValueMatrix({
               />
             </TableCell>
             <TableCell className="max-w-56">
-              <PlainValue variable={variable} file={value.file} />
+              <SecretValue variable={variable} file={value.file} />
               {value.error && (
                 <span className="block text-xs text-destructive">
                   {value.error}

@@ -69,7 +69,9 @@ describe('the variables table', () => {
       within(row('DB_PASSWORD')).getByText('••••••••'),
     ).toBeInTheDocument();
     expect(
-      within(row('DB_PASSWORD')).getByRole('img', { name: 'Protected' }),
+      within(row('DB_PASSWORD')).getByRole('img', {
+        name: 'Protected: The database was created with it.',
+      }),
     ).toBeInTheDocument();
   });
 

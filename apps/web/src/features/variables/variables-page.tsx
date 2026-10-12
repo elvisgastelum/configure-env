@@ -15,6 +15,7 @@ import {
   hasUngrouped,
   typesOf,
 } from './model';
+import { RevealProvider, SecretValue } from './secret-value';
 import { VariableDrawer } from './variable-drawer';
 import { VariablesTable } from './variables-table';
 import { VariablesToolbar } from './variables-toolbar';
@@ -98,43 +99,50 @@ function VariablesBrowser({ focus }: { focus?: string }) {
   const valueFile = filters.file ?? fileList[0]?.path;
 
   return (
-    <div className="flex flex-col gap-3">
-      <VariablesToolbar
-        filters={filters}
-        onFiltersChange={setFilters}
-        sort={sort}
-        onSortChange={setSort}
-        types={typesOf(list)}
-        groups={groupsOf(list)}
-        hasUngrouped={hasUngrouped(list)}
-        files={fileList.map((file) => file.path)}
-        searchRef={searchRef}
-      />
-      <p className="text-sm text-muted-foreground" aria-live="polite">
-        {shown === list.length
-          ? t('variables.count', { count: list.length })
-          : t('variables.countFiltered', { shown, total: list.length })}
-      </p>
-      <VariablesTable
-        sections={sections}
-        files={fileList}
-        valueFile={valueFile}
-        statusFile={filters.file}
-        selected={selected}
-        onSelect={setSelected}
-        onOpen={open}
-        empty={
-          list.length === 0 ? t('variables.emptySchema') : t('variables.empty')
-        }
-      />
-      <VariableDrawer
-        variable={list.find((variable) => variable.name === opened)}
-        files={fileList}
-        known={known}
-        onNavigate={open}
-        onClose={() => setOpened(undefined)}
-      />
-    </div>
+    <RevealProvider>
+      <div className="flex flex-col gap-3">
+        <VariablesToolbar
+          filters={filters}
+          onFiltersChange={setFilters}
+          sort={sort}
+          onSortChange={setSort}
+          types={typesOf(list)}
+          groups={groupsOf(list)}
+          hasUngrouped={hasUngrouped(list)}
+          files={fileList.map((file) => file.path)}
+          searchRef={searchRef}
+        />
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {shown === list.length
+            ? t('variables.count', { count: list.length })
+            : t('variables.countFiltered', { shown, total: list.length })}
+        </p>
+        <VariablesTable
+          sections={sections}
+          files={fileList}
+          valueFile={valueFile}
+          statusFile={filters.file}
+          selected={selected}
+          onSelect={setSelected}
+          onOpen={open}
+          renderValue={(variable, file) => (
+            <SecretValue variable={variable} file={file} />
+          )}
+          empty={
+            list.length === 0
+              ? t('variables.emptySchema')
+              : t('variables.empty')
+          }
+        />
+        <VariableDrawer
+          variable={list.find((variable) => variable.name === opened)}
+          files={fileList}
+          known={known}
+          onNavigate={open}
+          onClose={() => setOpened(undefined)}
+        />
+      </div>
+    </RevealProvider>
   );
 }
 

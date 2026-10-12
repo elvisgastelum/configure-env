@@ -15,6 +15,28 @@ export const handlers = [
   http.get('/api/files', () => json(fixtures.files)),
   http.get('/api/check', () => json(fixtures.check)),
   http.get('/api/validate', () => json(fixtures.validate)),
+  http.post('/api/reveal', async ({ request }) => {
+    const { file, key } = (await request.json()) as {
+      file: string;
+      key: string;
+    };
+    const variable = fixtures.variables.variables.find(
+      (entry) => entry.name === key,
+    );
+    const value = variable?.files.find((entry) => entry.file === file);
+    if (!variable || !value)
+      return HttpResponse.json(
+        { statusCode: 404, message: `${key} is not in ${file}` },
+        { status: 404 },
+      );
+    const plain =
+      value.value === undefined
+        ? null
+        : variable.spec.secret
+          ? fixtures.secretValue(file, key)
+          : value.value;
+    return json({ file, key, value: plain });
+  }),
 ];
 
 const schemaNeeded = () =>
