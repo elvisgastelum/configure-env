@@ -19,6 +19,8 @@
     "storybook": "pnpm --filter @configure-env/design-system storybook",
     "build-storybook": "pnpm --filter @configure-env/design-system build-storybook",
     "test:storybook": "pnpm --filter @configure-env/design-system test:storybook",
+    "storybook:web": "pnpm --filter @configure-env/web storybook",
+    "build-storybook:web": "pnpm --filter @configure-env/web build-storybook",
     "schema:generate": "pnpm --filter @elvisgastelum/configure-env schema:generate",
     "schema:check": "pnpm --filter @elvisgastelum/configure-env schema:check",
     "gen:api": "pnpm --filter @configure-env/api-client gen:api",

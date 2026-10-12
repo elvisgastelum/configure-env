@@ -1,0 +1,7 @@
+/*
+ * The portal's stylesheet: Tailwind and the design system's theme (its
+ * `@source` generates the utilities the package's components use; Tailwind
+ * finds the portal's own classes on its own).
+ */
+@import 'tailwindcss';
+@import '@configure-env/design-system/theme.css';

@@ -1,5 +1,5 @@
-# Libraries and the published CLI live in packages/; the local API (and the
-# planned web portal) live in apps/.
+# Libraries and the published CLI live in packages/; the local API and the
+# web portal live in apps/.
 packages:
   - apps/*
   - packages/*
@@ -15,3 +15,6 @@ allowBuilds:
   esbuild: false
   # Usage telemetry pulled in by @nestjs/swagger's swagger-ui-dist; never run.
   '@scarf/scarf': false
+  # msw's postinstall only refreshes a mockServiceWorker.js listed in a
+  # package.json; the portal commits its worker (apps/web/.storybook/public).
+  msw: false
