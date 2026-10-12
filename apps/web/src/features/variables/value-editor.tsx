@@ -16,9 +16,11 @@ import { Switch } from '@configure-env/design-system/components/atoms/switch';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isProtected } from './model';
+import { ConflictDialog } from './conflict-dialog';
 import {
   type EditRequest,
   refusalMessages,
+  staleFile,
   useDraftProblems,
   useValueEdit,
 } from './use-value-edits';
@@ -147,12 +149,13 @@ export function ValueEditor({
   const changed = draft !== initial;
   const problems = useDraftProblems(file, name, draft, changed);
   const refused = refusalMessages(edit.error);
+  const stale = staleFile(edit.error);
   const needsReplace = isProtected(spec) && entry?.value !== undefined;
   const label = t('variables.edit.label', { name, file });
 
   const messages = [
     ...(problems ?? []),
-    ...(edit.isError && !edit.isPending
+    ...(edit.isError && !edit.isPending && !stale
       ? refused.length
         ? refused.map((problem) =>
             problem.reason
@@ -170,13 +173,15 @@ export function ValueEditor({
     (!needsReplace || replace) &&
     !(spec.secret && draft === '');
 
-  const save = () => {
+  /** Saves the draft, on top of `fingerprint` when given. */
+  const save = (fingerprint?: string | null) => {
     const request: EditRequest = {
       kind: 'set',
       file,
       key: name,
       value: draft,
       ...(needsReplace ? { replaceProtected: true } : {}),
+      ...(fingerprint !== undefined ? { fingerprint } : {}),
     };
     edit.mutate(request, {
       onSuccess: () => {
@@ -194,6 +199,18 @@ export function ValueEditor({
         if (canSave) save();
       }}
     >
+      <ConflictDialog
+        open={stale !== undefined}
+        name={name}
+        file={file}
+        draft={draft}
+        secret={spec.secret}
+        onKeep={() => {
+          edit.reset();
+          onDone();
+        }}
+        onOverwrite={() => save(stale?.file.fingerprint ?? null)}
+      />
       <ValueControl
         variable={variable}
         label={label}

@@ -16,11 +16,12 @@ import { CopyMenu } from './copy-menu';
 import { statusesOf } from './model';
 import { SecretValue } from './secret-value';
 import { StatusBadges } from './status-badges';
+import { ValueActions } from './value-actions';
 import { ValueEditor } from './value-editor';
 
 /**
  * A variable's value in each env file that lists it, with the actions on
- * each: copy and edit in place.
+ * each: edit in place, generate or unset, and copy.
  */
 export function ValueMatrix({
   variable,
@@ -111,6 +112,7 @@ export function ValueMatrix({
                       <Pencil aria-hidden="true" />
                     </Button>
                   )}
+                  <ValueActions variable={variable} file={value.file} />
                   <CopyMenu
                     variable={variable}
                     file={value.file}

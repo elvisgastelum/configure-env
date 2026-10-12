@@ -4,7 +4,10 @@
 
 import {
   type EditRefused,
+  type FileValue,
   type Files,
+  type StaleFile,
+  type Variables,
   type ValuesEdit,
   planChanges,
   setValues,
@@ -74,10 +77,51 @@ export async function refreshAfterEdit(queryClient: QueryClient) {
   );
 }
 
-/** Writes values; every read it can change is fetched again after. */
+const MASK = '••••••••';
+
+/** `variables` as they will be once `edit` is written, to show it at once. */
+export function applyEdit(variables: Variables, edit: ValueEdit): Variables {
+  return {
+    variables: variables.variables.map((variable) => {
+      if (variable.name !== edit.key) return variable;
+      const masked = variable.spec.secret;
+      return {
+        ...variable,
+        files: variable.files.map((value): FileValue => {
+          if (value.file !== edit.file) return value;
+          switch (edit.kind) {
+            case 'set':
+              return {
+                file: value.file,
+                status: masked ? 'masked' : 'set',
+                value: masked ? MASK : edit.value,
+              };
+            case 'generate':
+              return { file: value.file, status: 'masked', value: MASK };
+            case 'unset':
+              return { file: value.file, status: 'missing' };
+          }
+        }),
+      };
+    }),
+  };
+}
+
+/** The 409 of a write: the file changed since the portal read it. */
+export function staleFile(error: unknown): StaleFile | undefined {
+  if (!(error instanceof ApiRequestError) || error.status !== 409) return;
+  return error.body as StaleFile;
+}
+
+/**
+ * Writes one value. The table and the drawer show the new value at once
+ * and get the old one back if the write fails; every read the write can
+ * change is fetched again after.
+ */
 export function useValueEdit() {
   const queryClient = useQueryClient();
-  return useMutation<ValuesEdit, Error, EditRequest>({
+  const { queryKey } = variablesQuery;
+  return useMutation<ValuesEdit, Error, EditRequest, { before?: Variables }>({
     mutationFn: (request) =>
       send(
         request,
@@ -85,6 +129,16 @@ export function useValueEdit() {
           ? request.fingerprint
           : knownFingerprint(queryClient, request.file),
       ),
+    onMutate: async (request) => {
+      await queryClient.cancelQueries({ queryKey });
+      const before = queryClient.getQueryData<Variables>(queryKey);
+      if (before)
+        queryClient.setQueryData(queryKey, applyEdit(before, request));
+      return { before };
+    },
+    onError: (_error, _request, context) => {
+      if (context?.before) queryClient.setQueryData(queryKey, context.before);
+    },
     onSettled: () => refreshAfterEdit(queryClient),
   });
 }

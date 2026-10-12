@@ -274,6 +274,34 @@
       "problem": "{{name}} {{message}}",
       "increment": "Increase",
       "decrement": "Decrease"
+    },
+    "conflict": {
+      "title": "{{file}} changed since you opened it",
+      "description": "Something else wrote the file after the portal read it, so your value of {{name}} was not saved.",
+      "now": "Now",
+      "yours": "Yours",
+      "keep": "Keep the file as is",
+      "overwrite": "Save yours on top"
+    },
+    "actions": {
+      "more": "More actions for {{name}} in {{file}}",
+      "protected": "{{name}} is protected; this replaces its value on purpose.",
+      "generate": {
+        "item": "Generate a new value",
+        "confirmTitle": "Generate a new {{name}} in {{file}}?",
+        "confirmBody": "A new random value replaces the one {{file}} has. Nobody sees it; reveal it to read it.",
+        "confirm": "Generate",
+        "done": "Generated a new value for {{name}} in {{file}}",
+        "failed": "Could not generate {{name}}: {{message}}"
+      },
+      "unset": {
+        "item": "Unset",
+        "confirmTitle": "Unset {{name}} in {{file}}?",
+        "confirmBody": "The line of {{name}} is removed from {{file}}.",
+        "confirm": "Unset",
+        "done": "Unset {{name}} in {{file}}",
+        "failed": "Could not unset {{name}}: {{message}}"
+      }
     }
   }
 }
