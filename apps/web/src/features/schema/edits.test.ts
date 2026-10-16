@@ -3,7 +3,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import { describe, expect, it } from 'vitest';
 import { schemaDocument, typedSchemaVariables } from '../../mocks/fixtures';
 import { mockState } from '../../mocks/store';
-import { server } from '../../test/server';
+import { recordRequests } from '../../test/requests';
 import {
   previewEdit,
   refusedErrors,
@@ -12,16 +12,7 @@ import {
   validDocument,
 } from './edits';
 
-/** Every request sent under /api/schema, as `METHOD path body`. */
-function recordWrites() {
-  const writes: unknown[] = [];
-  server.events.on('request:start', async ({ request }) => {
-    const path = new URL(request.url).pathname;
-    if (path.startsWith('/api/schema/'))
-      writes.push([request.method, path, await request.clone().json()]);
-  });
-  return writes;
-}
+const recordWrites = () => recordRequests('/api/schema/');
 
 describe('the sample schema', () => {
   it('is valid, with and without the extra typed variables', () => {

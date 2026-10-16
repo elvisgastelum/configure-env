@@ -310,5 +310,98 @@
       "copy": "copy",
       "edit": "edit"
     }
+  },
+  "schemaEditor": {
+    "lead": "Add, change, reorder and remove the variables and files of {{path}}. Each edit is shown as a diff first, and the API checks the whole schema before it writes anything.",
+    "error": "The schema could not be loaded: {{message}}",
+    "loading": "Loading the schema",
+    "tabs": {
+      "label": "Schema sections",
+      "variables": "Variables",
+      "files": "Files"
+    },
+    "variables": {
+      "label": "Variables in schema order",
+      "count_one": "{{count}} variable",
+      "count_other": "{{count}} variables",
+      "empty": "The schema declares no variables yet.",
+      "add": "Add variable",
+      "edit": "Edit {{name}}",
+      "remove": "Remove {{name}}",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "drag": "Drag {{name}} to reorder it",
+      "orderChanged": "The order changed. Review it to save it.",
+      "reviewOrder": "Review order",
+      "resetOrder": "Reset",
+      "required": "required",
+      "secret": "secret",
+      "protected": "protected"
+    },
+    "files": {
+      "label": "Files the schema manages",
+      "empty": "The schema lists no files yet.",
+      "add": "Add file",
+      "edit": "Edit {{path}}",
+      "remove": "Remove {{path}}",
+      "every": "every variable",
+      "some_one": "{{count}} variable",
+      "some_other": "{{count}} variables",
+      "template": "template",
+      "mode": "mode {{mode}}"
+    },
+    "remove": {
+      "variableTitle": "Remove {{name}}?",
+      "fileTitle": "Remove {{path}}?",
+      "noReferences": "Nothing else in the schema names {{name}}.",
+      "references_one": "{{count}} place names {{name}}. That reference is removed with it, so nothing is left pointing at a variable that no longer exists:",
+      "references_other": "{{count}} places name {{name}}. Those references are removed with it, so nothing is left pointing at a variable that no longer exists:",
+      "fileKeeps": "The env file itself stays on disk; configure-env stops managing it.",
+      "orphans_one": "This variable is in no other file, so no file will hold it:",
+      "orphans_other": "These variables are in no other file, so no file will hold them:",
+      "noOrphans": "Every variable it holds is in another file too.",
+      "referencesLabel": "References to {{name}}",
+      "orphansLabel": "Variables left in no file",
+      "cancel": "Cancel",
+      "review": "Review removal",
+      "reference": {
+        "rule": "{{variable}} · {{field}}",
+        "file": "{{file}} · variables",
+        "values": "{{file}} · values",
+        "comments": "{{file}} · comments"
+      }
+    },
+    "review": {
+      "description": "The change to {{path}}, as the API will check it. Nothing is written until you save.",
+      "tabs": "Review views",
+      "changes": "Changes",
+      "raw": "Raw JSON",
+      "diff": "Changes to {{path}}",
+      "before": "Now",
+      "after": "After saving",
+      "unchanged_one": "{{count}} unchanged line",
+      "unchanged_other": "{{count}} unchanged lines",
+      "noChanges": "This edit changes nothing.",
+      "invalid": "The edit would make the schema invalid, so it cannot be saved:",
+      "stale": "{{path}} changed since you opened it. The diff now shows your edit on top of the schema as it is now; review it again before saving.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "saved": "Saved {{path}}",
+      "refused": "The API refused the edit; nothing was written. The form shows why.",
+      "failed": "The edit was not saved: {{message}}",
+      "copy": "Copy the JSON",
+      "copied": "Copied the JSON"
+    },
+    "titles": {
+      "addVariable": "Add {{name}}",
+      "updateVariable": "Change {{name}}",
+      "renameVariable": "Rename {{name}} to {{to}}",
+      "removeVariable": "Remove {{name}}",
+      "reorderVariables": "Reorder the variables",
+      "addFile": "Add {{path}}",
+      "updateFile": "Change {{path}}",
+      "removeFile": "Remove {{path}}"
+    }
   }
 }
