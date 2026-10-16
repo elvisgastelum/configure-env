@@ -2,7 +2,7 @@
 // Error messages describe the rule, never the value, so a secret cannot leak
 // through them.
 
-import { isIP, isIPv4 } from 'node:net';
+import { isIP, isIPv4 } from './net.ts';
 import { z } from 'zod';
 import {
   type Encoding,

@@ -1,17 +1,22 @@
-// The sample project as the msw handlers keep it: value writes change it,
-// so a refetch after an edit shows the edit, as the real API would. Tests
-// reset it after each test; stories before each story.
+// The sample project as the msw handlers keep it: value and schema writes
+// change it, so a refetch after an edit shows the edit, as the real API
+// would. Tests reset it after each test; stories before each story.
 
 import type {
   EditProblem,
   Files,
   PlanError,
+  Schema,
   VariableSpec,
   Variables,
 } from '@configure-env/api-client';
 import * as fixtures from './fixtures';
 
 export interface MockState {
+  /** env.schema.json, which the schema writes change. */
+  schema: Schema;
+  /** How many writes changed the schema, for its next fingerprint. */
+  schemaWrites: number;
   variables: Variables;
   files: Files;
   /** Plain secret values by `file:key`, as a reveal answers them. */
@@ -21,6 +26,8 @@ export interface MockState {
 }
 
 const fresh = (): MockState => ({
+  schema: structuredClone(fixtures.schema),
+  schemaWrites: 0,
   variables: structuredClone(fixtures.variables),
   files: structuredClone(fixtures.files),
   secrets: new Map(),
@@ -189,4 +196,17 @@ export function touchFile(file: string): string | null {
   info.fingerprint = `${file}-${mockState.writes + 1}`;
   info.exists = true;
   return info.fingerprint;
+}
+
+/** The schema after a write: its new document and fingerprint. */
+export function writeSchema(document: unknown): Schema {
+  mockState.schemaWrites += 1;
+  mockState.schema = {
+    ...mockState.schema,
+    valid: true,
+    document: structuredClone(document),
+    errors: [],
+    fingerprint: `schema-${mockState.schemaWrites + 1}`,
+  };
+  return mockState.schema;
 }

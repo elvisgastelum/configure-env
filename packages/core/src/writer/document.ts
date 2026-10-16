@@ -8,7 +8,7 @@ import {
   type fileSpec,
   type variableSpec,
 } from '../schema/definition.ts';
-import { type SchemaError, parseSchema } from '../schema/load.ts';
+import { type SchemaError, parseSchema } from '../schema/parse.ts';
 
 /** `env.schema.json` as written: optional fields may be absent. */
 export type SchemaDocument = z.input<typeof envSchema>;

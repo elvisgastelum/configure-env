@@ -2,7 +2,7 @@
 // types, and the network math the `within` rule needs. Error messages
 // describe the rule, never the value.
 
-import { isIPv4, isIPv6 } from 'node:net';
+import { isIPv4, isIPv6 } from './net.ts';
 
 /** The address families a cidr variable can require. */
 export const CIDR_FAMILIES = ['ipv4', 'ipv6', 'any'] as const;

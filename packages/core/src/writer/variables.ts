@@ -8,7 +8,7 @@ import {
   type VariableType,
   variableSpec,
 } from '../schema/definition.ts';
-import type { SchemaError } from '../schema/load.ts';
+import type { SchemaError } from '../schema/parse.ts';
 import {
   type SchemaDocument,
   type SchemaEditResult,

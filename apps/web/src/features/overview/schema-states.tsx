@@ -57,8 +57,17 @@ export function NoSchema({ schema }: { schema: Schema }) {
   );
 }
 
-/** The schema exists but is not valid: its errors, with their paths. */
-export function InvalidSchema({ schema }: { schema: Schema }) {
+/**
+ * The schema exists but is not valid: its errors, with their paths, and a
+ * link to the schema page unless `link` is false (on that page).
+ */
+export function InvalidSchema({
+  schema,
+  link = true,
+}: {
+  schema: Schema;
+  link?: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <Card className="px-4">
@@ -88,13 +97,15 @@ export function InvalidSchema({ schema }: { schema: Schema }) {
           </li>
         ))}
       </ul>
-      <Link
-        to="/schema"
-        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-      >
-        {t('overview.invalidSchema.open')}
-        <ArrowRight aria-hidden="true" data-icon="inline-end" />
-      </Link>
+      {link && (
+        <Link
+          to="/schema"
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+        >
+          {t('overview.invalidSchema.open')}
+          <ArrowRight aria-hidden="true" data-icon="inline-end" />
+        </Link>
+      )}
     </Card>
   );
 }

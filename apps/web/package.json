@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "@configure-env/api-client": "workspace:*",
+    "@configure-env/core": "workspace:*",
     "@configure-env/design-system": "workspace:*",
+    "@hookform/resolvers": "5.9.1",
     "@tanstack/react-query": "5.104.1",
     "@tanstack/react-router": "1.170.42",
     "@tanstack/react-virtual": "3.14.13",
@@ -29,7 +31,9 @@
     "motion": "14.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-i18next": "17.0.16"
+    "react-hook-form": "7.89.0",
+    "react-i18next": "17.0.16",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@configure-env/api": "workspace:*",

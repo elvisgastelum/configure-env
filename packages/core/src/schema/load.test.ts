@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   formatIssuePath,
   loadSchema,
@@ -719,6 +719,111 @@ describe('parseSchemaText', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors[0]).toMatchObject({ line: 2, column: 15 });
+  });
+
+  // Firefox names a line and column, Safari names no position at all; the
+  // portal runs this in every browser, so the position must not come from
+  // the engine's wording.
+  it.each([
+    [
+      'Firefox',
+      'JSON.parse: expected double-quoted property name at line 9 column 1 of the JSON data',
+    ],
+    ['Safari', 'JSON Parse error: Expected a property name'],
+    ['V8 with a wrong offset', 'Unexpected token , in JSON at position 0'],
+  ])('finds the position itself when the engine is %s', (_engine, message) => {
+    const parse = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+      throw new SyntaxError(message);
+    });
+    try {
+      const result = parseSchemaText(
+        '{\n  "version": 1,\n  "variables": {,\n}',
+      );
+      expect(result).toEqual({
+        ok: false,
+        errors: [
+          {
+            path: '(root)',
+            line: 3,
+            column: 17,
+            message: "invalid JSON at line 3, column 17: unexpected ','",
+          },
+        ],
+      });
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('finds an error wherever JSON.parse does, for every one-character cut', () => {
+    const text = JSON.stringify(
+      { a: [1, -2.5e3, true, null, { b: 'x\\"é' }], c: {} },
+      null,
+      1,
+    );
+    for (let at = 0; at < text.length; at++) {
+      const cut = text.slice(0, at) + text.slice(at + 1);
+      let valid = true;
+      try {
+        JSON.parse(cut);
+      } catch {
+        valid = false;
+      }
+      const result = parseSchemaText(cut);
+      const syntax =
+        !result.ok && result.errors[0]?.message.startsWith('invalid JSON');
+      expect(syntax, cut).toBe(!valid);
+      if (syntax && !result.ok)
+        expect(result.errors[0]?.message, cut).not.toContain('not valid JSON');
+    }
+  });
+
+  it.each([
+    ['arrays', '['.repeat(100_000), 100_000],
+    ['objects', '{"a":'.repeat(100_000), 500_000],
+  ])(
+    'finds the error in %s nested 100k deep without overflowing',
+    (_kind, open, offset) => {
+      const result = parseSchemaText(`${open}x`);
+      expect(result).toEqual({
+        ok: false,
+        errors: [
+          {
+            path: '(root)',
+            line: 1,
+            column: offset + 1,
+            message: `invalid JSON at line 1, column ${offset + 1}: unexpected 'x'`,
+          },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    ['{"a": 1,}', 1, 9, "unexpected '}'"],
+    ['{"a" 1}', 1, 6, "unexpected '1'"],
+    ['[1 2]', 1, 4, "unexpected '2'"],
+    ['{"a": tru}', 1, 7, "unexpected 't'"],
+    ['{"a": "x\\q"}', 1, 9, 'invalid escape in a string'],
+    ['{"a": "x\ny"}', 1, 9, 'line break or control character in a string'],
+    ['{"a": "x', 1, 9, 'unexpected end of the text'],
+    ['{"a": -}', 1, 8, "unexpected '}'"],
+    ['{"a": 01}', 1, 8, "unexpected '1'"],
+    ['{} x', 1, 4, "unexpected 'x'"],
+    ['', 1, 1, 'unexpected end of the text'],
+  ])('reports %j at line %i, column %i', (text, line, column, reason) => {
+    const result = parseSchemaText(text);
+    expect(result).toEqual({
+      ok: false,
+      errors: [
+        {
+          path: '(root)',
+          line,
+          column,
+          message: `invalid JSON at line ${line}, column ${column}: ${reason}`,
+        },
+      ],
+    });
   });
 });
 

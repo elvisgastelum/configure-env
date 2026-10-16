@@ -3,6 +3,7 @@ import {
   applyThemePreference,
   forgetSessionThemePreference,
 } from '@configure-env/design-system/theme';
+import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
@@ -22,6 +23,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  // Sonner keeps its toasts in a module and replays them to the next
+  // Toaster; a test sees only its own.
+  toast.dismiss();
 });
 
 // jsdom has no IntersectionObserver: this stand-in reports every element in

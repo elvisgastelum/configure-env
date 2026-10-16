@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { PlaceholderPage } from '../components/placeholder-page';
+import { SchemaPage } from '../features/schema/schema-page';
 
 export const Route = createFileRoute('/schema')({
-  component: () => <PlaceholderPage page="schema" />,
+  component: SchemaPage,
 });

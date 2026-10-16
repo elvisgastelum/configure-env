@@ -56,6 +56,9 @@ export const projectQuery = queryOptions({
 export const schemaQuery = queryOptions({
   queryKey: getGetSchemaQueryKey(),
   queryFn: ({ signal }) => unwrap(getSchema({ signal })),
+  // Structural sharing keeps an old object when only its key order changed,
+  // and the order of `variables` is the schema's declaration order.
+  structuralSharing: false,
 });
 
 export const variablesQuery = queryOptions({
