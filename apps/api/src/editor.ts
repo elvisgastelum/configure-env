@@ -1,9 +1,10 @@
 // Opening a project file in the user's editor at a line: which files may be
 // opened (the schema file and its env files, inside the root, never through
 // a symlink), where the line is (the dotenv parser for an env file, a JSON
-// source map for the schema), and the launcher, launch-editor behind a seam
-// the tests replace, so no test ever starts an editor.
+// source map for the schema), and the launcher, launch-editor's editor guess
+// behind a seam the tests replace, so no test ever starts an editor.
 
+import { type ChildProcess, exec, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isIPv4 } from 'node:net';
 import {
@@ -15,7 +16,9 @@ import {
   parseDotenv,
   resolveTarget,
 } from '@configure-env/core';
-import launchEditor from 'launch-editor';
+import constructWindowsLaunchCommand from 'launch-editor/construct-windows-launch-command.js';
+import getArgumentsForFile from 'launch-editor/get-args.js';
+import guessEditor from 'launch-editor/guess.js';
 import type { z } from 'zod';
 import type { openInEditorRequest, openInEditorResponse } from './contracts.ts';
 import { ApiError } from './http.ts';
@@ -41,72 +44,110 @@ export const NO_EDITOR_MESSAGE =
 const SETTLE_MS = 300;
 
 /**
- * The editor command to pass to launch-editor, by precedence: none when
- * $LAUNCH_EDITOR is set (launch-editor reads it itself, as one command),
- * else $VISUAL, else $EDITOR; none lets launch-editor detect a running
- * VS Code, Cursor, Zed or JetBrains IDE.
+ * The editor command to pass to launch-editor's guess, by precedence: none
+ * when $LAUNCH_EDITOR is set (the guess reads it itself, as one command),
+ * else $VISUAL, else $EDITOR; none lets it detect a running VS Code,
+ * Cursor, Zed or JetBrains IDE.
  */
 export function editorCommand(env: NodeJS.ProcessEnv): string | undefined {
   if (env.LAUNCH_EDITOR) return undefined;
   return env.VISUAL || env.EDITOR || undefined;
 }
 
-// cmd.exe expands these even inside quotes; launch-editor runs through it on
-// Windows, so a file name holding one is not passed.
+// cmd.exe expands these even inside quotes, and the command runs through it
+// on Windows, so a file name holding one is not passed.
 const UNSAFE_ON_WINDOWS = /[%!"^\r\n]/;
 
+type Pipe = NodeJS.ReadableStream & { unref?: () => void };
+
 /**
- * The launcher of `configure-env serve`: launch-editor, which spawns the
- * editor with the file as an argument (no shell, but on Windows). A launch
- * that fails within a moment (no editor found, a command that does not
- * exist) answers why; after that, it counts as opened.
+ * The launcher of `configure-env serve`: launch-editor's own editor guess
+ * and arguments, spawned here rather than by its launchEditor, which prints
+ * its errors on stdout, where `serve --json` prints one line. The editor
+ * runs without a shell (cmd.exe on Windows, with launch-editor's escaping),
+ * and whatever it prints goes to `log`, stderr by default. A launch that
+ * fails within a moment (no editor found, a command that does not exist or
+ * exits with an error) answers why; after that, it counts as opened, and a
+ * later failure is only logged.
  */
 export function createLauncher(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  log: NodeJS.WritableStream = process.stderr,
 ): EditorLauncher {
+  const failed = (message: string): LaunchResult => ({
+    opened: false,
+    reason: 'failed',
+    message: `the editor could not open the file: ${message}`,
+  });
   return ({ file, line, column }) =>
     new Promise((resolve) => {
-      if (platform === 'win32' && UNSAFE_ON_WINDOWS.test(file)) {
+      if (
+        platform === 'win32' &&
+        (UNSAFE_ON_WINDOWS.test(file) || file.startsWith('\\\\'))
+      ) {
         resolve({
           opened: false,
           reason: 'failed',
-          message: 'the file name holds a character the Windows shell expands',
+          message:
+            'the file name holds a character the Windows shell expands, or is a network path',
         });
         return;
       }
+      const [editor, ...rest] = guessEditor(editorCommand(env));
+      if (!editor) {
+        resolve({
+          opened: false,
+          reason: 'no-editor',
+          message: NO_EDITOR_MESSAGE,
+        });
+        return;
+      }
+      const args = [
+        ...(rest as string[]),
+        ...getArgumentsForFile(editor, file, line, column),
+      ].map(String);
+      let child: ChildProcess;
+      try {
+        child =
+          platform === 'win32'
+            ? exec(constructWindowsLaunchCommand(editor, args), {
+                windowsHide: true,
+              })
+            : spawn(editor, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (error) {
+        resolve(failed((error as Error).message));
+        return;
+      }
+      const pipes = [child.stdout, child.stderr].filter(Boolean) as Pipe[];
+      for (const pipe of pipes) pipe.pipe(log, { end: false });
+
       let settled = false;
       const settle = (result: LaunchResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // An editor left running never keeps the server from stopping.
+        child.unref();
+        for (const pipe of pipes) pipe.unref?.();
         resolve(result);
       };
       const timer = setTimeout(() => settle({ opened: true }), SETTLE_MS);
-      const onError = (_file: string, message: string | null) =>
-        settle(
-          message === null
-            ? { opened: false, reason: 'no-editor', message: NO_EDITOR_MESSAGE }
-            : {
-                opened: false,
-                reason: 'failed',
-                message: `the editor could not open the file: ${message}`,
-              },
-        );
-      // Always with a position: a file name ending in `:12` is then never
-      // read as one.
-      const spec = `${file}:${line}:${column}`;
-      const command = editorCommand(env);
-      try {
-        if (command) launchEditor(spec, command, onError);
-        else launchEditor(spec, onError);
-      } catch (error) {
-        settle({
-          opened: false,
-          reason: 'failed',
-          message: `the editor could not open the file: ${(error as Error).message}`,
-        });
-      }
+      const report = (message: string) => {
+        if (settled) log.write(`configure-env: ${message}\n`);
+        else settle(failed(message));
+      };
+      child.on('error', (error: NodeJS.ErrnoException) =>
+        report(
+          error.code === 'ENOENT'
+            ? `${error.message} ('${editor}' is not a command on the PATH)`
+            : error.message,
+        ),
+      );
+      child.on('exit', (code) => {
+        if (code) report(`the editor exited with code ${code}`);
+        else settle({ opened: true });
+      });
     });
 }
 
