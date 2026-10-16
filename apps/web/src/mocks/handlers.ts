@@ -372,6 +372,13 @@ export const scenarios = {
     http.get('/api/check', () => json(checkOf())),
     http.get('/api/validate', () => json(validateOf())),
   ],
+  /** Check and validate report one of every kind of problem. */
+  everyProblem: [
+    http.get('/api/check', () => json(fixtures.driftCheck)),
+    http.get('/api/validate', () => json(fixtures.validationReport)),
+  ],
+  /** The plan shows every action a file can take. */
+  everyAction: [http.post('/api/plan', () => json(fixtures.everyActionPlan))],
   /** Every env file matches its schema. */
   passing: [
     http.get('/api/check', () => json(fixtures.passingCheck)),
