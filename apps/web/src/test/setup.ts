@@ -1,3 +1,4 @@
+import './event-source';
 import '@testing-library/jest-dom/vitest';
 import {
   applyThemePreference,

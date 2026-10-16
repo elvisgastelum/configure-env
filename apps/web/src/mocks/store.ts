@@ -19,6 +19,8 @@ export interface MockState {
   schemaWrites: number;
   variables: Variables;
   files: Files;
+  /** Each existing file's lines, secrets masked, by path. */
+  lines: Map<string, string[]>;
   /** Plain secret values by `file:key`, as a reveal answers them. */
   secrets: Map<string, string>;
   /** How many writes changed a file, for its next fingerprint. */
@@ -30,15 +32,39 @@ const fresh = (): MockState => ({
   schemaWrites: 0,
   variables: structuredClone(fixtures.variables),
   files: structuredClone(fixtures.files),
+  lines: new Map(Object.entries(structuredClone(fixtures.fileLines))),
   secrets: new Map(),
   writes: 0,
 });
 
 export const mockState: MockState = fresh();
 
+/** A portal listening on GET /api/events. */
+export interface EventClient {
+  send(payload: { event: 'changed'; data: { paths: string[] } }): void;
+}
+
+/** The portals listening now; a reset forgets them. */
+export const eventClients = new Set<EventClient>();
+
+/**
+ * Tells every listening portal that `paths` changed outside it, as the API
+ * does when a file it watches changes on disk.
+ */
+export function emitChanged(paths: string[]) {
+  for (const client of eventClients)
+    try {
+      client.send({ event: 'changed', data: { paths } });
+    } catch {
+      // The portal closed its stream.
+      eventClients.delete(client);
+    }
+}
+
 /** Back to the sample project, as the fixtures describe it. */
 export function resetMockState() {
   Object.assign(mockState, fresh());
+  eventClients.clear();
 }
 
 const MASK = '••••••••';
@@ -186,6 +212,18 @@ export function writeValue(file: string, key: string, value?: string) {
     if (info)
       info.drift.missingKeys = info.drift.missingKeys.filter((k) => k !== key);
   }
+  writeLine(file, key, value === undefined ? undefined : entry.value);
+}
+
+/** The line of `key` in `file`'s lines: replaced, added, or removed. */
+function writeLine(file: string, key: string, shown?: string) {
+  const lines = mockState.lines.get(file) ?? [];
+  const at = lines.findIndex((line) => line.startsWith(`${key}=`));
+  if (shown === undefined) {
+    if (at !== -1) lines.splice(at, 1);
+  } else if (at === -1) lines.push(`${key}=${shown}`);
+  else lines[at] = `${key}=${shown}`;
+  mockState.lines.set(file, lines);
 }
 
 /** A new fingerprint for `file`, after a write changed it. */

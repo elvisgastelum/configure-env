@@ -91,7 +91,14 @@
       "refused": "Refused: {{message}}",
       "nothing": "Nothing to report.",
       "policy": "Policy",
-      "drift": "Drift"
+      "drift": "Drift",
+      "exists": "Exists",
+      "absent": "Missing",
+      "existence": "On disk",
+      "badLines_one": "{{count}} bad line",
+      "badLines_other": "{{count}} bad lines",
+      "open": "Open",
+      "openLabel": "Open {{path}}"
     },
     "drift": {
       "current": "Current",
@@ -596,5 +603,37 @@
       "close": "Close",
       "errors": "The schema refuses this edit:"
     }
+  },
+  "files": {
+    "lead": "Each env file the schema lists: its policy, mode and drift. Open one to see its entries and its raw text.",
+    "error": "The files could not load: {{message}}",
+    "loading": "Loading the files",
+    "empty": "The schema lists no files yet.",
+    "detail": {
+      "back": "All files",
+      "description": "A {{policy}} file",
+      "descriptionTemplate": "A {{policy}} file, a template",
+      "tabs": "Views of {{path}}",
+      "entries": "Entries",
+      "raw": "Raw",
+      "caption": "The variables {{path}} lists, in order",
+      "key": "Key",
+      "status": "Status",
+      "value": "Value",
+      "actions": "Actions",
+      "noEntries": "This file lists no variables.",
+      "unknown": "Keys in the file the schema does not list",
+      "rawLabel": "The raw text of {{path}}",
+      "rawNote": "Read-only, secrets masked.",
+      "rawMissing": "{{path}} does not exist yet; apply creates it.",
+      "rawLoading": "Loading the raw text",
+      "rawError": "The raw text could not load: {{message}}",
+      "rawEmpty": "The file is empty.",
+      "badLine": "Line {{line}} is not a valid entry"
+    }
+  },
+  "events": {
+    "changed_one": "{{paths}} changed outside the portal; the views show it now.",
+    "changed_other": "{{paths}} changed outside the portal; the views show them now."
   }
 }

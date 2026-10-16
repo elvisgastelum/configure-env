@@ -15,6 +15,7 @@ import {
   getSchema,
   getValidate,
   getVariables,
+  readFileContent,
 } from '@configure-env/api-client';
 import { queryOptions } from '@tanstack/react-query';
 
@@ -80,3 +81,13 @@ export const validateQuery = queryOptions({
   queryKey: getGetValidateQueryKey(),
   queryFn: ({ signal }) => unwrap(getValidate(undefined, { signal })),
 });
+
+/**
+ * One file's lines, secrets masked, for its raw view. Under `files`, so a
+ * write that refreshes the files refreshes it too.
+ */
+export const fileContentQuery = (file: string) =>
+  queryOptions({
+    queryKey: [...getGetFilesQueryKey(), 'content', file],
+    queryFn: ({ signal }) => unwrap(readFileContent({ file }, { signal })),
+  });

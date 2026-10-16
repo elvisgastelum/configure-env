@@ -260,6 +260,27 @@ export const files: Files = {
   ],
 };
 
+/**
+ * Each existing file's lines as POST /api/files/content answers them:
+ * secret values masked, line 6 of `.env` not an entry.
+ */
+export const fileLines: Record<string, string[]> = {
+  '.env': [
+    '# The billing service',
+    'API_URL=localhost:4000',
+    'PORT=8080',
+    'DB_PASSWORD=••••••••',
+    'LOG_LEVEL=debug  # every request',
+    'this line is not an entry',
+    'export EXTRA="1"',
+  ],
+  '.env.example': [
+    '# Copy to .env and fill in the secrets.',
+    'API_URL=https://api.example.com',
+    'PORT=3000',
+  ],
+};
+
 export const check: Check = {
   ok: false,
   drift: true,

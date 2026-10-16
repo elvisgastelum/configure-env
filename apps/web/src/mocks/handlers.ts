@@ -11,9 +11,10 @@ import type {
   SchemaEditResult,
   VariableInput,
 } from '@configure-env/core/schema';
-import { HttpResponse, delay, http } from 'msw';
+import { HttpResponse, delay, http, sse } from 'msw';
 import * as fixtures from './fixtures';
 import {
+  eventClients,
   findFile,
   findVariable,
   mockState,
@@ -164,7 +165,22 @@ const schemaWrites = [
   ),
 ];
 
+/**
+ * GET /api/events: the stream stays open, and `emitChanged` sends on it. msw
+ * mocks Server-Sent Events only where EventSource exists (the browser, and
+ * the tests through a polyfill).
+ */
+const events =
+  typeof EventSource === 'undefined'
+    ? []
+    : [
+        sse<{ changed: { paths: string[] } }>('/api/events', ({ client }) => {
+          eventClients.add(client);
+        }),
+      ];
+
 export const handlers = [
+  ...events,
   http.get('/api/health', () => json({ status: 'ok' })),
   http.get('/api/project', () => json(fixtures.project)),
   http.get('/api/schema', () => json(mockState.schema)),
@@ -173,6 +189,20 @@ export const handlers = [
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
   http.get('/api/validate', () => json(fixtures.validate)),
+  http.post('/api/files/content', async ({ request }) => {
+    const { file } = (await request.json()) as { file: string };
+    const info = findFile(file);
+    if (!info)
+      return HttpResponse.json(
+        { statusCode: 404, message: `${file} is not a schema file` },
+        { status: 404 },
+      );
+    return json({
+      file,
+      exists: info.exists,
+      lines: info.exists ? (mockState.lines.get(file) ?? []) : [],
+    });
+  }),
   http.post('/api/reveal', async ({ request }) => {
     const { file, key } = (await request.json()) as {
       file: string;

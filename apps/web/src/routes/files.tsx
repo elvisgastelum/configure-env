@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { PlaceholderPage } from '../components/placeholder-page';
+import { FilesPage } from '../features/files/files-page';
 import { validateFocusSearch } from '../lib/focus-search';
 
 export const Route = createFileRoute('/files')({
@@ -9,5 +9,13 @@ export const Route = createFileRoute('/files')({
 
 function Page() {
   const { focus } = Route.useSearch();
-  return <PlaceholderPage page="files" focus={focus} />;
+  const navigate = Route.useNavigate();
+  return (
+    <FilesPage
+      focus={focus}
+      onFocusChange={(path) =>
+        void navigate({ search: path ? { focus: path } : {} })
+      }
+    />
+  );
 }
