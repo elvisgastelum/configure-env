@@ -1,6 +1,7 @@
 // A sample project as the API reports it, for tests and stories: a merge
 // `.env` with drift and a wrong mode, a generated example and a config file.
 
+import type { SchemaDocument } from '@configure-env/core/schema';
 import type {
   Check,
   Files,
@@ -16,11 +17,90 @@ export const project: Project = {
   version: '0.4.0',
 };
 
+/**
+ * The sample project's env.schema.json, as written: the variables and files
+ * below, with their rules and per-file options.
+ */
+export const schemaDocument: SchemaDocument = {
+  $schema:
+    'https://raw.githubusercontent.com/elvisgastelum/configure-env/main/schema/env.schema.v1.json',
+  version: 1,
+  variables: {
+    API_URL: {
+      type: 'url',
+      description: 'Where the API lives.',
+      group: 'Network',
+      required: true,
+      comment: 'Without a trailing slash.',
+      example: 'https://api.example.com',
+      protocols: ['https'],
+    },
+    PORT: {
+      type: 'port',
+      description: 'The port the server listens on.',
+      group: 'Network',
+      default: 3000,
+    },
+    DB_PASSWORD: {
+      type: 'string',
+      description: 'The database password.',
+      group: 'Database',
+      required: true,
+      secret: true,
+      distinctFrom: 'API_KEY',
+      protected: { reason: 'The database was created with it.' },
+      minLength: 12,
+    },
+    API_KEY: {
+      type: 'string',
+      description: 'A key for the partner API.',
+      secret: true,
+      requiredUnless: ['DB_PASSWORD'],
+    },
+    LOG_LEVEL: {
+      type: 'enum',
+      values: ['debug', 'info'],
+      default: 'info',
+      comment: 'debug logs every request.',
+    },
+  },
+  files: [
+    { path: '.env', policy: 'merge', variables: '*', mode: '600' },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      variables: ['API_URL', 'PORT', 'DB_PASSWORD'],
+      header: 'Copy to .env and fill in the secrets.',
+      values: { DB_PASSWORD: 'change-me' },
+    },
+    {
+      path: 'config/app.env',
+      policy: 'generate',
+      variables: ['PORT', 'LOG_LEVEL'],
+      comments: { LOG_LEVEL: 'Raise to info in production.' },
+    },
+  ],
+};
+
 export const schema: Schema = {
   path: 'env.schema.json',
   valid: true,
-  document: { version: 1 },
+  document: schemaDocument,
   errors: [],
+  fingerprint: 'schema-1',
+};
+
+/** More variables for the schema, one of each type the sample lacks. */
+export const typedSchemaVariables: SchemaDocument['variables'] = {
+  DEBUG: { type: 'boolean', group: 'App' },
+  WORKERS: { type: 'integer', group: 'App', min: 1, max: 64 },
+  RATIO: { type: 'number', group: 'App' },
+  ADMIN_EMAIL: { type: 'email', group: 'App' },
+  DB_HOST: { type: 'host', group: 'Database' },
+  SERVICE_NETWORK: { type: 'cidr', group: 'Network', family: 'ipv4' },
+  GATEWAY: { type: 'ipv4', group: 'Network', within: 'SERVICE_NETWORK' },
+  NODE_ADDRESS: { type: 'ip', group: 'Network' },
+  LINK_LOCAL: { type: 'ipv6', group: 'Network' },
 };
 
 export const missingSchema: Schema = {

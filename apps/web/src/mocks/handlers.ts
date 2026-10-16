@@ -1,8 +1,16 @@
 // msw handlers for the API, shared by the tests (msw/node) and Storybook
 // (the service worker). `handlers` answers as a healthy sample project kept
-// in ./store.ts, which the value writes change; the scenarios override a few
-// routes on top of it.
+// in ./store.ts, which the value and schema writes change; the scenarios
+// override a few routes on top of it. The schema writes run the core's own
+// schema writer, as the API does, so they refuse what the API refuses.
 
+import * as writer from '@configure-env/core/schema';
+import type {
+  FileInput,
+  SchemaDocument,
+  SchemaEditResult,
+  VariableInput,
+} from '@configure-env/core/schema';
 import { HttpResponse, delay, http } from 'msw';
 import * as fixtures from './fixtures';
 import {
@@ -13,6 +21,7 @@ import {
   problemsOf,
   protectedProblems,
   touchFile,
+  writeSchema,
   writeValue,
 } from './store';
 
@@ -58,10 +67,108 @@ const editRefused = (
 
 let generated = 0;
 
+interface SchemaBody {
+  fingerprint: string;
+  [field: string]: unknown;
+}
+
+/**
+ * A schema write as the API answers it: 409 over a stale fingerprint, 422
+ * with the writer's errors (JSON paths) and the schema now, else the schema
+ * written.
+ */
+async function schemaWrite(
+  request: Request,
+  edit: (document: SchemaDocument, body: SchemaBody) => SchemaEditResult,
+) {
+  const body = (await request.json()) as SchemaBody;
+  const schema = mockState.schema;
+  if (body.fingerprint !== schema.fingerprint)
+    return HttpResponse.json(
+      {
+        statusCode: 409,
+        message: `${schema.path} changed since it was read; reload it and make the edit again`,
+        schema,
+      },
+      { status: 409 },
+    );
+  const result = edit(structuredClone(schema.document) as SchemaDocument, body);
+  if (!result.ok)
+    return HttpResponse.json(
+      {
+        statusCode: 422,
+        message: 'the edit was refused; nothing was written',
+        errors: result.errors,
+        schema,
+      },
+      { status: 422 },
+    );
+  return json(writeSchema(result.document));
+}
+
+const schemaWrites = [
+  http.post('/api/schema/variables', ({ request }) =>
+    schemaWrite(request, (document, body) =>
+      writer.addVariable(
+        document,
+        body.name as string,
+        body.spec as VariableInput,
+        { files: (body.files as string[] | undefined) ?? [] },
+      ),
+    ),
+  ),
+  http.put('/api/schema/variables/:name', ({ request, params }) =>
+    schemaWrite(request, (document, body) =>
+      writer.updateVariable(
+        document,
+        params.name as string,
+        body.changes as Record<string, unknown>,
+      ),
+    ),
+  ),
+  http.delete('/api/schema/variables/:name', ({ request, params }) =>
+    schemaWrite(request, (document, body) =>
+      writer.removeVariable(document, params.name as string, {
+        cleanup: Boolean(body.cleanup),
+      }),
+    ),
+  ),
+  http.post('/api/schema/variables/:name/rename', ({ request, params }) =>
+    schemaWrite(request, (document, body) =>
+      writer.renameVariable(document, params.name as string, body.to as string),
+    ),
+  ),
+  http.put('/api/schema/variable-order', ({ request }) =>
+    schemaWrite(request, (document, body) =>
+      writer.reorderVariables(document, body.order as string[]),
+    ),
+  ),
+  http.post('/api/schema/files', ({ request }) =>
+    schemaWrite(request, (document, body) =>
+      writer.addFile(document, body.spec as FileInput),
+    ),
+  ),
+  http.put('/api/schema/files', ({ request }) =>
+    schemaWrite(request, (document, body) =>
+      writer.updateFile(
+        document,
+        body.path as string,
+        body.changes as Record<string, unknown>,
+      ),
+    ),
+  ),
+  http.delete('/api/schema/files', ({ request }) =>
+    schemaWrite(request, (document, body) =>
+      writer.removeFile(document, body.path as string),
+    ),
+  ),
+];
+
 export const handlers = [
   http.get('/api/health', () => json({ status: 'ok' })),
   http.get('/api/project', () => json(fixtures.project)),
-  http.get('/api/schema', () => json(fixtures.schema)),
+  http.get('/api/schema', () => json(mockState.schema)),
+  ...schemaWrites,
   http.get('/api/variables', () => json(mockState.variables)),
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
@@ -174,6 +281,18 @@ export const scenarios = {
           ...structuredClone(fixtures.typedVariables),
         );
       return json(mockState.variables);
+    }),
+  ],
+  /** The schema declares one more variable of each type the sample lacks. */
+  schemaTypes: [
+    http.get('/api/schema', () => {
+      const document = mockState.schema.document as SchemaDocument;
+      if (!document.variables.DEBUG)
+        Object.assign(
+          document.variables,
+          structuredClone(fixtures.typedSchemaVariables),
+        );
+      return json(mockState.schema);
     }),
   ],
   /** A schema of two thousand variables. */
