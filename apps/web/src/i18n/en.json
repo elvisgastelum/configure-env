@@ -848,6 +848,8 @@
     "opened": "Opened {{file}}:{{line}} in your editor",
     "noEditor": "No editor found",
     "noEditorHint": "Set $LAUNCH_EDITOR, $VISUAL or $EDITOR, or open VS Code, Cursor, Zed or a JetBrains IDE, then try again.",
+    "terminalEditor": "Your editor runs in a terminal",
+    "terminalEditorHint": "The server has no terminal to run it in: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE, then try again.",
     "failed": "The editor could not open {{file}}",
     "error": "Could not open {{file}}: {{message}}"
   }

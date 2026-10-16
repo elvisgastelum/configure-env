@@ -168,6 +168,37 @@ describe.skipIf(process.platform === 'win32')(
     );
 
     it(
+      'never starts a terminal editor, from $EDITOR or $LAUNCH_EDITOR, when no IDE runs',
+      async () => {
+        const record = (name: string) =>
+          `printf '%s\\n' "$@" > "${join(dirs.root, name)}.txt"`;
+        const fakes = await bin({ vim: record('vim'), nano: record('nano') });
+        const envs: Record<string, string>[] = [
+          { EDITOR: join(fakes, 'nano') },
+          { LAUNCH_EDITOR: join(fakes, 'vim') },
+        ];
+        for (const env of envs) {
+          const name = Object.values(env)[0]!.split('/').pop()!;
+          const { status, body, out } = await openThroughServe(env);
+          expect(status).toBe(200);
+          expect(body).toMatchObject({
+            opened: false,
+            reason: 'terminal-editor',
+            file: '.env',
+            line: 2,
+          });
+          expect(body.message).toContain(`'${name}'`);
+          expect(body.message).toContain('LAUNCH_EDITOR');
+          expectOneJsonLine(out);
+          await expect(
+            readFile(join(dirs.root, `${name}.txt`)),
+          ).rejects.toThrow();
+        }
+      },
+      TIMEOUT * 2,
+    );
+
+    it(
       'prefers a running IDE to $VISUAL and $EDITOR',
       async () => {
         const record = (name: string) =>

@@ -859,9 +859,9 @@ export const openInEditorResponse = named(
     opened: z.boolean().meta({
       description: 'Whether the editor was started.',
     }),
-    reason: z.enum(['no-editor', 'failed']).optional().meta({
+    reason: z.enum(['no-editor', 'terminal-editor', 'failed']).optional().meta({
       description:
-        'When not opened: no-editor: none is set or running; failed: the editor command failed.',
+        'When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.',
     }),
     message: z.string().optional().meta({
       description: 'When not opened: what to tell the user.',

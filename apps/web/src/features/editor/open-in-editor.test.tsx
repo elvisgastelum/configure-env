@@ -197,6 +197,27 @@ describe('Open in editor buttons', () => {
     ).toBeVisible();
   });
 
+  it('explain in a toast when the editor found runs in a terminal', async () => {
+    server.use(...scenarios.terminalEditor);
+    const { user, dialog } = await openDrawer('PORT');
+
+    await user.click(
+      within(dialog).getByRole('button', {
+        name: 'Open PORT in .env in editor',
+      }),
+    );
+
+    expect(
+      await screen.findByText('Your editor runs in a terminal'),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "'vim' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText('No editor found')).toBeNull();
+  });
+
   it('say why when the API refuses the file', async () => {
     server.use(...scenarios.editorRefused);
     const { user, dialog } = await openDrawer('PORT');

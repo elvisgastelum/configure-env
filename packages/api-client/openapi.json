@@ -2182,9 +2182,9 @@
             "description": "Whether the editor was started."
           },
           "reason": {
-            "description": "When not opened: no-editor: none is set or running; failed: the editor command failed.",
+            "description": "When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.",
             "type": "string",
-            "enum": ["no-editor", "failed"]
+            "enum": ["no-editor", "terminal-editor", "failed"]
           },
           "message": {
             "description": "When not opened: what to tell the user.",

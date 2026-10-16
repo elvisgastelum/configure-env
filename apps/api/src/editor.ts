@@ -37,13 +37,60 @@ export interface EditorTarget extends TextPosition {
 /** Whether the editor was started; when not, why, for the portal to say. */
 export type LaunchResult =
   | { opened: true }
-  | { opened: false; reason: 'no-editor' | 'failed'; message: string };
+  | {
+      opened: false;
+      reason: 'no-editor' | 'terminal-editor' | 'failed';
+      message: string;
+    };
 
 /** Opens a file in the user's editor. */
 export type EditorLauncher = (target: EditorTarget) => Promise<LaunchResult>;
 
 export const NO_EDITOR_MESSAGE =
   'No editor was found: set $LAUNCH_EDITOR, $VISUAL or $EDITOR, or open VS Code, Cursor, Zed or a JetBrains IDE.';
+
+/** Why a terminal editor is not started, naming it. */
+export function terminalEditorMessage(name: string): string {
+  return `'${name}' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.`;
+}
+
+// Editors that run only in a terminal, by the command's base name.
+const TERMINAL_EDITORS = new Set([
+  'vim',
+  'vi',
+  'nvim',
+  'nano',
+  'micro',
+  'hx',
+  'helix',
+  'kak',
+  'ne',
+  'joe',
+  'mcedit',
+]);
+// emacs and emacsclient run in a terminal only when asked to.
+const EMACS = new Set(['emacs', 'emacsclient']);
+const EMACS_IN_TERMINAL = new Set(['-nw', '-t', '--no-window-system', '--tty']);
+
+/**
+ * The name of the terminal editor `editor` and its arguments start, if they
+ * start one. The guess keeps $LAUNCH_EDITOR, $VISUAL and $EDITOR whole, so
+ * `emacs -nw` may arrive as one string.
+ */
+function terminalEditor(editor: string, args: string[]): string | undefined {
+  const baseName = (command: string) =>
+    (command.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '');
+  const [first = '', ...flags] = editor.trim().split(/\s+/);
+  for (const name of new Set([baseName(editor), baseName(first)])) {
+    if (TERMINAL_EDITORS.has(name)) return name;
+    if (
+      EMACS.has(name) &&
+      [...flags, ...args].some((flag) => EMACS_IN_TERMINAL.has(flag))
+    )
+      return name;
+  }
+  return undefined;
+}
 
 /** How long a launch may take to fail before it counts as opened. */
 const SETTLE_MS = 300;
@@ -60,7 +107,8 @@ type Pipe = NodeJS.ReadableStream & { unref?: () => void };
  * arguments, spawned here rather than by its launchEditor, which prints
  * its errors on stdout, where `serve --json` prints one line. The editor
  * runs without a shell (cmd.exe on Windows, with launch-editor's escaping),
- * and whatever it prints goes to `log`, stderr by default. A launch that
+ * and whatever it prints goes to `log`, stderr by default. A terminal
+ * editor is never started: a server has no terminal to give it. A launch that
  * fails within a moment (no editor found, a command that does not exist or
  * exits with an error) answers why; after that, it counts as opened, and a
  * later failure is only logged.
@@ -96,6 +144,17 @@ export function createLauncher(
           opened: false,
           reason: 'no-editor',
           message: NO_EDITOR_MESSAGE,
+        });
+        return;
+      }
+      // A server process has no terminal for it, even one $LAUNCH_EDITOR
+      // names: it would fail, or run unseen while the portal says opened.
+      const terminal = terminalEditor(editor, rest as string[]);
+      if (terminal) {
+        resolve({
+          opened: false,
+          reason: 'terminal-editor',
+          message: terminalEditorMessage(terminal),
         });
         return;
       }

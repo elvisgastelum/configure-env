@@ -35,7 +35,8 @@ vi.mock('node:child_process', async (original) => ({
   },
 }));
 
-const { NO_EDITOR_MESSAGE, createLauncher } = await import('./editor.ts');
+const { NO_EDITOR_MESSAGE, createLauncher, terminalEditorMessage } =
+  await import('./editor.ts');
 
 const target = { file: '/project/.env', line: 4, column: 2 };
 
@@ -97,6 +98,53 @@ describe('createLauncher', () => {
       message: NO_EDITOR_MESSAGE,
     });
     expect(spawned).toEqual([]);
+  });
+
+  it('refuses a terminal editor, which a server has no terminal for, and spawns nothing', async () => {
+    const cases: [(string | null)[], string][] = [
+      [['vim'], 'vim'],
+      [['/usr/local/bin/nvim'], 'nvim'],
+      [['nano'], 'nano'],
+      [['emacs', '-nw'], 'emacs'],
+      [['emacs -t'], 'emacs'],
+      [['micro'], 'micro'],
+      [['hx'], 'hx'],
+      [['helix'], 'helix'],
+      [['kak'], 'kak'],
+      [['ne'], 'ne'],
+      [['joe'], 'joe'],
+      [['mcedit'], 'mcedit'],
+      [['vi'], 'vi'],
+      [['C:\\Tools\\vim.exe'], 'vim'],
+    ];
+    for (const [editor, name] of cases) {
+      guessed = editor;
+      const result = await createLauncher('darwin', logged().log)(target);
+      expect(result).toEqual({
+        opened: false,
+        reason: 'terminal-editor',
+        message: terminalEditorMessage(name),
+      });
+    }
+    expect(terminalEditorMessage('vim')).toBe(
+      "'vim' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.",
+    );
+    expect(spawned).toEqual([]);
+  });
+
+  it('still spawns a GUI emacs, and an editor whose name only looks like a terminal one', async () => {
+    for (const editor of [['emacs'], ['gvim'], ['/opt/vim-tools/code']]) {
+      guessed = editor;
+      child = new FakeChild();
+      const opening = createLauncher('darwin', logged().log)(target);
+      child.emit('exit', 0);
+      expect(await opening).toEqual({ opened: true });
+    }
+    expect(spawned.map(({ command }) => command)).toEqual([
+      'emacs',
+      'gvim',
+      '/opt/vim-tools/code',
+    ]);
   });
 
   it('answers failed when the editor command does not exist', async () => {

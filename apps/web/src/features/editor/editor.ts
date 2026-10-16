@@ -43,6 +43,10 @@ export async function openTarget(t: TFunction, target: EditorTarget) {
       toast.error(t('editor.noEditor'), {
         description: t('editor.noEditorHint'),
       });
+    else if (result.reason === 'terminal-editor')
+      toast.error(t('editor.terminalEditor'), {
+        description: result.message ?? t('editor.terminalEditorHint'),
+      });
     else
       toast.error(t('editor.failed', { file }), {
         ...(result.message ? { description: result.message } : {}),

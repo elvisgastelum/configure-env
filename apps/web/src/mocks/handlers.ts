@@ -476,6 +476,20 @@ export const scenarios = {
       });
     }),
   ],
+  /** The editor found is vim, which runs in a terminal: open-in-editor says so. */
+  terminalEditor: [
+    http.post('/api/open-in-editor', async ({ request }) => {
+      const body = (await request.json()) as OpenInEditorRequest;
+      return json({
+        opened: false,
+        reason: 'terminal-editor',
+        message:
+          "'vim' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.",
+        file: body.file,
+        ...editorPosition(body),
+      });
+    }),
+  ],
   /** open-in-editor refuses the file: it leads out of the root. */
   editorRefused: [
     http.post('/api/open-in-editor', async ({ request }) => {

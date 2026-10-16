@@ -628,20 +628,21 @@ export interface InvalidSchema {
 }
 
 /**
- * When not opened: no-editor: none is set or running; failed: the editor command failed.
+ * When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.
  */
 export type OpenInEditorReason =
   (typeof OpenInEditorReason)[keyof typeof OpenInEditorReason];
 
 export const OpenInEditorReason = {
   'no-editor': 'no-editor',
+  'terminal-editor': 'terminal-editor',
   failed: 'failed',
 } as const;
 
 export interface OpenInEditor {
   /** Whether the editor was started. */
   opened: boolean;
-  /** When not opened: no-editor: none is set or running; failed: the editor command failed. */
+  /** When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed. */
   reason?: OpenInEditorReason;
   /** When not opened: what to tell the user. */
   message?: string;

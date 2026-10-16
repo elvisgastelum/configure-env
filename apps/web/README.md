@@ -98,12 +98,12 @@ Every item that points at a place in a file has an **Open in editor** button (an
 - **Check and validate:** a variable's item opens its entry in that file, a line that does not parse opens at that line, and a file's own problems (drift, mode) at its top.
 - **Schema errors:** each error of an invalid schema opens at its JSON path (the API maps it to a line with a source map of the file), or at the line and column of a syntax error.
 - **Shortcut:** `o` opens the item that holds the focus, else the selected row of the variables table, else, in the drawer, the variable's definition. It does nothing while typing in a field or with a menu open.
-- **Toast:** says the file and line the editor opened, or, when no editor was found, how to set one. A file that does not exist yet has no button.
+- **Toast:** says the file and line the editor opened, or, when no editor was found, how to set one, or, when the editor found runs in a terminal (the server never starts one), to set `$LAUNCH_EDITOR` to a GUI editor or open an IDE. A file that does not exist yet has no button.
 
 ## Tests and stories
 
 - The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes check and validate from it, so a fix shows in the next report.
 - `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens, and `dropEvents()` (`src/mocks/store.ts`) ends the streams so the portal reconnects.
-- `POST /api/open-in-editor` opens nothing: it answers the line of the key in the sample file's lines. `scenarios.noEditor` answers that no editor was found, `scenarios.editorRefused` a refused path.
+- `POST /api/open-in-editor` opens nothing: it answers the line of the key in the sample file's lines. `scenarios.noEditor` answers that no editor was found, `scenarios.terminalEditor` that the editor found (vim) runs in a terminal, `scenarios.editorRefused` a refused path.
 - The history lives in the mock store too: value and schema writes record their changes (a secret's without its values), and an undo checks that the value or the schema text is still what the change wrote, as the API checks its fingerprint.
 - The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate`, `Portal/Schema` and `Portal/History`. Run them with `pnpm storybook:web`.
