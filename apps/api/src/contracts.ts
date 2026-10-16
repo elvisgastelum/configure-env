@@ -186,6 +186,25 @@ export const revealResponse = named(
   }),
 );
 
+export const fileContentRequest = named(
+  'FileContentRequest',
+  z.strictObject({
+    file: z.string().min(1).meta({ description: 'A schema file path.' }),
+  }),
+);
+
+export const fileContentResponse = named(
+  'FileContent',
+  z.object({
+    file: z.string(),
+    exists: z.boolean(),
+    lines: z.array(z.string()).meta({
+      description:
+        'The lines as the file holds them, each secret value masked; empty when it does not exist.',
+    }),
+  }),
+);
+
 export const strictQuery = z.object({
   strict: z.enum(['true', 'false']).optional().meta({
     description: 'Treat keys the schema does not list for a file as errors.',
