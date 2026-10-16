@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { mockState } from '../../mocks/store';
 import { scenarios } from '../../mocks/handlers';
 import { renderApp } from '../../test/render';
 import { recordRequests } from '../../test/requests';
@@ -154,6 +156,22 @@ describe('the type options', () => {
     expect((await save(user, sheet)).changes).toEqual({ min: 0.25, max: 1 });
   });
 
+  it('takes a negative or signed whole-number bound for an integer', async () => {
+    const { user, sheet } = await openForm('WORKERS');
+    await fill(user, sheet, 'Minimum', '-10');
+    await fill(user, sheet, 'Maximum', '+5');
+    expect((await save(user, sheet)).changes).toEqual({ min: -10, max: 5 });
+  });
+
+  it('refuses a fractional bound for an integer', async () => {
+    const { user, sheet } = await openForm('WORKERS');
+    await fill(user, sheet, 'Minimum', '-1.5');
+    await submitForErrors(user, sheet);
+    expect(
+      await within(sheet).findByText('must be a whole number'),
+    ).toBeVisible();
+  });
+
   it('edits, reorders and removes the values of an enum', async () => {
     const { user, sheet } = await openForm('LOG_LEVEL');
     expect(box(sheet, 'Value 1')).toHaveValue('debug');
@@ -212,6 +230,48 @@ describe('the type options', () => {
       ),
     ).toBeVisible();
   });
+
+  it.each([
+    ['Family', 'SERVICE_NETWORK'],
+    ['Encoding', 'API_KEY'],
+  ] as const)(
+    'marks the %s select invalid and points it at its error',
+    async (label, variable) => {
+      server.use(
+        http.put('/api/schema/variables/:name', () =>
+          HttpResponse.json(
+            {
+              statusCode: 422,
+              message: 'the edit was refused; nothing was written',
+              errors: [
+                {
+                  path: `variables.${variable}.${label.toLowerCase()}`,
+                  message: `${label} is refused`,
+                },
+              ],
+              schema: mockState.schema,
+            },
+            { status: 422 },
+          ),
+        ),
+      );
+      const { user, sheet } = await openForm(variable);
+      await fill(user, sheet, 'Description', 'Changed.');
+      await user.click(
+        within(sheet).getByRole('button', { name: 'Review changes' }),
+      );
+      const review = await screen.findByRole('dialog', {
+        name: `Change ${variable}`,
+      });
+      await user.click(within(review).getByRole('button', { name: 'Save' }));
+      const error = await within(sheet).findByText(`${label} is refused`);
+      const select = within(sheet).getByRole('combobox', { name: label });
+      expect(select).toHaveAttribute('aria-invalid', 'true');
+      expect(select.getAttribute('aria-describedby')?.split(' ')).toContain(
+        error.id,
+      );
+    },
+  );
 
   it('writes a cidr block’s family and strictness', async () => {
     const { user, sheet } = await openForm();

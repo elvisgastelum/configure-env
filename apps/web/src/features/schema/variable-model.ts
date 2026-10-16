@@ -328,7 +328,7 @@ export function fieldForPath(
   if (field === undefined) return 'name';
   if (field === 'protected')
     return next === 'reason' ? 'protectedReason' : 'protected';
-  if (RULES.has(String(field)) || String(field) in EMPTY_VARIABLE)
+  if (RULES.has(String(field)) || Object.hasOwn(EMPTY_VARIABLE, String(field)))
     return field as VariableField;
   return 'root';
 }
@@ -337,13 +337,19 @@ export function fieldForPath(
 function numberProblems(values: VariableFormValues) {
   const problems: [VariableField, string][] = [];
   const takes = new Set(typeFields(values.type));
-  const integers: VariableField[] = ['minLength', 'maxLength', 'bytes'];
-  if (values.type === 'integer') integers.push('min', 'max');
-  for (const field of integers)
+  // Lengths and byte counts are counts; an integer's bounds may be signed.
+  const counts: VariableField[] = ['minLength', 'maxLength', 'bytes'];
+  const whole: [VariableField, RegExp][] = counts.map((field) => [
+    field,
+    /^\d+$/,
+  ]);
+  if (values.type === 'integer')
+    whole.push(['min', /^[+-]?\d+$/], ['max', /^[+-]?\d+$/]);
+  for (const [field, pattern] of whole)
     if (
       takes.has(field) &&
       values[field] !== '' &&
-      !/^\d+$/.test(String(values[field]).trim())
+      !pattern.test(String(values[field]).trim())
     )
       problems.push([field, 'must be a whole number']);
   for (const field of ['min', 'max'] as const)

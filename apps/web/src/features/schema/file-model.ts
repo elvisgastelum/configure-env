@@ -151,7 +151,8 @@ export function fileFieldForPath(
     return `${field}.${row}.${field === 'values' ? 'value' : 'name'}`;
   }
   if (field === 'variables') return 'variables';
-  if (typeof field === 'string' && field in EMPTY_FILE) return field;
+  if (typeof field === 'string' && Object.hasOwn(EMPTY_FILE, field))
+    return field;
   return 'root';
 }
 

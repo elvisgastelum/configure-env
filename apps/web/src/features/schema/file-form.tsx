@@ -526,15 +526,22 @@ function Overrides({
                 <X aria-hidden="true" />
               </Button>
             </div>
-            {[error?.name?.message, textError].filter(Boolean).map((text) => (
-              <p
-                key={`${textField}-${text}`}
-                role="alert"
-                className="text-sm text-destructive"
-              >
-                {text}
-              </p>
-            ))}
+            {(
+              [
+                ['name', error?.name?.message],
+                [textField, textError],
+              ] as const
+            )
+              .filter(([, text]) => Boolean(text))
+              .map(([field, text]) => (
+                <p
+                  key={field}
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
+                  {text}
+                </p>
+              ))}
           </div>
         );
       })}

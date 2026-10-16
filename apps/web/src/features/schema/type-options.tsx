@@ -116,6 +116,7 @@ export function TypeOptions({
                   id={ids.id}
                   label={t('schemaEditor.typeOptions.encoding')}
                   describedBy={ids['aria-describedby']}
+                  invalid={Boolean(ids['aria-invalid'])}
                   value={field.value || 'none'}
                   onChange={(next) =>
                     field.onChange(next === 'none' ? '' : next)
@@ -200,6 +201,8 @@ export function TypeOptions({
                 <ChoiceSelect
                   id={ids.id}
                   label={t('schemaEditor.typeOptions.family')}
+                  describedBy={ids['aria-describedby']}
+                  invalid={Boolean(ids['aria-invalid'])}
                   value={field.value}
                   onChange={field.onChange}
                   choices={(['any', 'ipv4', 'ipv6'] as const).map((value) => ({

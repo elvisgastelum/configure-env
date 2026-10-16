@@ -60,6 +60,9 @@ describe('fileFieldForPath', () => {
     ['files[2].values.Z', 'values'],
     ['files[1].path', 'root'],
     ['variables.A.type', 'root'],
+    // Inherited properties are no form fields.
+    ['files[2].constructor', 'root'],
+    ['files[2].toString', 'root'],
   ])('puts %s on %s', (path, field) => {
     expect(fileFieldForPath(path, 2, values)).toBe(field);
   });

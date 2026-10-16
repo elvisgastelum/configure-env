@@ -261,4 +261,41 @@ describe('the file form', () => {
     );
     expect(within(sheet).getByText('is too long')).toBeVisible();
   });
+
+  it('lists the API’s errors about other parts of the schema above the form', async () => {
+    server.use(
+      http.put('/api/schema/files', () =>
+        HttpResponse.json(
+          {
+            statusCode: 422,
+            message: 'the edit was refused; nothing was written',
+            errors: [
+              {
+                path: 'variables.PORT.default',
+                message: 'invalid default: must be at most 1024',
+              },
+              { path: 'files[0].mode', message: 'another file is refused' },
+            ],
+            schema: mockState.schema,
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+    const { user, sheet } = await openForm('.env.example');
+    await fill(user, sheet, 'Description', 'The example.');
+    await user.click(
+      within(sheet).getByRole('button', { name: 'Review changes' }),
+    );
+    const review = await screen.findByRole('dialog', {
+      name: 'Change .env.example',
+    });
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+    const alert = await within(sheet).findByText(
+      /variables\.PORT\.default: invalid default/,
+    );
+    expect(alert.closest('[role="alert"]')).toHaveTextContent(
+      'The schema refuses this edit:variables.PORT.default: invalid default: must be at most 1024 files[0].mode: another file is refused',
+    );
+  });
 });

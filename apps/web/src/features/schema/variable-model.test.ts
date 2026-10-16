@@ -164,6 +164,9 @@ describe('fieldForPath', () => {
     ['files', 'files'],
     ['variables.OTHER.within', 'root'],
     ['version', 'root'],
+    // Inherited properties are no form fields.
+    ['variables.X.constructor', 'root'],
+    ['variables.X.hasOwnProperty', 'root'],
   ])('puts %s on %s', (path, field) => {
     expect(fieldForPath(path, ['X'])).toBe(field);
   });
