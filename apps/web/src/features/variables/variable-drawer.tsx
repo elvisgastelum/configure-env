@@ -14,9 +14,13 @@ import {
   TabsList,
   TabsTrigger,
 } from '@configure-env/design-system/components/atoms/tabs';
+import { useQuery } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { useTranslation } from 'react-i18next';
+import { projectQuery } from '../../lib/api';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 import { VariableHistory } from '../history/variable-history';
 import { isProtected, protectedReason } from './model';
 import { optionsOf, rulesOf } from './spec';
@@ -112,6 +116,7 @@ function DrawerBody({
   const { name, spec } = variable;
   const rules = rulesOf(spec);
   const options = optionsOf(spec);
+  const schemaPath = useQuery(projectQuery).data?.schemaPath;
 
   return (
     <>
@@ -207,6 +212,20 @@ function DrawerBody({
             {spec.example !== undefined && (
               <Term label={t('variables.drawer.example')}>
                 <code className="font-mono">{show(spec.example)}</code>
+              </Term>
+            )}
+            {schemaPath && (
+              <Term label={t('variables.drawer.definition')}>
+                <span className="flex items-center gap-1" {...editorItem}>
+                  <code className="font-mono">{schemaPath}</code>
+                  <OpenInEditorButton
+                    target={{ file: schemaPath, key: name }}
+                    label={t('editor.definition', {
+                      key: name,
+                      file: schemaPath,
+                    })}
+                  />
+                </span>
               </Term>
             )}
           </dl>

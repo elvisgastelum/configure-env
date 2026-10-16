@@ -25,6 +25,8 @@ import { VariableLink } from '../check/variable-link';
 import { InvalidSchema, NoSchema } from '../overview/schema-states';
 import { RevealProvider } from '../variables/secret-value';
 import { ValueEditor } from '../variables/value-editor';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 import { groupProblems, othersOf } from './problem-groups';
 
 /** The value being fixed: a key in a file. */
@@ -193,20 +195,26 @@ function FileReport({
               key={name}
               title={<VariableLink name={name} />}
               action={
-                variable &&
-                editing !== name && (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="outline"
-                    onClick={() => onEdit(name)}
-                  >
-                    <span aria-hidden="true">{t('validate.fix')}</span>
-                    <span className="sr-only">
-                      {t('validate.fixLabel', { name, file: file.path })}
-                    </span>
-                  </Button>
-                )
+                <>
+                  {variable && editing !== name && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      onClick={() => onEdit(name)}
+                    >
+                      <span aria-hidden="true">{t('validate.fix')}</span>
+                      <span className="sr-only">
+                        {t('validate.fixLabel', { name, file: file.path })}
+                      </span>
+                    </Button>
+                  )}
+                  {file.exists && (
+                    <OpenInEditorButton
+                      target={{ file: file.path, key: name }}
+                    />
+                  )}
+                </>
               }
             >
               <ul className="flex flex-col gap-1">
@@ -255,11 +263,22 @@ function FileReport({
           >
             <ul className="flex flex-col gap-1">
               {groups.lines.map((problem, index) => (
-                <li key={index} data-message="">
-                  {t('validate.line', {
-                    line: problem.line,
-                    message: problem.message,
-                  })}
+                <li
+                  key={index}
+                  className="flex items-center gap-2"
+                  {...editorItem}
+                >
+                  <span data-message="" className="min-w-0 flex-1">
+                    {t('validate.line', {
+                      line: problem.line,
+                      message: problem.message,
+                    })}
+                  </span>
+                  {file.exists && (
+                    <OpenInEditorButton
+                      target={{ file: file.path, line: problem.line }}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -314,6 +333,7 @@ function Group({
         'flex flex-col gap-2 rounded-lg px-3 py-2 text-sm',
         muted ? 'border border-dashed' : 'bg-muted/40',
       )}
+      {...editorItem}
     >
       <div className="flex flex-wrap items-center gap-2">
         <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">

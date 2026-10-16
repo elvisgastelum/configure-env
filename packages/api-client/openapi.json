@@ -1305,6 +1305,66 @@
         "summary": "Undoes one change: writes its previous state, only while the file still holds what it wrote. A secret's change can't be undone",
         "tags": ["history"]
       }
+    },
+    "/api/open-in-editor": {
+      "post": {
+        "operationId": "openInEditor",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenInEditorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenInEditor"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The request does not come from this machine, or the file path is refused: it is not a plain relative path or it leaves the root.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not the schema file or one of its env files, or the file does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A JSON path for an env file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE, else $VISUAL, else $EDITOR). Only from this machine",
+        "tags": ["project"]
+      }
     }
   },
   "info": {
@@ -2112,6 +2172,73 @@
           }
         },
         "required": ["statusCode", "message", "errors"],
+        "additionalProperties": false
+      },
+      "OpenInEditor": {
+        "type": "object",
+        "properties": {
+          "opened": {
+            "type": "boolean",
+            "description": "Whether the editor was started: true means it started and did not fail within 300 ms, not that it confirmed the file is open. A later failure is only written to the server log (stderr)."
+          },
+          "reason": {
+            "description": "When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.",
+            "type": "string",
+            "enum": ["no-editor", "terminal-editor", "failed"]
+          },
+          "message": {
+            "description": "When not opened: what to tell the user.",
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "column": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["opened", "file", "line", "column"],
+        "additionalProperties": false
+      },
+      "OpenInEditorRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The schema file or one of its env files, relative to the root."
+          },
+          "line": {
+            "description": "The 1-based line; it wins over `key` and `path`.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "column": {
+            "description": "The 1-based column; 1 by default.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "key": {
+            "description": "A variable: its entry in an env file (the last one when it repeats), its definition in the schema file. The top of the file when it is not there.",
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "description": "The schema file only: a JSON path as the schema errors give it, like `files[1].variables[0]`; the deepest part the file holds.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["file"],
         "additionalProperties": false
       },
       "ParseError": {

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { filesQuery, schemaQuery, variablesQuery } from '../../lib/api';
 import { schemaStatus } from '../../lib/schema-status';
 import { InvalidSchema, NoSchema } from '../overview/schema-states';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 import {
   EMPTY_FILTERS,
   type Filters,
@@ -93,6 +94,9 @@ function VariablesBrowser({ focus }: { focus?: string }) {
     0,
   );
   const valueFile = filters.file ?? fileList[0]?.path;
+  const valueExists = fileList.some(
+    (file) => file.path === valueFile && file.exists,
+  );
   const copy = useCopy();
 
   useShortcuts({
@@ -168,11 +172,18 @@ function VariablesBrowser({ focus }: { focus?: string }) {
           renderActions={(variable) =>
             valueFile &&
             variable.files.some((entry) => entry.file === valueFile) && (
-              <CopyMenu
-                variable={variable}
-                file={valueFile}
-                label={t('variables.copy.menu', { name: variable.name })}
-              />
+              <span className="inline-flex items-center gap-0.5">
+                {valueExists && (
+                  <OpenInEditorButton
+                    target={{ file: valueFile, key: variable.name }}
+                  />
+                )}
+                <CopyMenu
+                  variable={variable}
+                  file={valueFile}
+                  label={t('variables.copy.menu', { name: variable.name })}
+                />
+              </span>
             )
           }
           renderGroupActions={(group) => {

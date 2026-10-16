@@ -5,7 +5,11 @@
 // schema writer, as the API does, so they refuse what the API refuses.
 
 import * as writer from '@configure-env/core/schema';
-import type { ApplyRequest, PlanRequest } from '@configure-env/api-client';
+import type {
+  ApplyRequest,
+  OpenInEditorRequest,
+  PlanRequest,
+} from '@configure-env/api-client';
 import type {
   FileInput,
   SchemaDocument,
@@ -17,6 +21,7 @@ import * as fixtures from './fixtures';
 import {
   applyPlan,
   checkOf,
+  editorPosition,
   eventClients,
   findFile,
   findVariable,
@@ -231,6 +236,26 @@ export const handlers = [
       );
     return json({ file, key, value: plainValue(file, key) });
   }),
+  // Opens nothing: answers where the editor would open, the line of a key
+  // from the file's lines, as the API's dotenv parser finds it.
+  http.post('/api/open-in-editor', async ({ request }) => {
+    const body = (await request.json()) as OpenInEditorRequest;
+    const known =
+      body.file === mockState.schema.path || findFile(body.file)?.exists;
+    if (!known)
+      return HttpResponse.json(
+        {
+          statusCode: 404,
+          message: `${body.file} is not the schema file or one of its env files`,
+        },
+        { status: 404 },
+      );
+    return json({
+      opened: true,
+      file: body.file,
+      ...editorPosition(body),
+    });
+  }),
   // What applying would do; the value and rule errors of the given values.
   http.post('/api/plan', async ({ request }) =>
     json(planOf((await request.json()) as PlanRequest)),
@@ -436,6 +461,47 @@ export const scenarios = {
   everyProblem: [
     http.get('/api/check', () => json(fixtures.driftCheck)),
     http.get('/api/validate', () => json(fixtures.validationReport)),
+  ],
+  /** No editor is set or running: open-in-editor says so. */
+  noEditor: [
+    http.post('/api/open-in-editor', async ({ request }) => {
+      const body = (await request.json()) as OpenInEditorRequest;
+      return json({
+        opened: false,
+        reason: 'no-editor',
+        message:
+          'No editor was found: set $LAUNCH_EDITOR, $VISUAL or $EDITOR, or open VS Code, Cursor, Zed or a JetBrains IDE.',
+        file: body.file,
+        ...editorPosition(body),
+      });
+    }),
+  ],
+  /** The editor found is vim, which runs in a terminal: open-in-editor says so. */
+  terminalEditor: [
+    http.post('/api/open-in-editor', async ({ request }) => {
+      const body = (await request.json()) as OpenInEditorRequest;
+      return json({
+        opened: false,
+        reason: 'terminal-editor',
+        message:
+          "'vim' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.",
+        file: body.file,
+        ...editorPosition(body),
+      });
+    }),
+  ],
+  /** open-in-editor refuses the file: it leads out of the root. */
+  editorRefused: [
+    http.post('/api/open-in-editor', async ({ request }) => {
+      const { file } = (await request.json()) as OpenInEditorRequest;
+      return HttpResponse.json(
+        {
+          statusCode: 403,
+          message: `${file}: resolves outside the root through a symlink`,
+        },
+        { status: 403 },
+      );
+    }),
   ],
   /** The plan shows every action a file can take. */
   everyAction: [http.post('/api/plan', () => json(fixtures.everyActionPlan))],

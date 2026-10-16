@@ -1,0 +1,297 @@
+// Opening a project file in the user's editor at a line: which files may be
+// opened (the schema file and its env files, inside the root, never through
+// a symlink), where the line is (the dotenv parser for an env file, a JSON
+// source map for the schema), and the launcher, launch-editor's editor guess
+// behind a seam the tests replace, so no test ever starts an editor.
+
+// The helpers' declarations, for every package that type-checks this file
+// (the portal's too). An ambient declaration file has no module to import.
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="./launch-editor.d.ts" />
+
+import { type ChildProcess, spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { isIPv4 } from 'node:net';
+import {
+  type TextPosition,
+  entryPosition,
+  filePathProblem,
+  formatIssuePath,
+  jsonPathPosition,
+  parseDotenv,
+  resolveTarget,
+} from '@configure-env/core';
+import constructWindowsLaunchCommand from 'launch-editor/construct-windows-launch-command.js';
+import getArgumentsForFile from 'launch-editor/get-args.js';
+import guessEditor from 'launch-editor/guess.js';
+import type { z } from 'zod';
+import type { openInEditorRequest, openInEditorResponse } from './contracts.ts';
+import { ApiError } from './http.ts';
+import { type Project, readSchema } from './project.ts';
+
+/** A file to open: its absolute path and the 1-based position. */
+export interface EditorTarget extends TextPosition {
+  file: string;
+}
+
+/** Whether the editor was started; when not, why, for the portal to say. */
+export type LaunchResult =
+  | { opened: true }
+  | {
+      opened: false;
+      reason: 'no-editor' | 'terminal-editor' | 'failed';
+      message: string;
+    };
+
+/** Opens a file in the user's editor. */
+export type EditorLauncher = (target: EditorTarget) => Promise<LaunchResult>;
+
+export const NO_EDITOR_MESSAGE =
+  'No editor was found: set $LAUNCH_EDITOR, $VISUAL or $EDITOR, or open VS Code, Cursor, Zed or a JetBrains IDE.';
+
+/** Why a terminal editor is not started, naming it. */
+export function terminalEditorMessage(name: string): string {
+  return `'${name}' runs in a terminal, and the server has none to give it: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE.`;
+}
+
+// Editors that run only in a terminal, by the command's base name.
+const TERMINAL_EDITORS = new Set([
+  'vim',
+  'vi',
+  'nvim',
+  'nano',
+  'micro',
+  'hx',
+  'helix',
+  'kak',
+  'ne',
+  'joe',
+  'mcedit',
+]);
+// emacs and emacsclient run in a terminal only when asked to.
+const EMACS = new Set(['emacs', 'emacsclient']);
+const EMACS_IN_TERMINAL = new Set(['-nw', '-t', '--no-window-system', '--tty']);
+
+/**
+ * The name of the terminal editor `editor` and its arguments start, if they
+ * start one. The guess keeps $LAUNCH_EDITOR, $VISUAL and $EDITOR whole, so
+ * `emacs -nw` may arrive as one string.
+ */
+function terminalEditor(editor: string, args: string[]): string | undefined {
+  const baseName = (command: string) =>
+    (command.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '');
+  const [first = '', ...flags] = editor.trim().split(/\s+/);
+  for (const name of new Set([baseName(editor), baseName(first)])) {
+    if (TERMINAL_EDITORS.has(name)) return name;
+    if (
+      EMACS.has(name) &&
+      [...flags, ...args].some((flag) => EMACS_IN_TERMINAL.has(flag))
+    )
+      return name;
+  }
+  return undefined;
+}
+
+/** How long a launch may take to fail before it counts as opened. */
+const SETTLE_MS = 300;
+
+// cmd.exe expands these even inside quotes, and the command runs through it
+// on Windows, so a file name holding one is not passed.
+const UNSAFE_ON_WINDOWS = /[%!"^\r\n]/;
+
+type Pipe = NodeJS.ReadableStream & { unref?: () => void };
+
+/**
+ * The launcher of `configure-env serve`: launch-editor's own editor guess
+ * ($LAUNCH_EDITOR, then a running IDE, then $VISUAL, then $EDITOR) and
+ * arguments, spawned here rather than by its launchEditor, which prints
+ * its errors on stdout, where `serve --json` prints one line. The editor
+ * runs without a shell (cmd.exe on Windows, with launch-editor's escaping),
+ * and whatever it prints goes to `log`, stderr by default. A terminal
+ * editor is never started: a server has no terminal to give it. A launch that
+ * fails within a moment (no editor found, a command that does not exist or
+ * exits with an error) answers why; after that, it counts as opened, and a
+ * later failure is only logged.
+ */
+export function createLauncher(
+  platform: NodeJS.Platform = process.platform,
+  log: NodeJS.WritableStream = process.stderr,
+): EditorLauncher {
+  const failed = (message: string): LaunchResult => ({
+    opened: false,
+    reason: 'failed',
+    message: `the editor could not open the file: ${message}`,
+  });
+  return ({ file, line, column }) =>
+    new Promise((resolve) => {
+      if (
+        platform === 'win32' &&
+        (UNSAFE_ON_WINDOWS.test(file) || file.startsWith('\\\\'))
+      ) {
+        resolve({
+          opened: false,
+          reason: 'failed',
+          message:
+            'the file name holds a character the Windows shell expands, or is a network path',
+        });
+        return;
+      }
+      // launch-editor's own order: $LAUNCH_EDITOR, then a running VS Code,
+      // Cursor, Zed or JetBrains IDE, then $VISUAL, then $EDITOR.
+      const [editor, ...rest] = guessEditor();
+      if (!editor) {
+        resolve({
+          opened: false,
+          reason: 'no-editor',
+          message: NO_EDITOR_MESSAGE,
+        });
+        return;
+      }
+      // A server process has no terminal for it, even one $LAUNCH_EDITOR
+      // names: it would fail, or run unseen while the portal says opened.
+      const terminal = terminalEditor(editor, rest as string[]);
+      if (terminal) {
+        resolve({
+          opened: false,
+          reason: 'terminal-editor',
+          message: terminalEditorMessage(terminal),
+        });
+        return;
+      }
+      const args = [
+        ...(rest as string[]),
+        ...getArgumentsForFile(editor, file, line, column),
+      ].map(String);
+      const stdio: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe'];
+      let child: ChildProcess;
+      try {
+        // On Windows, cmd.exe runs launch-editor's escaped command line as
+        // exec would, but spawned: exec buffers the output and kills the
+        // editor past its maxBuffer.
+        child =
+          platform === 'win32'
+            ? spawn(
+                process.env.ComSpec || 'cmd.exe',
+                [
+                  '/d',
+                  '/s',
+                  '/c',
+                  `"${constructWindowsLaunchCommand(editor, args)}"`,
+                ],
+                { stdio, windowsHide: true, windowsVerbatimArguments: true },
+              )
+            : spawn(editor, args, { stdio });
+      } catch (error) {
+        resolve(failed((error as Error).message));
+        return;
+      }
+      // Forwarded chunk by chunk: piping would add listeners to `log` for as
+      // long as each editor runs, and every launch shares that stream.
+      const pipes = [child.stdout, child.stderr].filter(Boolean) as Pipe[];
+      for (const pipe of pipes)
+        pipe.on('data', (chunk: Buffer) => log.write(chunk));
+
+      let settled = false;
+      const settle = (result: LaunchResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        // An editor left running never keeps the server from stopping.
+        child.unref();
+        for (const pipe of pipes) pipe.unref?.();
+        resolve(result);
+      };
+      const timer = setTimeout(() => settle({ opened: true }), SETTLE_MS);
+      const report = (message: string) => {
+        if (settled) log.write(`configure-env: ${message}\n`);
+        else settle(failed(message));
+      };
+      child.on('error', (error: NodeJS.ErrnoException) =>
+        report(
+          error.code === 'ENOENT'
+            ? `${error.message} ('${editor}' is not a command on the PATH)`
+            : error.message,
+        ),
+      );
+      child.on('exit', (code) => {
+        if (code) report(`the editor exited with code ${code}`);
+        else settle({ opened: true });
+      });
+    });
+}
+
+/** Whether a socket's remote address is this machine. */
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  const v4 = address.startsWith('::ffff:') ? address.slice(7) : address;
+  return isIPv4(v4) && v4.startsWith('127.');
+}
+
+type Request = z.output<typeof openInEditorRequest>;
+type Response = z.output<typeof openInEditorResponse>;
+
+const START: TextPosition = { line: 1, column: 1 };
+
+/** Where to open: the position asked, else the one the key or path resolves to. */
+function positionIn(
+  text: string,
+  body: Request,
+  isSchema: boolean,
+): TextPosition {
+  if (body.line !== undefined)
+    return { line: body.line, column: body.column ?? 1 };
+  if (isSchema) {
+    const path =
+      body.path ??
+      (body.key === undefined
+        ? undefined
+        : formatIssuePath(['variables', body.key]));
+    return (path && jsonPathPosition(text, path)) || START;
+  }
+  return (
+    (body.key !== undefined && entryPosition(parseDotenv(text), body.key)) ||
+    START
+  );
+}
+
+/**
+ * Opens the schema file or one of its env files at a position. Refuses a
+ * path that is not a plain relative one or that leads out of the root (403),
+ * a file the project does not list or that does not exist (404), and a JSON
+ * path for an env file (422).
+ */
+export async function openInEditor(
+  project: Project,
+  body: Request,
+  launcher: EditorLauncher,
+): Promise<Response> {
+  const { file } = body;
+  const problem = filePathProblem(file);
+  if (problem) throw new ApiError(403, `${file}: ${problem}`);
+  const isSchema = file === project.schemaPath;
+  // An invalid schema still opens itself: that is where its errors are.
+  if (!isSchema) {
+    const { schema } = await readSchema(project);
+    if (!schema?.files.some((spec) => spec.path === file))
+      throw new ApiError(
+        404,
+        `${file} is not the schema file or one of its env files`,
+      );
+    if (body.path !== undefined)
+      throw new ApiError(
+        422,
+        `${file}: a JSON path applies to the schema file only`,
+      );
+  }
+  const target = await resolveTarget(project.root, file);
+  if (!target.ok) throw new ApiError(403, `${file}: ${target.message}`);
+  if (!target.exists) throw new ApiError(404, `${file}: no such file`);
+  const position = positionIn(
+    await readFile(target.absolute, 'utf8'),
+    body,
+    isSchema,
+  );
+  const result = await launcher({ file: target.absolute, ...position });
+  return { ...result, file, ...position };
+}

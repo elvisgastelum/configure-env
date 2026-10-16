@@ -239,7 +239,8 @@
         "family": "Family",
         "strict": "Strict",
         "allowEmpty": "Allows an empty value"
-      }
+      },
+      "definition": "Definition"
     },
     "secret": {
       "reveal": "Reveal {{name}} in {{file}}",
@@ -836,5 +837,20 @@
       "empty": "No change to {{name}} yet.",
       "all": "Open the full history of {{name}}"
     }
+  },
+  "editor": {
+    "open": "Open in editor",
+    "file": "Open {{file}} in editor",
+    "key": "Open {{key}} in {{file}} in editor",
+    "definition": "Open the definition of {{key}} in {{file}} in editor",
+    "line": "Open line {{line}} of {{file}} in editor",
+    "path": "Open {{path}} in {{file}} in editor",
+    "opened": "Opened {{file}}:{{line}} in your editor",
+    "noEditor": "No editor found",
+    "noEditorHint": "Set $LAUNCH_EDITOR, $VISUAL or $EDITOR, or open VS Code, Cursor, Zed or a JetBrains IDE, then try again.",
+    "terminalEditor": "Your editor runs in a terminal",
+    "terminalEditorHint": "The server has no terminal to run it in: set $LAUNCH_EDITOR to a GUI editor, or open VS Code, Cursor, Zed or a JetBrains IDE, then try again.",
+    "failed": "The editor could not open {{file}}",
+    "error": "Could not open {{file}}: {{message}}"
   }
 }
