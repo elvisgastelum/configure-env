@@ -667,7 +667,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 - **Local only.** It binds `127.0.0.1` unless told otherwise, and answers only requests whose `Host` (and `Origin`, when sent) is its own address, against DNS rebinding and CSRF. There is no CORS: preflights are refused, and cross-site fetches (`Sec-Fetch-Site`) too.
 - **Token on every request.** A random per-run token, as `Authorization: Bearer <token>`, or as the HttpOnly `SameSite=Strict` cookie that `GET /launch?token=<token>` sets before redirecting to `/`. A cookie-authenticated `POST`, `PUT` or `DELETE` must also send its `Origin`.
 - **Inside the root.** The schema must be a regular file inside the root, and the env files are read and written only when they resolve inside it, symlinks included.
-- **Secrets masked.** Values of `secret` variables are masked everywhere except `POST /api/reveal`, which returns one value of one schema file. Plan diffs mask them too, and a generated secret is never returned.
+- **Secrets masked.** Values of `secret` variables are masked everywhere except `POST /api/reveal`, which returns one value of one schema file. Plan diffs and `POST /api/files/content` mask them too, also on a line that does not parse or is commented out (all after its `=`), and a generated secret is never returned.
 
 | Endpoint             | What it returns                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------- |

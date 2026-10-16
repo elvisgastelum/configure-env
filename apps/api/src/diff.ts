@@ -14,6 +14,10 @@ interface Shown {
   shown: string[];
 }
 
+/** The `KEY=` start of a line, as the dotenv parser reads one, or of one commented out. */
+const KEY_PREFIX =
+  /^(\s*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=)/;
+
 /** The text's logical lines, each shown with a secret entry's value masked. */
 function shownLines(schema: EnvSchema, text: string): Shown[] {
   if (!text) return [];
@@ -30,6 +34,14 @@ function shownLines(schema: EnvSchema, text: string): Shown[] {
         line.raw.slice(0, line.valueStart) +
         maskValue(spec, line.value ?? '') +
         line.raw.slice(line.valueEnd);
+    else if (line.kind === 'invalid' || line.kind === 'comment') {
+      // A secret's line that does not parse (an unclosed quote, text after
+      // the closing quote), or one commented out, has no value bounds: mask
+      // all after its `=`.
+      const prefix = KEY_PREFIX.exec(line.raw);
+      if (prefix && schema.variables[prefix[2]!]?.secret)
+        shown = `${prefix[1]}••••`;
+    }
     return { raw: line.raw, shown: shown.split(/\r?\n/) };
   });
 }
