@@ -22,7 +22,6 @@ const TSCONFIG = join(REPO, 'apps/api/tsconfig.json');
 const TSX = pathToFileURL(
   createRequire(join(REPO, 'packages/cli/package.json')).resolve('tsx'),
 ).href;
-/** The built portal serve hands out; without it serve runs the API only. */
 
 export type FixtureName = 'portfolio' | 'empty';
 
