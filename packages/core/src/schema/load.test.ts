@@ -779,6 +779,27 @@ describe('parseSchemaText', () => {
   });
 
   it.each([
+    ['arrays', '['.repeat(100_000), 100_000],
+    ['objects', '{"a":'.repeat(100_000), 500_000],
+  ])(
+    'finds the error in %s nested 100k deep without overflowing',
+    (_kind, open, offset) => {
+      const result = parseSchemaText(`${open}x`);
+      expect(result).toEqual({
+        ok: false,
+        errors: [
+          {
+            path: '(root)',
+            line: 1,
+            column: offset + 1,
+            message: `invalid JSON at line 1, column ${offset + 1}: unexpected 'x'`,
+          },
+        ],
+      });
+    },
+  );
+
+  it.each([
     ['{"a": 1,}', 1, 9, "unexpected '}'"],
     ['{"a" 1}', 1, 6, "unexpected '1'"],
     ['[1 2]', 1, 4, "unexpected '2'"],
