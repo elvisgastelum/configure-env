@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { toast } from '@configure-env/design-system/components/atoms/sonner';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { OWN_WRITE_MS } from '../../lib/use-project-events';
 import { findFile } from '../../mocks/store';
 import { changeOutside } from '../../test/events';
 import { renderApp } from '../../test/render';
@@ -16,6 +18,10 @@ function countReads(path: string) {
   });
   return reads;
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /** The card of `path` on the files page. */
 const card = async (path: string) =>
@@ -216,7 +222,12 @@ describe('live state', () => {
   });
 
   it("refreshes quietly after the portal's own write", async () => {
-    const { user, detail } = await openFile('.env');
+    // A controlled clock: the change lands inside the own-write window
+    // however slow the run is.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const info = vi.spyOn(toast, 'info');
+    const { user, detail, queryClient } = await openFile('.env');
     await user.click(
       within(detail).getByRole('button', { name: 'Edit PORT in .env' }),
     );
@@ -227,10 +238,15 @@ describe('live state', () => {
     await user.type(input, '9090');
     await user.click(within(detail).getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved PORT in .env')).toBeInTheDocument();
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
 
+    vi.setSystemTime(Date.now() + OWN_WRITE_MS - 1);
     const reads = countReads('/api/files');
     await changeOutside(['.env']);
+    // The refetch starts once the hook has handled the event, toast or not.
     await waitFor(() => expect(reads.count).toBeGreaterThan(0));
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    expect(info).not.toHaveBeenCalled();
     expect(
       screen.queryByText(/changed outside the portal/),
     ).not.toBeInTheDocument();

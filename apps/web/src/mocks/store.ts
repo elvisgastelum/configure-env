@@ -50,7 +50,11 @@ export const mockState: MockState = fresh();
 
 /** A portal listening on GET /api/events. */
 export interface EventClient {
-  send(payload: { event: 'changed'; data: { paths: string[] } }): void;
+  send(
+    payload:
+      { event: 'changed'; data: { paths: string[] } } | { retry: number },
+  ): void;
+  close(): void;
 }
 
 /** The portals listening now; a reset forgets them. */
@@ -68,6 +72,21 @@ export function emitChanged(paths: string[]) {
       // The portal closed its stream.
       eventClients.delete(client);
     }
+}
+
+/**
+ * Ends every portal's event stream, as a restarted API or a dropped network
+ * does. Each portal reconnects at once (a short `retry`), as a browser does.
+ */
+export function dropEvents() {
+  for (const client of eventClients)
+    try {
+      client.send({ retry: 1 });
+      client.close();
+    } catch {
+      // The portal closed its stream already.
+    }
+  eventClients.clear();
 }
 
 /** Back to the sample project, as the fixtures describe it. */

@@ -31,7 +31,7 @@ Every variable name links to the variables page (`/variables?focus=KEY`). **Run 
 
 ## Live updates
 
-While the portal is open it listens on `GET /api/events`. A `changed` event (the API watches the schema and every env file it lists) makes every view fetch again, and a toast names the paths that changed outside the portal. The portal's own writes change the files too: an event within two seconds of one of its writes refreshes quietly.
+While the portal is open it listens on `GET /api/events`. A `changed` event (the API watches the schema and every env file it lists) makes every view fetch again, and a toast names the paths that changed outside the portal. Events that arrive together (one save, a checkout) refetch once and raise at most one toast naming every path. The portal's own writes change the files too: an event within two seconds of one of its writes (a write starting or settling, not other cache activity) refreshes quietly. When the stream drops and reconnects, every view fetches again, quietly, since what changed meanwhile sent no event.
 
 ## Schema editor (`/schema`)
 
@@ -82,5 +82,5 @@ Switching a variable's type clears the options the new type does not take, and a
 ## Tests and stories
 
 - The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes check and validate from it, so a fix shows in the next report.
-- `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens.
+- `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens, and `dropEvents()` (`src/mocks/store.ts`) ends the streams so the portal reconnects.
 - The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate` and `Portal/Schema`. Run them with `pnpm storybook:web`.
