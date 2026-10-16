@@ -43,17 +43,6 @@ export const NO_EDITOR_MESSAGE =
 /** How long a launch may take to fail before it counts as opened. */
 const SETTLE_MS = 300;
 
-/**
- * The editor command to pass to launch-editor's guess, by precedence: none
- * when $LAUNCH_EDITOR is set (the guess reads it itself, as one command),
- * else $VISUAL, else $EDITOR; none lets it detect a running VS Code,
- * Cursor, Zed or JetBrains IDE.
- */
-export function editorCommand(env: NodeJS.ProcessEnv): string | undefined {
-  if (env.LAUNCH_EDITOR) return undefined;
-  return env.VISUAL || env.EDITOR || undefined;
-}
-
 // cmd.exe expands these even inside quotes, and the command runs through it
 // on Windows, so a file name holding one is not passed.
 const UNSAFE_ON_WINDOWS = /[%!"^\r\n]/;
@@ -62,7 +51,8 @@ type Pipe = NodeJS.ReadableStream & { unref?: () => void };
 
 /**
  * The launcher of `configure-env serve`: launch-editor's own editor guess
- * and arguments, spawned here rather than by its launchEditor, which prints
+ * ($LAUNCH_EDITOR, then a running IDE, then $VISUAL, then $EDITOR) and
+ * arguments, spawned here rather than by its launchEditor, which prints
  * its errors on stdout, where `serve --json` prints one line. The editor
  * runs without a shell (cmd.exe on Windows, with launch-editor's escaping),
  * and whatever it prints goes to `log`, stderr by default. A launch that
@@ -71,7 +61,6 @@ type Pipe = NodeJS.ReadableStream & { unref?: () => void };
  * later failure is only logged.
  */
 export function createLauncher(
-  env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   log: NodeJS.WritableStream = process.stderr,
 ): EditorLauncher {
@@ -94,7 +83,9 @@ export function createLauncher(
         });
         return;
       }
-      const [editor, ...rest] = guessEditor(editorCommand(env));
+      // launch-editor's own order: $LAUNCH_EDITOR, then a running VS Code,
+      // Cursor, Zed or JetBrains IDE, then $VISUAL, then $EDITOR.
+      const [editor, ...rest] = guessEditor();
       if (!editor) {
         resolve({
           opened: false,

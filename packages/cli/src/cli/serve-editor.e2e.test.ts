@@ -48,10 +48,13 @@ async function bin(scripts: Record<string, string>) {
  * Runs `serve --json` with `env` over the editor variables, asks it to open
  * `.env` at PORT, then stops it; returns the answer and everything printed.
  */
-async function openThroughServe(env: Record<string, string>) {
+async function openThroughServe(
+  env: Record<string, string>,
+  /** What `ps` lists; by default not one running IDE, whatever this machine runs. */
+  processes = '',
+) {
   await writeFile(join(dirs.root, '.env'), '# local\nPORT=8080\n');
-  // Not one running IDE, whatever this machine runs.
-  const fakes = await bin({ ps: 'exit 0' });
+  const fakes = await bin({ ps: `printf '%s\\n' '${processes}'` });
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: `${fakes}:${process.env.PATH}`,
@@ -97,6 +100,12 @@ async function openThroughServe(env: Record<string, string>) {
   await exited;
   return { status: response.status, body, out, err };
 }
+
+/** How `ps` lists a running VS Code, on this platform. */
+const RUNNING_VS_CODE =
+  process.platform === 'darwin'
+    ? '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'
+    : 'code';
 
 /** stdout holds exactly the one JSON line `serve --json` documents. */
 function expectOneJsonLine(out: string) {
@@ -154,6 +163,35 @@ describe.skipIf(process.platform === 'win32')(
         const args = await readFile(join(dirs.root, 'args.txt'), 'utf8');
         // A $LAUNCH_EDITOR script takes the file, the line and the column.
         expect(args).toBe(`${join(await realpath(dirs.root), '.env')}\n2\n1\n`);
+      },
+      TIMEOUT,
+    );
+
+    it(
+      'prefers a running IDE to $VISUAL and $EDITOR',
+      async () => {
+        const record = (name: string) =>
+          `printf '%s\\n' "$@" > "${join(dirs.root, name)}.txt"`;
+        const fakes = await bin({
+          code: record('code'),
+          'fake-visual': record('visual'),
+          'fake-editor': record('editor'),
+        });
+        const { body, out } = await openThroughServe(
+          {
+            VISUAL: join(fakes, 'fake-visual'),
+            EDITOR: join(fakes, 'fake-editor'),
+          },
+          RUNNING_VS_CODE,
+        );
+        expect(body).toMatchObject({ opened: true });
+        expectOneJsonLine(out);
+        const root = await realpath(dirs.root);
+        expect(await readFile(join(root, 'code.txt'), 'utf8')).toBe(
+          `-r\n-g\n${join(root, '.env')}:2:1\n`,
+        );
+        await expect(readFile(join(root, 'visual.txt'))).rejects.toThrow();
+        await expect(readFile(join(root, 'editor.txt'))).rejects.toThrow();
       },
       TIMEOUT,
     );

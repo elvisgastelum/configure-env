@@ -5745,7 +5745,7 @@ export const getOpenInEditorUrl = () => {
 };
 
 /**
- * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, $VISUAL, $EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE). Only from this machine
+ * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE, else $VISUAL, else $EDITOR). Only from this machine
  */
 export const openInEditor = async (
   openInEditorRequest: OpenInEditorRequest,
@@ -5840,7 +5840,7 @@ export type OpenInEditorMutationError = ApiError;
 export type OpenInEditorMutationVariables = { data: OpenInEditorRequest };
 
 /**
- * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, $VISUAL, $EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE). Only from this machine
+ * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE, else $VISUAL, else $EDITOR). Only from this machine
  */
 export const useOpenInEditor = <TError = ApiError, TContext = unknown>(
   options?: {

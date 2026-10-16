@@ -91,7 +91,7 @@ Every change to the env files or the schema, from the portal or the CLI (`set`, 
 
 ## Open in editor
 
-Every item that points at a place in a file has an **Open in editor** button (an arrow out of a square; its tooltip shows the shortcut `o`). It sends `POST /api/open-in-editor`, and the API starts the editor on this machine (`$LAUNCH_EDITOR`, `$VISUAL`, `$EDITOR`, else a running VS Code, Cursor, Zed or JetBrains IDE) at the line it resolves.
+Every item that points at a place in a file has an **Open in editor** button (an arrow out of a square; its tooltip shows the shortcut `o`). It sends `POST /api/open-in-editor`, and the API starts the editor on this machine (`$LAUNCH_EDITOR`, else a running VS Code, Cursor, Zed or JetBrains IDE, else `$VISUAL`, else `$EDITOR`) at the line it resolves.
 
 - **Variables:** a row of the table opens the variable's entry in the file the value column shows. In the drawer, **Definition** opens its definition in the schema file, and each file of the value table opens its entry there.
 - **Env files:** the file detail opens the file, and each of its entries at its line.

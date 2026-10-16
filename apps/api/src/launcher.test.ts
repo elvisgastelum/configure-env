@@ -30,8 +30,7 @@ vi.mock('node:child_process', async (original) => ({
   },
 }));
 
-const { NO_EDITOR_MESSAGE, createLauncher, editorCommand } =
-  await import('./editor.ts');
+const { NO_EDITOR_MESSAGE, createLauncher } = await import('./editor.ts');
 
 const target = { file: '/project/.env', line: 4, column: 2 };
 
@@ -50,24 +49,24 @@ beforeEach(() => {
   child = new FakeChild();
 });
 
-describe('editorCommand', () => {
-  it('leaves $LAUNCH_EDITOR to launch-editor, then takes $VISUAL, then $EDITOR', () => {
-    expect(
-      editorCommand({ LAUNCH_EDITOR: 'zed', VISUAL: 'code', EDITOR: 'vim' }),
-    ).toBeUndefined();
-    expect(editorCommand({ VISUAL: 'code -w', EDITOR: 'vim' })).toBe('code -w');
-    expect(editorCommand({ VISUAL: '', EDITOR: 'vim' })).toBe('vim');
-    expect(editorCommand({})).toBeUndefined();
-  });
-});
-
 describe('createLauncher', () => {
+  it('leaves the order to the guess: $LAUNCH_EDITOR, a running IDE, $VISUAL, $EDITOR', async () => {
+    vi.stubEnv('VISUAL', 'vim');
+    vi.stubEnv('EDITOR', 'nano');
+    const opening = createLauncher('darwin', logged().log)(target);
+    child.emit('exit', 0);
+    await opening;
+    // No editor of its own: launch-editor's guess tries a running IDE
+    // before $VISUAL and $EDITOR.
+    expect(guesses).toEqual([undefined]);
+    vi.unstubAllEnvs();
+  });
+
   it("spawns the guessed editor without a shell at the file's line and column", async () => {
     const { log } = logged();
-    const opening = createLauncher({ VISUAL: 'cursor' }, 'darwin', log)(target);
+    const opening = createLauncher('darwin', log)(target);
     child.emit('exit', 0);
     expect(await opening).toEqual({ opened: true });
-    expect(guesses).toEqual(['cursor']);
     expect(spawned).toEqual([
       {
         command: 'code',
@@ -79,13 +78,13 @@ describe('createLauncher', () => {
   });
 
   it('counts a launch still running after a moment as opened', async () => {
-    const opening = createLauncher({}, 'linux', logged().log)(target);
+    const opening = createLauncher('linux', logged().log)(target);
     expect(await opening).toEqual({ opened: true });
   });
 
   it('answers no-editor when the guess finds none, and spawns nothing', async () => {
     guessed = [null];
-    const result = await createLauncher({}, 'darwin', logged().log)(target);
+    const result = await createLauncher('darwin', logged().log)(target);
     expect(result).toEqual({
       opened: false,
       reason: 'no-editor',
@@ -96,7 +95,7 @@ describe('createLauncher', () => {
 
   it('answers failed when the editor command does not exist', async () => {
     guessed = ['nope'];
-    const opening = createLauncher({}, 'darwin', logged().log)(target);
+    const opening = createLauncher('darwin', logged().log)(target);
     child.emit(
       'error',
       Object.assign(new Error('spawn nope ENOENT'), { code: 'ENOENT' }),
@@ -110,7 +109,7 @@ describe('createLauncher', () => {
   });
 
   it('answers failed when the editor exits with an error at once', async () => {
-    const opening = createLauncher({}, 'darwin', logged().log)(target);
+    const opening = createLauncher('darwin', logged().log)(target);
     child.emit('exit', 3);
     expect(await opening).toEqual({
       opened: false,
@@ -123,7 +122,7 @@ describe('createLauncher', () => {
   it('sends what the editor prints, and a late failure, to the log, never to stdout', async () => {
     const { log, text } = logged();
     const stdout = vi.spyOn(process.stdout, 'write');
-    const opening = createLauncher({}, 'darwin', log)(target);
+    const opening = createLauncher('darwin', log)(target);
     child.stdout.write('hello from the editor\n');
     child.stderr.write('a warning\n');
     expect(await opening).toEqual({ opened: true });
@@ -138,7 +137,6 @@ describe('createLauncher', () => {
   it('never passes a name cmd.exe would expand on Windows', async () => {
     for (const file of ['C:\\project\\%PATH%.env', '\\\\server\\share\\.env']) {
       const result = await createLauncher(
-        {},
         'win32',
         logged().log,
       )({

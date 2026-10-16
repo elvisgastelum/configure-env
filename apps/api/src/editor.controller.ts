@@ -40,7 +40,7 @@ export class EditorController {
   @HttpCode(200)
   @Read(
     'openInEditor',
-    "Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, $VISUAL, $EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE). Only from this machine",
+    "Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE, else $VISUAL, else $EDITOR). Only from this machine",
     openInEditorResponse,
   )
   @ApiBody({ schema: ref(openInEditorRequest) })
