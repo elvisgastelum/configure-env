@@ -523,6 +523,73 @@
       "switchLabel": "Fields the switch clears",
       "switchConfirm": "Switch and clear them",
       "switchCancel": "Keep {{type}}"
+    },
+    "fileForm": {
+      "addTitle": "Add a file",
+      "editTitle": "Edit {{path}}",
+      "description": "Every option env.schema.json takes for a file. The edit is shown as a diff before anything is written.",
+      "sections": {
+        "file": "File",
+        "variables": "Variables",
+        "text": "Header and description",
+        "overrides": "Per-file values and comments"
+      },
+      "path": "Path",
+      "pathHint": "Relative to the project root, with forward slashes; no .. segments and no absolute path.",
+      "policy": "Policy",
+      "policies": {
+        "generate": {
+          "label": "generate",
+          "description": "Rewrite the whole file from the schema on every apply."
+        },
+        "merge": {
+          "label": "merge",
+          "description": "Append the keys it misses and keep everything else as it is."
+        },
+        "create-only": {
+          "label": "create-only",
+          "description": "Write it only when it does not exist yet; never touch it after."
+        }
+      },
+      "mode": "Mode",
+      "modeHint": "The file permissions as three octal digits, like 600; left as they are when empty.",
+      "everyVariable": "Every variable",
+      "everyVariableHint": "Holds every variable in declaration order (\"*\"), new ones included.",
+      "addVariable": "Add a variable to the file",
+      "noVariablesLeft": "Every variable is in the list.",
+      "listLabel": "Variables of the file, in output order",
+      "listEmpty": "No variables yet: add them above.",
+      "drag": "Drag {{name}} to reorder it",
+      "moveUp": "Move {{name}} up",
+      "moveDown": "Move {{name}} down",
+      "remove": "Remove {{name}} from the file",
+      "header": "Header",
+      "headerHint": "Written as # lines at the top of the file; may span lines.",
+      "description_label": "Description",
+      "template": "Template",
+      "templateHint": "A template is committed with placeholders and takes only its values and the defaults, never a value a person or the environment gives.",
+      "templateChoices": {
+        "default": "By its name (now: {{now}})",
+        "true": "Always a template",
+        "false": "Never a template"
+      },
+      "yes": "yes",
+      "no": "no",
+      "values": "Values",
+      "valuesHint": "Literal values for this file that replace the defaults, like placeholders in an example file. Written after KEY= as is.",
+      "comments": "Comments",
+      "commentsHint": "Comments for this file that replace the variables' own comment.",
+      "rowVariable": "Variable of {{kind}} row {{index}}",
+      "rowValue": "Value of row {{index}}",
+      "rowComment": "Comment of row {{index}}",
+      "removeRow": "Remove {{kind}} row {{index}}",
+      "addValue": "Add a value",
+      "addComment": "Add a comment",
+      "pick": "Pick a variable",
+      "cancel": "Cancel",
+      "review": "Review changes",
+      "close": "Close",
+      "errors": "The schema refuses this edit:"
     }
   }
 }

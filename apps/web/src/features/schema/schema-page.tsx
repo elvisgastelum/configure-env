@@ -15,6 +15,7 @@ import { schemaQuery } from '../../lib/api';
 import { schemaStatus } from '../../lib/schema-status';
 import { InvalidSchema, NoSchema } from '../overview/schema-states';
 import { type SchemaEdit, validDocument } from './edits';
+import { FileSheet } from './file-form';
 import { FileList } from './file-list';
 import { type Removal, RemoveDialog } from './remove-dialog';
 import { type ReviewRequest, ReviewDialog } from './review-dialog';
@@ -67,6 +68,7 @@ function SchemaEditor({ schema }: { schema: Schema }) {
   const document = validDocument(schema) as SchemaDocument;
   const [removal, setRemoval] = useState<Removal>();
   const [variable, setVariable] = useState<VariableTarget>();
+  const [file, setFile] = useState<{ path?: string }>();
   const [review, setReview] = useState<ReviewRequest>();
   const reviews = useRef(0);
   const requestReview = (
@@ -102,6 +104,8 @@ function SchemaEditor({ schema }: { schema: Schema }) {
         <TabsContent value="files">
           <FileList
             document={document}
+            onAdd={() => setFile({})}
+            onEdit={(path) => setFile({ path })}
             onRemove={(path) => setRemoval({ kind: 'file', path })}
           />
         </TabsContent>
@@ -110,6 +114,12 @@ function SchemaEditor({ schema }: { schema: Schema }) {
         target={variable}
         document={document}
         onClose={() => setVariable(undefined)}
+        onReview={requestReview}
+      />
+      <FileSheet
+        target={file}
+        document={document}
+        onClose={() => setFile(undefined)}
         onReview={requestReview}
       />
       <RemoveDialog
