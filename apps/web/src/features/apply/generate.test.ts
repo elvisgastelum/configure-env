@@ -38,6 +38,10 @@ describe('generateSecret', () => {
 
   it('is offered for a secret string only', () => {
     expect(canGenerate(secret())).toBe(true);
+    // Too weak to generate, as the CLI's --generate says.
+    expect(canGenerate(secret({ maxLength: 8 }))).toBe(false);
+    expect(canGenerate(secret({ encoding: 'hex', bytes: 8 }))).toBe(false);
+    expect(canGenerate(secret({ encoding: 'hex', bytes: 16 }))).toBe(true);
     expect(canGenerate(secret({ secret: false }))).toBe(false);
     expect(
       canGenerate({

@@ -652,6 +652,7 @@
       "required": "Required",
       "generate": "Generate {{name}}",
       "generateShort": "Generate",
+      "ungenerated": "No random value passes the rules of {{name}}; type one instead.",
       "problem": "{{name}} {{message}}",
       "preview": "Preview"
     },

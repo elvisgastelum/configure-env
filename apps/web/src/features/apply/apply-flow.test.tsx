@@ -1,11 +1,15 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import type { VariableSpec } from '@configure-env/api-client';
+import type { SchemaDocument } from '@configure-env/core/schema';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { everyActionPlan } from '../../mocks/fixtures';
-import { renderApp } from '../../test/render';
+import { findVariable, mockState } from '../../mocks/store';
+import { renderApp, renderWithProviders } from '../../test/render';
 import { recordRequests } from '../../test/requests';
 import { server } from '../../test/server';
+import { ApplyDialog } from './apply-dialog';
 
 /** The apply dialog, opened from the files page. */
 async function openApply() {
@@ -25,6 +29,24 @@ const diffLines = (region: HTMLElement) =>
     row.getAttribute('data-kind'),
     row.querySelector('[data-text]')?.textContent ?? row.textContent,
   ]);
+
+/** API_KEY's spec, with `rules` on top, as GET /api/variables reports it. */
+function apiKeyRules(rules: Partial<VariableSpec>) {
+  Object.assign(findVariable('API_KEY')!.spec, rules);
+}
+
+/** A response the test lets through when it calls `release`. */
+function gate() {
+  let release!: () => void;
+  const opened = new Promise<void>((resolve) => (release = resolve));
+  return { opened, release };
+}
+
+/** The value prompts the dialog shows now, by variable. */
+const prompts = (dialog: HTMLElement) =>
+  within(dialog)
+    .queryAllByRole('group', { name: /^Value of / })
+    .map((field) => field.getAttribute('aria-label'));
 
 describe('apply flow', () => {
   it('prompts for each needed value with its default, and generates a secret', async () => {
@@ -276,5 +298,165 @@ describe('apply flow', () => {
     expect(
       within(dialog).getByRole('region', { name: '.env.seed' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('apply values', () => {
+  it('offers Generate only when the rules leave room for a strong secret', async () => {
+    apiKeyRules({ maxLength: 8 });
+    const { dialog } = await openApply();
+    const key = await within(dialog).findByRole('group', {
+      name: 'Value of API_KEY',
+    });
+    expect(
+      within(key).queryByRole('button', { name: 'Generate API_KEY' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('says why when no random value passes the rules', async () => {
+    apiKeyRules({ pattern: '^[0-9]+$' });
+    const { user, dialog } = await openApply();
+    const key = await within(dialog).findByRole('group', {
+      name: 'Value of API_KEY',
+    });
+    await user.click(
+      within(key).getByRole('button', { name: 'Generate API_KEY' }),
+    );
+    const why = within(key).getByText(
+      'No random value passes the rules of API_KEY; type one instead.',
+    );
+    expect(within(key).getByLabelText('API_KEY')).toHaveAttribute(
+      'aria-describedby',
+      expect.stringContaining(why.id),
+    );
+    expect(within(key).getByLabelText('API_KEY')).toHaveValue('');
+  });
+});
+
+describe('apply plan', () => {
+  it('shows the plan of the latest inputs, not a late answer for earlier ones', async () => {
+    const slow = gate();
+    server.use(
+      http.post('/api/plan', async ({ request }) => {
+        const body = (await request.json()) as { replaceProtected?: string[] };
+        if (body.replaceProtected?.length) {
+          await slow.opened;
+          return HttpResponse.json({ ...everyActionPlan, protected: [] });
+        }
+        return HttpResponse.json({
+          ...everyActionPlan,
+          ok: false,
+          protected: [
+            { file: '.env', key: 'DB_PASSWORD', message: 'is protected' },
+          ],
+        });
+      }),
+    );
+    const { user, dialog } = await openApply();
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Preview' }),
+    );
+    await within(dialog).findByText('DB_PASSWORD in .env is protected');
+    const replace = within(dialog).getByRole('checkbox', {
+      name: 'Replace the protected values',
+    });
+    await user.click(replace); // asks with replaceProtected; answers late
+    await user.click(replace); // asks without; answers at once
+    await waitFor(() => expect(replace).not.toBeChecked());
+
+    const answered = new Promise<void>((resolve) =>
+      server.events.on('response:mocked', () => resolve()),
+    );
+    slow.release();
+    await answered;
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    expect(
+      within(dialog).getByText('DB_PASSWORD in .env is protected'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Apply…' }),
+    ).toBeDisabled();
+  });
+
+  it('drops the conflict notice once a new plan is built', async () => {
+    server.use(
+      http.post('/api/apply', () =>
+        HttpResponse.json(
+          {
+            statusCode: 409,
+            message: 'the plan changed since it was shown; nothing was written',
+            plan: everyActionPlan,
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const notice =
+      'The files changed since the plan was shown. This is the plan now; nothing was written.';
+    const { user, dialog } = await openApply();
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Preview' }),
+    );
+    await within(dialog).findByRole('region', { name: '.env' });
+    await user.click(within(dialog).getByRole('button', { name: 'Apply…' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Write' }));
+    expect(await within(dialog).findByText(notice)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Back' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Preview' }));
+    await within(dialog).findByRole('region', { name: '.env' });
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole('region', { name: 'config/app.env' }),
+      ).toBeInTheDocument(),
+    );
+    expect(within(dialog).queryByText(notice)).not.toBeInTheDocument();
+  });
+
+  it('waits for the schema before asking for values', async () => {
+    const schema = gate();
+    const document = structuredClone(
+      mockState.schema.document,
+    ) as SchemaDocument;
+    document.files.find((file) => file.path === '.env')!.values = {
+      API_KEY: 'set-in-the-schema',
+    };
+    server.use(
+      http.get('/api/schema', async () => {
+        await schema.opened;
+        return HttpResponse.json({ ...mockState.schema, document });
+      }),
+    );
+    const plans = recordRequests('/api/plan');
+    renderWithProviders(<ApplyDialog open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: 'Apply' });
+    await waitFor(() => expect(plans).toHaveLength(1));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(prompts(dialog)).toEqual([]);
+    expect(within(dialog).getByText('Reading the plan…')).toBeInTheDocument();
+
+    schema.release();
+    // A key the schema sets literally is not asked for.
+    await waitFor(() =>
+      expect(prompts(dialog)).toEqual(['Value of PORT', 'Value of LOG_LEVEL']),
+    );
+  });
+
+  it('says so when the schema cannot be read', async () => {
+    server.use(
+      http.get('/api/schema', () =>
+        HttpResponse.json(
+          { statusCode: 500, message: 'the schema could not be read' },
+          { status: 500 },
+        ),
+      ),
+    );
+    renderWithProviders(<ApplyDialog open onOpenChange={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: 'Apply' });
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Could not plan or apply: the schema could not be read',
+    );
+    expect(prompts(dialog)).toEqual([]);
   });
 });

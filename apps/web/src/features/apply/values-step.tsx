@@ -2,7 +2,7 @@ import type { Variable } from '@configure-env/api-client';
 import { Badge } from '@configure-env/design-system/components/atoms/badge';
 import { Button } from '@configure-env/design-system/components/atoms/button';
 import { Sparkles } from 'lucide-react';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ValueControl } from '../variables/value-editor';
 import { canGenerate, generateSecret } from './generate';
@@ -11,7 +11,8 @@ import { byGroup } from './needed';
 /**
  * A prompt per needed value, by group, as the TUI asks them: the control
  * that fits the type, started at the default, with Generate for a secret
- * string; the plan's messages about a value under it.
+ * string (and why, when no random value passes its rules); the plan's
+ * messages about a value under it.
  */
 export function ValuesStep({
   variables,
@@ -70,8 +71,16 @@ function Prompt({
   const { name, spec } = variable;
   const hintId = useId();
   const problemsId = useId();
+  const generateId = useId();
+  // Generate found no random value that passes the rules.
+  const [ungenerated, setUngenerated] = useState(false);
+  const change = (next: string) => {
+    setUngenerated(false);
+    onChange(next);
+  };
   const described = [
     spec.description ? hintId : undefined,
+    ungenerated ? generateId : undefined,
     problems.length ? problemsId : undefined,
   ]
     .filter(Boolean)
@@ -99,8 +108,8 @@ function Prompt({
             variable={variable}
             label={name}
             draft={value}
-            onDraftChange={onChange}
-            invalid={problems.length > 0}
+            onDraftChange={change}
+            invalid={problems.length > 0 || ungenerated}
             describedBy={described || undefined}
           />
         </div>
@@ -112,7 +121,8 @@ function Prompt({
             aria-label={t('apply.values.generate', { name })}
             onClick={() => {
               const generated = generateSecret(spec);
-              if (generated !== undefined) onChange(generated);
+              if (generated === undefined) setUngenerated(true);
+              else change(generated);
             }}
           >
             <Sparkles aria-hidden="true" data-icon="inline-start" />
@@ -120,6 +130,11 @@ function Prompt({
           </Button>
         )}
       </div>
+      {ungenerated && (
+        <p id={generateId} className="text-xs text-destructive">
+          {t('apply.values.ungenerated', { name })}
+        </p>
+      )}
       {problems.length > 0 && (
         <ul id={problemsId} className="text-xs text-destructive">
           {problems.map((problem) => (

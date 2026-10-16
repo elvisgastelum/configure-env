@@ -18,7 +18,7 @@ import {
 import { Spinner } from '@configure-env/design-system/components/atoms/spinner';
 import type { SchemaDocument } from '@configure-env/core/schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ApiRequestError,
@@ -97,13 +97,15 @@ function ApplyFlow({
   const [notice, setNotice] = useState<string>();
   const [result, setResult] = useState<Applied>();
 
+  // A key the schema sets literally is not asked for: wait for the schema.
   const needed = useMemo(() => {
-    if (!first.data || !variables.data || !fileInfo.data) return undefined;
+    if (!first.data || !variables.data || !fileInfo.data || !schema.data)
+      return undefined;
     const keys = neededKeys(
       first.data,
       variables.data.variables,
       fileInfo.data.files,
-      (schema.data?.document ?? undefined) as SchemaDocument | undefined,
+      (schema.data.document ?? undefined) as SchemaDocument | undefined,
     );
     return variables.data.variables.filter((variable) =>
       keys.includes(variable.name),
@@ -123,13 +125,21 @@ function ApplyFlow({
     ...(replace.length ? { replaceProtected: [...replace] } : {}),
   });
 
+  // Only the latest preview may show its plan: a late answer for earlier
+  // inputs is dropped.
+  const latestPreview = useRef(0);
   // Plans and runs carry values that may be secrets: keep none once done.
   const preview = useMutation({
-    mutationFn: (replace: readonly string[]) =>
-      unwrap(planChanges(inputs(replace))),
+    mutationFn: async (replace: readonly string[]) => {
+      const request = ++latestPreview.current;
+      const planned = await unwrap(planChanges(inputs(replace)));
+      return { planned, latest: request === latestPreview.current };
+    },
     gcTime: 0,
-    onSuccess: (planned) => {
+    onSuccess: ({ planned, latest }) => {
+      if (!latest) return;
       setPlan(planned);
+      setNotice(undefined);
       setStep('preview');
     },
   });
@@ -165,7 +175,11 @@ function ApplyFlow({
       .map((error) => error.message);
   const writing = plan?.files.filter(writes) ?? [];
   const loadError =
-    first.error ?? variables.error ?? fileInfo.error ?? preview.error;
+    first.error ??
+    variables.error ??
+    fileInfo.error ??
+    schema.error ??
+    preview.error;
   const runError =
     run.error && !conflictPlan(run.error) ? run.error : undefined;
 

@@ -25,23 +25,40 @@ const hex = (bytes: Uint8Array) =>
 
 const ENCODE = { base64, base64url, hex };
 
-/** Whether the prompt offers Generate: a secret string only. */
+type StringSpec = Extract<VariableSpec, { type: 'string' }>;
+
+/** How many characters a value without an encoding gets. */
+const lengthOf = (spec: StringSpec) => {
+  const length = Math.max(GENERATED_LENGTH, spec.minLength ?? 0);
+  return Math.min(length, spec.maxLength ?? length);
+};
+
+/**
+ * Whether the rules leave room for a strong secret: as the CLI's
+ * `--generate`, a `maxLength` or `bytes` under 16 is too weak to generate.
+ */
+const strongEnough = (spec: StringSpec) =>
+  spec.encoding
+    ? (spec.bytes ?? GENERATED_BYTES) >= MIN_GENERATED_BYTES
+    : lengthOf(spec) >= MIN_GENERATED_LENGTH;
+
+/**
+ * Whether the prompt offers Generate: a secret string whose rules leave
+ * room for a strong value.
+ */
 export const canGenerate = (spec: VariableSpec) =>
-  spec.type === 'string' && spec.secret;
+  spec.type === 'string' && Boolean(spec.secret) && strongEnough(spec);
 
 /** A random value that passes the variable's rules, or undefined. */
 export function generateSecret(spec: VariableSpec): string | undefined {
-  if (spec.type !== 'string') return undefined;
+  if (spec.type !== 'string' || !strongEnough(spec)) return undefined;
   let random: () => string;
   if (spec.encoding) {
     const bytes = spec.bytes ?? GENERATED_BYTES;
-    if (bytes < MIN_GENERATED_BYTES) return undefined;
     const encode = ENCODE[spec.encoding];
     random = () => encode(randomBytes(bytes));
   } else {
-    let length = Math.max(GENERATED_LENGTH, spec.minLength ?? 0);
-    length = Math.min(length, spec.maxLength ?? length);
-    if (length < MIN_GENERATED_LENGTH) return undefined;
+    const length = lengthOf(spec);
     random = () =>
       base64url(randomBytes(Math.ceil((length * 3) / 4))).slice(0, length);
   }
