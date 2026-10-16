@@ -9,7 +9,7 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./launch-editor.d.ts" />
 
-import { type ChildProcess, exec, spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isIPv4 } from 'node:net';
 import {
@@ -103,14 +103,25 @@ export function createLauncher(
         ...(rest as string[]),
         ...getArgumentsForFile(editor, file, line, column),
       ].map(String);
+      const stdio: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe'];
       let child: ChildProcess;
       try {
+        // On Windows, cmd.exe runs launch-editor's escaped command line as
+        // exec would, but spawned: exec buffers the output and kills the
+        // editor past its maxBuffer.
         child =
           platform === 'win32'
-            ? exec(constructWindowsLaunchCommand(editor, args), {
-                windowsHide: true,
-              })
-            : spawn(editor, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+            ? spawn(
+                process.env.ComSpec || 'cmd.exe',
+                [
+                  '/d',
+                  '/s',
+                  '/c',
+                  `"${constructWindowsLaunchCommand(editor, args)}"`,
+                ],
+                { stdio, windowsHide: true, windowsVerbatimArguments: true },
+              )
+            : spawn(editor, args, { stdio });
       } catch (error) {
         resolve(failed((error as Error).message));
         return;

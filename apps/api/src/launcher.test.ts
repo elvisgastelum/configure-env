@@ -21,11 +21,16 @@ class FakeChild extends EventEmitter {
   unref = vi.fn();
 }
 const spawned: { command: string; args: string[]; options: unknown }[] = [];
+const execed: unknown[][] = [];
 let child = new FakeChild();
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
   spawn: (command: string, args: string[], options: unknown) => {
     spawned.push({ command, args, options });
+    return child;
+  },
+  exec: (...args: unknown[]) => {
+    execed.push(args);
     return child;
   },
 }));
@@ -45,6 +50,7 @@ function logged() {
 beforeEach(() => {
   guesses.length = 0;
   spawned.length = 0;
+  execed.length = 0;
   guessed = ['code'];
   child = new FakeChild();
 });
@@ -161,6 +167,39 @@ describe('createLauncher', () => {
     expect(
       warnings.filter((w) => w.name === 'MaxListenersExceededWarning'),
     ).toEqual([]);
+  });
+
+  it('runs the editor through cmd.exe with spawn on Windows, never exec, and logs its output', async () => {
+    vi.stubEnv('ComSpec', 'C:\\Windows\\System32\\cmd.exe');
+    const { log, text } = logged();
+    // get-args resolves the path on the host, so a POSIX one here.
+    const file = '/my project/.env';
+    const opening = createLauncher('win32', log)({ ...target, file });
+    child.stdout.write('hello from the editor\n');
+    expect(await opening).toEqual({ opened: true });
+    vi.unstubAllEnvs();
+    expect(execed).toEqual([]);
+    expect(spawned).toEqual([
+      {
+        command: 'C:\\Windows\\System32\\cmd.exe',
+        args: ['/d', '/s', '/c', '"code -r -g "/my project/.env:4:2""'],
+        options: {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          windowsVerbatimArguments: true,
+        },
+      },
+    ]);
+    expect(text()).toBe('hello from the editor\n');
+  });
+
+  it('falls back to cmd.exe when ComSpec is not set', async () => {
+    vi.stubEnv('ComSpec', undefined);
+    const opening = createLauncher('win32', logged().log)(target);
+    child.emit('exit', 0);
+    expect(await opening).toEqual({ opened: true });
+    vi.unstubAllEnvs();
+    expect(spawned[0]?.command).toBe('cmd.exe');
   });
 
   it('never passes a name cmd.exe would expand on Windows', async () => {
