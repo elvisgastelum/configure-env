@@ -389,6 +389,11 @@
       "cancel": "Cancel",
       "saved": "Saved {{path}}",
       "refused": "The API refused the edit; nothing was written. The form shows why.",
+      "refusedHere": "The API refused the edit; nothing was written:",
+      "partial": "The changes to {{name}} were saved, but renaming it to {{to}} failed. The review now shows the rename alone; save again to retry it.",
+      "partialFailed": "The changes to {{name}} were saved, but renaming it to {{to}} failed: {{message}}. The review now shows the rename alone; save again to retry it.",
+      "partialRefused": "Saved the changes to {{name}}, but the API refused the rename to {{to}}. The form shows why.",
+      "refusedRename": "The API refused the rename to {{to}}:",
       "failed": "The edit was not saved: {{message}}",
       "copy": "Copy the JSON",
       "copied": "Copied the JSON"

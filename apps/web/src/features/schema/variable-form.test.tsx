@@ -178,6 +178,107 @@ describe('the variable form', () => {
     });
   });
 
+  it('keeps the draft and saves the rename alone when it failed after the change', async () => {
+    server.use(
+      http.post('/api/schema/variables/:name/rename', () =>
+        HttpResponse.json(
+          {
+            statusCode: 422,
+            message: 'the edit was refused; nothing was written',
+            errors: [
+              {
+                path: 'variables.HTTP_PORT',
+                message: 'HTTP_PORT is declared already',
+              },
+            ],
+            schema: mockState.schema,
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+    const { user, sheet } = await openForm('PORT');
+    const description = within(sheet).getByRole('textbox', {
+      name: 'Description',
+    });
+    await user.clear(description);
+    await user.type(description, 'The port it listens on.');
+    const name = within(sheet).getByRole('textbox', { name: 'Name' });
+    await user.clear(name);
+    await user.type(name, 'HTTP_PORT');
+    await user.click(
+      within(sheet).getByRole('button', { name: 'Review changes' }),
+    );
+    const review = await screen.findByRole('dialog', {
+      name: 'Change PORT',
+    });
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+
+    expect(
+      await screen.findByText(
+        'Saved the changes to PORT, but the API refused the rename to HTTP_PORT. The form shows why.',
+      ),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Change PORT' }),
+      ).not.toBeInTheDocument(),
+    );
+    // The change is written; the form keeps the draft and shows the reason.
+    expect(saved().variables.PORT?.description).toBe('The port it listens on.');
+    expect(name).toHaveValue('HTTP_PORT');
+    expect(
+      within(sheet).getByText('HTTP_PORT is declared already'),
+    ).toBeVisible();
+
+    // Once the name is free, the same draft saves the rename.
+    server.resetHandlers();
+    const writes = recordRequests('/api/schema/');
+    await reviewAndSave(user, sheet);
+    expect(writes.at(-1)).toEqual([
+      'POST',
+      '/api/schema/variables/PORT/rename',
+      { fingerprint: expect.any(String), to: 'HTTP_PORT' },
+    ]);
+    expect(saved().variables.HTTP_PORT?.description).toBe(
+      'The port it listens on.',
+    );
+  });
+
+  it('says the change was saved when the rename then fails to reach the API', async () => {
+    server.use(
+      http.post('/api/schema/variables/:name/rename', () =>
+        HttpResponse.json(
+          { statusCode: 500, message: 'the disk is full' },
+          { status: 500 },
+        ),
+      ),
+    );
+    const { user, sheet } = await openForm('PORT');
+    const description = within(sheet).getByRole('textbox', {
+      name: 'Description',
+    });
+    await user.clear(description);
+    await user.type(description, 'The port it listens on.');
+    const name = within(sheet).getByRole('textbox', { name: 'Name' });
+    await user.clear(name);
+    await user.type(name, 'HTTP_PORT');
+    await user.click(
+      within(sheet).getByRole('button', { name: 'Review changes' }),
+    );
+    const review = await screen.findByRole('dialog', { name: 'Change PORT' });
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+
+    expect(
+      await within(review).findByText(
+        'The changes to PORT were saved, but renaming it to HTTP_PORT failed: the disk is full. The review now shows the rename alone; save again to retry it.',
+      ),
+    ).toBeVisible();
+    expect(within(review).queryByText(/The edit was not saved/)).toBeNull();
+    expect(saved().variables.PORT?.description).toBe('The port it listens on.');
+    expect(mockState.schema.fingerprint).toBe('schema-2');
+  });
+
   it('picks the rule variables from the other variables', async () => {
     const writes = recordRequests('/api/schema/');
     const { user, sheet } = await openForm('API_KEY');

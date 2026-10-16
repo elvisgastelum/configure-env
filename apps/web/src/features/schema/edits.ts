@@ -85,9 +85,31 @@ export function previewEdit(
 }
 
 /**
+ * A change that was written, whose rename then failed: the schema the change
+ * wrote (with its new fingerprint) and why the rename failed.
+ */
+export class PartialWriteError extends Error {
+  constructor(
+    readonly written: Schema,
+    readonly failure: unknown,
+  ) {
+    super(failure instanceof Error ? failure.message : String(failure));
+    this.name = 'PartialWriteError';
+  }
+}
+
+/** The schema an edit wrote before the rest of it failed, if any. */
+export const writtenBeforeFailure = (error: unknown) =>
+  error instanceof PartialWriteError ? error.written : undefined;
+
+/**
  * Sends the edit against `fingerprint` and resolves to the schema written.
  * A change and a rename are two writes, the rename against the fingerprint
- * the change returned; the preview checked that both succeed together.
+ * the change returned; the API has no single write for both. The preview
+ * checked a snapshot, so the rename can still fail after the change was
+ * written (the name was taken meanwhile, the schema changed, the network
+ * failed): that rejects with a PartialWriteError carrying the schema the
+ * change wrote, so the caller can show it and retry the rename alone.
  */
 export async function sendEdit(
   edit: SchemaEdit,
@@ -111,12 +133,17 @@ export async function sendEdit(
           updateVariable(edit.name, { fingerprint, changes: edit.changes }),
         );
       if (!renames) return schema!;
-      return unwrap(
-        renameVariable(edit.name, {
-          fingerprint: schema?.fingerprint ?? fingerprint,
-          to: edit.rename!,
-        }),
-      );
+      try {
+        return await unwrap(
+          renameVariable(edit.name, {
+            fingerprint: schema?.fingerprint ?? fingerprint,
+            to: edit.rename!,
+          }),
+        );
+      } catch (error) {
+        if (schema) throw new PartialWriteError(schema, error);
+        throw error;
+      }
     }
     case 'removeVariable':
       return unwrap(
@@ -140,23 +167,33 @@ export async function sendEdit(
   }
 }
 
-const bodyOf = (error: unknown) =>
-  error instanceof ApiRequestError &&
-  typeof error.body === 'object' &&
-  error.body !== null
+function bodyOf(
+  error: unknown,
+): { errors?: SchemaError[]; schema?: Schema } | undefined {
+  if (error instanceof PartialWriteError) return bodyOf(error.failure);
+  return error instanceof ApiRequestError &&
+    typeof error.body === 'object' &&
+    error.body !== null
     ? (error.body as { errors?: SchemaError[]; schema?: Schema })
     : undefined;
+}
 
 /** The errors of a write the API refused as invalid (422), with their paths. */
 export function refusedErrors(error: unknown): SchemaError[] | undefined {
-  if (!(error instanceof ApiRequestError) || error.status !== 422) return;
+  if (statusOf(error) !== 422) return;
   return bodyOf(error)?.errors;
 }
 
 /** The schema as it is now, from a write refused as stale (409). */
 export function staleSchema(error: unknown): Schema | undefined {
-  if (!(error instanceof ApiRequestError) || error.status !== 409) return;
+  if (statusOf(error) !== 409) return;
   return bodyOf(error)?.schema;
+}
+
+/** The API's status for the write that failed, through a partial write. */
+function statusOf(error: unknown): number | undefined {
+  if (error instanceof PartialWriteError) return statusOf(error.failure);
+  return error instanceof ApiRequestError ? error.status : undefined;
 }
 
 /** The schema's document when the schema is valid; undefined otherwise. */

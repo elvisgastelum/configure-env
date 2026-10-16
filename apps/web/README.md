@@ -42,9 +42,9 @@ Switching a variable's type clears the options the new type does not take, and a
 | --- | --- | --- |
 | Validate | browser | The form's zod schema turns the form into an edit, applies it with the core's schema writer (`@configure-env/core/schema`), and puts each JSON-path error the writer reports on the field it names. |
 | Review | browser | The diff compares the schema now with the document the edit makes, both formatted by the core's `formatJson`. |
-| Save | API | The edit goes to the schema write endpoints (`/api/schema/...`) with the fingerprint of the schema shown. A change and a rename are two writes, the second against the fingerprint the first returns. |
+| Save | API | The edit goes to the schema write endpoints (`/api/schema/...`) with the fingerprint of the schema shown. A change and a rename are two writes, the second against the fingerprint the first returns. When the rename fails after the change was written, the review says so, shows the schema the change wrote, and offers the rename alone. |
 | Stale (409) | browser | The schema changed since it was read. The review shows the edit on top of the schema as it is now, and asks you to save again. |
-| Refused (422) | browser | The API's errors carry JSON paths. The review closes, and each error goes back on its form field; one with no field is listed above the form. |
+| Refused (422) | browser | The API's errors carry JSON paths. From a form, the review closes, and each error goes back on its form field; one with no field is listed above the form. A reorder or a removal has no form, so the review stays open and lists the errors. |
 
 `@configure-env/core/schema` is the browser-safe part of the core: the schema definitions and checks, the value checks, and the pure schema edits. The core's package index needs Node, so the portal imports only this entry. A core test keeps it free of Node built-ins.
 

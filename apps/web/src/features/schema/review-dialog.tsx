@@ -35,6 +35,7 @@ import {
   sendEdit,
   staleSchema,
   validDocument,
+  writtenBeforeFailure,
 } from './edits';
 import { editTitle } from './titles';
 
@@ -90,6 +91,13 @@ function ReviewBody({
   const queryClient = useQueryClient();
   const { data: schema } = useQuery(schemaQuery);
   const [stale, setStale] = useState(false);
+  // The API refused the edit and no form is there to show why.
+  const [refused, setRefused] = useState<SchemaError[]>();
+  const edit = request.edit;
+  const rename =
+    edit.kind === 'updateVariable' && edit.rename && edit.rename !== edit.name
+      ? { name: edit.name, to: edit.rename }
+      : undefined;
   const document = validDocument(schema);
   const before = useMemo(
     () => (document ? formatJson(document) : ''),
@@ -103,20 +111,31 @@ function ReviewBody({
     preview?.ok === true ? formatJson(preview.document, before) : undefined;
   const path = schema?.path ?? 'env.schema.json';
 
+  const refreshDerived = () =>
+    Promise.all(
+      [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
+        queryClient.invalidateQueries({ queryKey: query.queryKey }),
+      ),
+    );
+
   const save = useMutation({
     mutationFn: () => sendEdit(request.edit, schema?.fingerprint ?? ''),
+    onMutate: () => setRefused(undefined),
     onSuccess: async (written) => {
       queryClient.setQueryData(schemaQuery.queryKey, written);
       toast.success(t('schemaEditor.review.saved', { path }));
       request.onSaved?.(written);
       onClose();
-      await Promise.all(
-        [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
-          queryClient.invalidateQueries({ queryKey: query.queryKey }),
-        ),
-      );
+      await refreshDerived();
     },
     onError: (error) => {
+      // The change was written and the rename failed: the review now shows
+      // the rename alone, on top of the schema the change wrote.
+      const written = writtenBeforeFailure(error);
+      if (written) {
+        queryClient.setQueryData(schemaQuery.queryKey, written);
+        void refreshDerived();
+      }
       const now = staleSchema(error);
       if (now) {
         queryClient.setQueryData(schemaQuery.queryKey, now);
@@ -125,11 +144,18 @@ function ReviewBody({
       }
       void queryClient.invalidateQueries({ queryKey: schemaQuery.queryKey });
       const errors = refusedErrors(error);
-      if (errors) {
-        toast.error(t('schemaEditor.review.refused'));
-        request.onRefused?.(errors);
-        onClose();
+      if (!errors) return;
+      if (!request.onRefused) {
+        setRefused(errors);
+        return;
       }
+      toast.error(
+        written && rename
+          ? t('schemaEditor.review.partialRefused', rename)
+          : t('schemaEditor.review.refused'),
+      );
+      request.onRefused(errors);
+      onClose();
     },
   });
 
@@ -137,6 +163,7 @@ function ReviewBody({
     save.error && !staleSchema(save.error) && !refusedErrors(save.error)
       ? save.error.message
       : undefined;
+  const partial = writtenBeforeFailure(save.error) !== undefined;
 
   return (
     <>
@@ -154,23 +181,31 @@ function ReviewBody({
           {t('schemaEditor.review.stale', { path })}
         </p>
       )}
+      {partial && rename && (
+        <p role="alert" className="text-sm text-destructive">
+          {failure
+            ? t('schemaEditor.review.partialFailed', {
+                ...rename,
+                message: failure,
+              })
+            : t('schemaEditor.review.partial', rename)}
+        </p>
+      )}
       {preview && !preview.ok && (
-        <div role="alert" className="flex flex-col gap-2 text-sm">
-          <p className="text-destructive">{t('schemaEditor.review.invalid')}</p>
-          <ul className="flex flex-col gap-1">
-            {preview.errors.map((error) => (
-              <li
-                key={`${error.path}:${error.message}`}
-                className="flex flex-wrap items-baseline gap-2 rounded-lg bg-muted/60 px-3 py-1.5"
-              >
-                <code className="font-mono text-xs text-muted-foreground">
-                  {error.path}
-                </code>
-                <span>{error.message}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ErrorList
+          title={t('schemaEditor.review.invalid')}
+          errors={preview.errors}
+        />
+      )}
+      {refused && (
+        <ErrorList
+          title={
+            partial && rename
+              ? t('schemaEditor.review.refusedRename', rename)
+              : t('schemaEditor.review.refusedHere')
+          }
+          errors={refused}
+        />
       )}
       {after !== undefined && (
         <Tabs defaultValue="changes" className="min-w-0">
@@ -207,7 +242,7 @@ function ReviewBody({
           </TabsContent>
         </Tabs>
       )}
-      {failure && (
+      {failure && !partial && (
         <p role="alert" className="text-sm text-destructive">
           {t('schemaEditor.review.failed', { message: failure })}
         </p>
@@ -226,5 +261,33 @@ function ReviewBody({
         </Button>
       </DialogFooter>
     </>
+  );
+}
+
+/** Errors with their JSON paths, under a line saying what they stop. */
+function ErrorList({
+  title,
+  errors,
+}: {
+  title: string;
+  errors: readonly SchemaError[];
+}) {
+  return (
+    <div role="alert" className="flex flex-col gap-2 text-sm">
+      <p className="text-destructive">{title}</p>
+      <ul className="flex flex-col gap-1">
+        {errors.map((error, index) => (
+          <li
+            key={`${index}:${error.path}:${error.message}`}
+            className="flex flex-wrap items-baseline gap-2 rounded-lg bg-muted/60 px-3 py-1.5"
+          >
+            <code className="font-mono text-xs text-muted-foreground">
+              {error.path}
+            </code>
+            <span>{error.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { SchemaDocument } from '@configure-env/core/schema';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { scenarios } from '../../mocks/handlers';
 import { mockState, writeSchema } from '../../mocks/store';
@@ -210,6 +211,61 @@ describe('the schema page', () => {
     const saved = mockState.schema.document as SchemaDocument;
     expect(saved.variables.PORT?.description).toBe('Changed elsewhere.');
     expect(Object.keys(saved.variables).at(-2)).toBe('LOG_LEVEL');
+  });
+
+  it('shows a refusal in the review when no form can show it', async () => {
+    server.use(
+      http.put('/api/schema/variable-order', () =>
+        HttpResponse.json(
+          {
+            statusCode: 422,
+            message: 'the edit was refused; nothing was written',
+            errors: [{ path: 'variables', message: 'the order lost PORT' }],
+            schema: mockState.schema,
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+    const { user } = await openPage();
+    await user.click(screen.getByRole('button', { name: 'Move PORT up' }));
+    await user.click(screen.getByRole('button', { name: 'Review order' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Reorder the variables',
+    });
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'The API refused the edit; nothing was written:',
+    );
+    expect(alert).toHaveTextContent('variablesthe order lost PORT');
+    expect(
+      screen.getByRole('dialog', { name: 'Reorder the variables' }),
+    ).toBeVisible();
+  });
+
+  it('keeps the review open with the reason when a save fails', async () => {
+    server.use(
+      http.put('/api/schema/variable-order', () =>
+        HttpResponse.json(
+          { statusCode: 500, message: 'the disk is full' },
+          { status: 500 },
+        ),
+      ),
+    );
+    const { user } = await openPage();
+    await user.click(screen.getByRole('button', { name: 'Move PORT up' }));
+    await user.click(screen.getByRole('button', { name: 'Review order' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Reorder the variables',
+    });
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(
+      await within(dialog).findByText(
+        'The edit was not saved: the disk is full',
+      ),
+    ).toBeVisible();
   });
 
   it('shows the errors of an invalid schema and offers no editing', async () => {

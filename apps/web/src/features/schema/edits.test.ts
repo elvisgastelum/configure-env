@@ -4,12 +4,15 @@ import { describe, expect, it } from 'vitest';
 import { schemaDocument, typedSchemaVariables } from '../../mocks/fixtures';
 import { mockState } from '../../mocks/store';
 import { recordRequests } from '../../test/requests';
+import { HttpResponse, http } from 'msw';
+import { server } from '../../test/server';
 import {
   previewEdit,
   refusedErrors,
   sendEdit,
   staleSchema,
   validDocument,
+  writtenBeforeFailure,
 } from './edits';
 
 const recordWrites = () => recordRequests('/api/schema/');
@@ -112,6 +115,68 @@ describe('sendEdit', () => {
         { fingerprint: 'schema-1', to: 'P' },
       ],
     ]);
+  });
+
+  describe('when the rename fails after the change was written', () => {
+    const changeAndRename = (to: string) =>
+      sendEdit(
+        {
+          kind: 'updateVariable',
+          name: 'PORT',
+          changes: { default: 8080 },
+          rename: to,
+        },
+        'schema-1',
+      ).catch((caught: unknown) => caught);
+
+    it('reports the schema the change wrote and the refused rename', async () => {
+      // Another variable took the name between the preview and the write.
+      const error = await changeAndRename('API_KEY');
+      const written = writtenBeforeFailure(error);
+      expect(written?.fingerprint).toBe('schema-2');
+      expect(
+        (validDocument(written) as SchemaDocument).variables.PORT,
+      ).toMatchObject({ default: 8080 });
+      expect(mockState.schema.fingerprint).toBe('schema-2');
+      expect(refusedErrors(error)).toEqual([
+        expect.objectContaining({ path: expect.stringContaining('API_KEY') }),
+      ]);
+    });
+
+    it('reports a stale rename with the schema as it is now', async () => {
+      server.use(
+        http.post('/api/schema/variables/:name/rename', () =>
+          HttpResponse.json(
+            { statusCode: 409, message: 'changed', schema: mockState.schema },
+            { status: 409 },
+          ),
+        ),
+      );
+      const error = await changeAndRename('HTTP_PORT');
+      expect(writtenBeforeFailure(error)?.fingerprint).toBe('schema-2');
+      expect(staleSchema(error)?.fingerprint).toBe('schema-2');
+    });
+
+    it('reports a rename lost to the network with its message', async () => {
+      server.use(
+        http.post('/api/schema/variables/:name/rename', () =>
+          HttpResponse.error(),
+        ),
+      );
+      const error = await changeAndRename('HTTP_PORT');
+      expect(writtenBeforeFailure(error)?.fingerprint).toBe('schema-2');
+      expect(refusedErrors(error)).toBeUndefined();
+      expect(staleSchema(error)).toBeUndefined();
+      expect((error as Error).message).not.toBe('');
+    });
+  });
+
+  it('reports nothing written when a single write fails', async () => {
+    const error = await sendEdit(
+      { kind: 'removeFile', path: '.env' },
+      'schema-0',
+    ).catch((caught: unknown) => caught);
+    expect(writtenBeforeFailure(error)).toBeUndefined();
   });
 
   it('reports a stale fingerprint with the schema as it is now', async () => {
