@@ -115,8 +115,11 @@ export function createLauncher(
         resolve(failed((error as Error).message));
         return;
       }
+      // Forwarded chunk by chunk: piping would add listeners to `log` for as
+      // long as each editor runs, and every launch shares that stream.
       const pipes = [child.stdout, child.stderr].filter(Boolean) as Pipe[];
-      for (const pipe of pipes) pipe.pipe(log, { end: false });
+      for (const pipe of pipes)
+        pipe.on('data', (chunk: Buffer) => log.write(chunk));
 
       let settled = false;
       const settle = (result: LaunchResult) => {

@@ -134,6 +134,35 @@ describe('createLauncher', () => {
     expect(stdout).not.toHaveBeenCalled();
   });
 
+  it('leaves no listener on the log, however many editors keep running', async () => {
+    const { log } = logged();
+    const listeners = () =>
+      log.eventNames().reduce((sum, name) => sum + log.listenerCount(name), 0);
+    const before = listeners();
+    const warnings: Error[] = [];
+    const onWarning = (warning: Error) => warnings.push(warning);
+    process.on('warning', onWarning);
+    const launch = createLauncher('darwin', log);
+    const children: FakeChild[] = [];
+    for (let i = 0; i < 12; i++) {
+      child = new FakeChild();
+      children.push(child);
+      expect(await launch(target)).toEqual({ opened: true });
+    }
+    expect(listeners()).toBe(before);
+    for (const running of children) {
+      running.stdout.end();
+      running.stderr.end();
+      running.emit('exit', 0);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    process.off('warning', onWarning);
+    expect(listeners()).toBe(before);
+    expect(
+      warnings.filter((w) => w.name === 'MaxListenersExceededWarning'),
+    ).toEqual([]);
+  });
+
   it('never passes a name cmd.exe would expand on Windows', async () => {
     for (const file of ['C:\\project\\%PATH%.env', '\\\\server\\share\\.env']) {
       const result = await createLauncher(
