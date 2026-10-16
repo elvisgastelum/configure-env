@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendLines,
+  entryPosition,
   getValue,
   invalidLineNumbers,
   parseDotenv,
@@ -262,5 +263,22 @@ describe('appendLines', () => {
     const doc = parseDotenv('');
     appendLines(doc, ['A=1']);
     expect(serialize(doc)).toBe('A=1\n');
+  });
+});
+
+describe('entryPosition', () => {
+  it('gives the line and column of the last entry for a key', () => {
+    const doc = parseDotenv('# top\nA=1\n  export   B=2\nA=3\n');
+    expect(entryPosition(doc, 'A')).toEqual({ line: 4, column: 1 });
+    expect(entryPosition(doc, 'B')).toEqual({ line: 3, column: 12 });
+  });
+
+  it('counts the physical lines of a multiline value', () => {
+    const doc = parseDotenv('A="one\ntwo\nthree"\r\nB=2\r\n');
+    expect(entryPosition(doc, 'B')).toEqual({ line: 4, column: 1 });
+  });
+
+  it('gives nothing for a key the file does not hold', () => {
+    expect(entryPosition(parseDotenv('A=1\n# B=2\n'), 'B')).toBeUndefined();
   });
 });

@@ -822,3 +822,53 @@ export const undoRefusedResponse = named(
     change: historyChange,
   }),
 );
+
+const position = z.int().min(1);
+
+export const openInEditorRequest = named(
+  'OpenInEditorRequest',
+  z
+    .strictObject({
+      file: z.string().min(1).meta({
+        description:
+          'The schema file or one of its env files, relative to the root.',
+      }),
+      line: position.optional().meta({
+        description: 'The 1-based line; it wins over `key` and `path`.',
+      }),
+      column: position
+        .optional()
+        .meta({ description: 'The 1-based column; 1 by default.' }),
+      key: z.string().min(1).optional().meta({
+        description:
+          'A variable: its entry in an env file (the last one when it repeats), its definition in the schema file. The top of the file when it is not there.',
+      }),
+      path: z.string().min(1).optional().meta({
+        description:
+          'The schema file only: a JSON path as the schema errors give it, like `files[1].variables[0]`; the deepest part the file holds.',
+      }),
+    })
+    .refine((body) => body.key === undefined || body.path === undefined, {
+      message: 'pass a key or a path, not both',
+    }),
+);
+
+export const openInEditorResponse = named(
+  'OpenInEditor',
+  z.object({
+    opened: z.boolean().meta({
+      description:
+        'Whether the editor was started: true means it started and did not fail within 300 ms, not that it confirmed the file is open. A later failure is only written to the server log (stderr).',
+    }),
+    reason: z.enum(['no-editor', 'terminal-editor', 'failed']).optional().meta({
+      description:
+        'When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.',
+    }),
+    message: z.string().optional().meta({
+      description: 'When not opened: what to tell the user.',
+    }),
+    file: z.string(),
+    line: z.int(),
+    column: z.int(),
+  }),
+);

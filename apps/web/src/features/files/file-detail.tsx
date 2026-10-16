@@ -21,6 +21,8 @@ import { TYPE } from '@configure-env/design-system/recipes';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 import { statusesOf } from '../variables/model';
 import { RevealProvider, SecretValue } from '../variables/secret-value';
 import { StatusBadges } from '../variables/status-badges';
@@ -65,15 +67,20 @@ export function FileDetail({
           </Button>
         </div>
         <Card className="gap-4 px-4">
-          <header className="flex flex-col gap-1">
-            <h2
-              id={titleId}
-              ref={title}
-              tabIndex={-1}
-              className="font-mono text-lg font-medium outline-none"
-            >
-              {file.path}
-            </h2>
+          <header className="flex flex-col gap-1" {...editorItem}>
+            <div className="flex items-center gap-1">
+              <h2
+                id={titleId}
+                ref={title}
+                tabIndex={-1}
+                className="font-mono text-lg font-medium outline-none"
+              >
+                {file.path}
+              </h2>
+              {file.exists && (
+                <OpenInEditorButton target={{ file: file.path }} />
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               {file.template
                 ? t('files.detail.descriptionTemplate', { policy: file.policy })
@@ -160,7 +167,7 @@ function EntriesTable({
           const isEditing = editing === name;
           const editLabel = t('variables.edit.edit', { name, file: path });
           return (
-            <TableRow key={name} data-variable={name}>
+            <TableRow key={name} data-variable={name} {...editorItem}>
               <TableHead
                 scope="row"
                 className="align-top font-mono text-xs font-medium"
@@ -201,6 +208,9 @@ function EntriesTable({
                     >
                       <Pencil aria-hidden="true" />
                     </Button>
+                  )}
+                  {file.exists && (
+                    <OpenInEditorButton target={{ file: path, key: name }} />
                   )}
                   <ValueActions variable={variable} file={path} />
                 </span>

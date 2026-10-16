@@ -19,6 +19,7 @@ import { z } from 'zod';
 import packageJson from '../package.json' with { type: 'json' };
 import { apiModule } from './api.module.ts';
 import { components } from './contracts.ts';
+import { type EditorLauncher, createLauncher } from './editor.ts';
 import { ApiErrorFilter } from './http.ts';
 import { type Project, resolveProject } from './project.ts';
 import { LAUNCH_PATH, securityMiddleware } from './security.ts';
@@ -45,6 +46,11 @@ export interface ServerOptions {
   staticDir?: string;
   /** Reported by GET /api/project; defaults to this package's version. */
   version?: string;
+  /**
+   * Opens a file in the user's editor for POST /api/open-in-editor;
+   * defaults to launch-editor. The tests pass one that starts nothing.
+   */
+  editor?: EditorLauncher;
 }
 
 export interface ApiServer {
@@ -67,9 +73,10 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 async function createApp(
   project: Project,
   version: string,
+  editor: EditorLauncher = createLauncher(),
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
-    apiModule(project, version),
+    apiModule(project, version, editor),
     // forceCloseConnections: close() ends open keep-alive connections too,
     // so a stopping `configure-env serve` never waits on a browser tab.
     {
@@ -169,7 +176,11 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
     );
   const host = options.host ?? DEFAULT_HOST;
   const project = await resolveProject(options.root, options.schemaPath);
-  const app = await createApp(project, options.version ?? packageJson.version);
+  const app = await createApp(
+    project,
+    options.version ?? packageJson.version,
+    options.editor,
+  );
 
   let port = options.port;
   const hosts = () => {

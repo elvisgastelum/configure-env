@@ -56,6 +56,8 @@ import {
 import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
 import { protectedState } from './state.ts';
+import { EDITOR, EditorController } from './editor.controller.ts';
+import type { EditorLauncher } from './editor.ts';
 import { EventsController } from './events.controller.ts';
 import { HistoryController } from './history.controller.ts';
 import { ProjectEvents } from './events.ts';
@@ -241,8 +243,12 @@ export class ProjectController {
   }
 }
 
-/** The module for a bound project. */
-export function apiModule(project: Project, version: string) {
+/** The module for a bound project; `editor` opens a file in the user's editor. */
+export function apiModule(
+  project: Project,
+  version: string,
+  editor: EditorLauncher,
+) {
   @Module({
     controllers: [
       ProjectController,
@@ -251,10 +257,12 @@ export function apiModule(project: Project, version: string) {
       SchemaController,
       EventsController,
       HistoryController,
+      EditorController,
     ],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },
+      { provide: EDITOR, useValue: editor },
       { provide: ProjectEvents, useValue: new ProjectEvents(project) },
     ],
   })

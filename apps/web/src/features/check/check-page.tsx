@@ -21,7 +21,15 @@ import { ApplyButton } from '../apply/apply-dialog';
 import { InvalidSchema, NoSchema } from '../overview/schema-states';
 import { RevealProvider } from '../variables/secret-value';
 import { ValueEditor } from '../variables/value-editor';
-import { type DriftItem, applyFixes, driftItems, keyOf } from './drift-items';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
+import {
+  type DriftItem,
+  applyFixes,
+  driftItems,
+  editorTargetOf,
+  keyOf,
+} from './drift-items';
 import { VariableLink } from './variable-link';
 
 const DRIFT_VARIANT = {
@@ -245,10 +253,12 @@ function FileReport({
                 : undefined;
               const id = itemId(item, index);
               const open = variable !== undefined && editing === id;
+              const target = editorTargetOf(file, item);
               return (
                 <li
                   key={id}
                   className="flex flex-col gap-2 rounded-lg bg-muted/40 px-3 py-2"
+                  {...editorItem}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span data-message="" className="min-w-0 flex-1">
@@ -279,6 +289,7 @@ function FileReport({
                         {t('check.openFile', { path: file.path })}
                       </Link>
                     )}
+                    {target && <OpenInEditorButton target={target} />}
                   </div>
                   {open && variable && (
                     <ValueEditor

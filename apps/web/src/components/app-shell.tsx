@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { KeyRound } from 'lucide-react';
 import { type ReactNode, Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useOpenShortcut } from '../features/editor/use-open-shortcut';
 import { isUnauthorized, projectQuery } from '../lib/api';
 import { useProjectEvents } from '../lib/use-project-events';
 import { AppHeader } from './app-header';
@@ -32,6 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [navUsed, setNavUsed] = useState(false);
   const project = useQuery(projectQuery);
   useProjectEvents();
+  useOpenShortcut();
 
   if (isUnauthorized(project.error)) return <Unauthorized />;
 

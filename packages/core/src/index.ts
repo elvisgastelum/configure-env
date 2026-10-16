@@ -10,6 +10,7 @@ export * from './schema/definition.ts';
 export * from './schema/ip.ts';
 export * from './schema/json-schema.ts';
 export * from './schema/load.ts';
+export * from './schema/source-map.ts';
 export * from './schema/values.ts';
 export * from './engine/apply.ts';
 export * from './engine/check.ts';

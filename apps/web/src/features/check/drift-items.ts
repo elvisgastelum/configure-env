@@ -2,7 +2,7 @@
 // value problems first (each fixed by setting the value), then the file's
 // own (fixed by applying it).
 
-import type { FileDrift } from '@configure-env/api-client';
+import type { FileDrift, OpenInEditorRequest } from '@configure-env/api-client';
 
 export type DriftItem =
   | { kind: 'absent' }
@@ -54,3 +54,27 @@ export const keyOf = (item: DriftItem) =>
   item.kind === 'protected'
     ? item.key
     : undefined;
+
+/**
+ * Where an item opens in the editor: a key at its entry, a bad line at its
+ * line, the file's own problems at its top. Nothing for a file that does not
+ * exist or whose path is refused.
+ */
+export function editorTargetOf(
+  file: FileDrift,
+  item: DriftItem,
+): OpenInEditorRequest | undefined {
+  if (file.status === 'missing' || file.status === 'refused') return undefined;
+  switch (item.kind) {
+    case 'absent':
+    case 'refused':
+      return undefined;
+    case 'line':
+      return { file: file.path, line: item.line };
+    case 'differs':
+    case 'mode':
+      return { file: file.path };
+    default:
+      return { file: file.path, key: item.key };
+  }
+}
