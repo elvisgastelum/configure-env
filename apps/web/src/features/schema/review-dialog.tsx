@@ -93,19 +93,24 @@ function ReviewBody({
   const [stale, setStale] = useState(false);
   // The API refused the edit and no form is there to show why.
   const [refused, setRefused] = useState<SchemaError[]>();
-  const edit = request.edit;
+  const requested = request.edit;
   const rename =
-    edit.kind === 'updateVariable' && edit.rename && edit.rename !== edit.name
-      ? { name: edit.name, to: edit.rename }
+    requested.kind === 'updateVariable' &&
+    requested.rename &&
+    requested.rename !== requested.name
+      ? { name: requested.name, to: requested.rename }
       : undefined;
+  // After a partial write, what is left to send: the rename alone.
+  const [rest, setRest] = useState<SchemaEdit>();
+  const edit = rest ?? requested;
   const document = validDocument(schema);
   const before = useMemo(
     () => (document ? formatJson(document) : ''),
     [document],
   );
   const preview = useMemo(
-    () => (document ? previewEdit(document, request.edit) : undefined),
-    [document, request.edit],
+    () => (document ? previewEdit(document, edit) : undefined),
+    [document, edit],
   );
   const after =
     preview?.ok === true ? formatJson(preview.document, before) : undefined;
@@ -119,7 +124,7 @@ function ReviewBody({
     );
 
   const save = useMutation({
-    mutationFn: () => sendEdit(request.edit, schema?.fingerprint ?? ''),
+    mutationFn: () => sendEdit(edit, schema?.fingerprint ?? ''),
     onMutate: () => setRefused(undefined),
     onSuccess: async (written) => {
       queryClient.setQueryData(schemaQuery.queryKey, written);
@@ -134,6 +139,13 @@ function ReviewBody({
       const written = writtenBeforeFailure(error);
       if (written) {
         queryClient.setQueryData(schemaQuery.queryKey, written);
+        if (rename)
+          setRest({
+            kind: 'updateVariable',
+            name: rename.name,
+            changes: {},
+            rename: rename.to,
+          });
         void refreshDerived();
       }
       const now = staleSchema(error);
@@ -163,7 +175,7 @@ function ReviewBody({
     save.error && !staleSchema(save.error) && !refusedErrors(save.error)
       ? save.error.message
       : undefined;
-  const partial = writtenBeforeFailure(save.error) !== undefined;
+  const partial = rest !== undefined;
 
   return (
     <>

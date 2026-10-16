@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { scenarios } from '../../mocks/handlers';
-import { mockState } from '../../mocks/store';
+import { mockState, writeSchema } from '../../mocks/store';
 import { renderApp } from '../../test/render';
 import { recordRequests } from '../../test/requests';
 import { server } from '../../test/server';
@@ -277,6 +277,78 @@ describe('the variable form', () => {
     expect(within(review).queryByText(/The edit was not saved/)).toBeNull();
     expect(saved().variables.PORT?.description).toBe('The port it listens on.');
     expect(mockState.schema.fingerprint).toBe('schema-2');
+
+    // Saving again retries the rename alone, against the written schema.
+    server.resetHandlers();
+    const writes = recordRequests('/api/schema/');
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved env.schema.json');
+    expect(writes).toEqual([
+      [
+        'POST',
+        '/api/schema/variables/PORT/rename',
+        { fingerprint: 'schema-2', to: 'HTTP_PORT' },
+      ],
+    ]);
+    expect(saved().variables.HTTP_PORT?.description).toBe(
+      'The port it listens on.',
+    );
+  });
+
+  it('rebases a rename that went stale after its change was written', async () => {
+    server.use(
+      http.post('/api/schema/variables/:name/rename', () => {
+        // Someone else writes the schema between the change and the rename.
+        const document = structuredClone(saved());
+        document.variables.API_URL!.description = 'Changed elsewhere.';
+        writeSchema(document);
+        return HttpResponse.json(
+          { statusCode: 409, message: 'changed', schema: mockState.schema },
+          { status: 409 },
+        );
+      }),
+    );
+    const { user, sheet } = await openForm('PORT');
+    const description = within(sheet).getByRole('textbox', {
+      name: 'Description',
+    });
+    await user.clear(description);
+    await user.type(description, 'The port it listens on.');
+    const name = within(sheet).getByRole('textbox', { name: 'Name' });
+    await user.clear(name);
+    await user.type(name, 'HTTP_PORT');
+    await user.click(
+      within(sheet).getByRole('button', { name: 'Review changes' }),
+    );
+    const review = await screen.findByRole('dialog', { name: 'Change PORT' });
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+
+    expect(
+      await within(review).findByText(
+        /env.schema.json changed since you opened it/,
+      ),
+    ).toBeVisible();
+    expect(
+      within(review).getByText(
+        'The changes to PORT were saved, but renaming it to HTTP_PORT failed. The review now shows the rename alone; save again to retry it.',
+      ),
+    ).toBeVisible();
+    // The cache ends on the schema as it is now, not the one the change wrote.
+    await user.click(within(review).getByRole('tab', { name: 'Raw JSON' }));
+    expect(within(review).getByText(/Changed elsewhere/)).toBeVisible();
+    expect(mockState.schema.fingerprint).toBe('schema-3');
+
+    server.resetHandlers();
+    const writes = recordRequests('/api/schema/');
+    await user.click(within(review).getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved env.schema.json');
+    expect(writes).toEqual([
+      [
+        'POST',
+        '/api/schema/variables/PORT/rename',
+        { fingerprint: 'schema-3', to: 'HTTP_PORT' },
+      ],
+    ]);
   });
 
   it('picks the rule variables from the other variables', async () => {
