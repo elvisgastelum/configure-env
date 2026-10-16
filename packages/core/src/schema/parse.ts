@@ -56,6 +56,130 @@ function position(text: string, offset: number) {
   return { line: before.length, column: (before.at(-1)?.length ?? 0) + 1 };
 }
 
+const SPACE = /[ \t\n\r]*/y;
+const NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
+const LITERAL = /true|false|null/y;
+const ESCAPE = /\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})/y;
+
+/** Where JSON text stops being valid JSON, and why. */
+interface SyntaxProblem {
+  offset: number;
+  reason: string;
+}
+
+/**
+ * Finds the first syntax error in JSON text. Engines word JSON.parse errors
+ * differently (V8 names an offset, Firefox a line and column, Safari
+ * nothing), so the portal finds the position itself to report it the same
+ * in every browser. Iterative, so deep nesting cannot overflow the stack.
+ */
+function findJsonSyntaxError(text: string): SyntaxProblem | undefined {
+  let at = 0;
+  const skipSpace = () => {
+    SPACE.lastIndex = at;
+    SPACE.exec(text);
+    at = SPACE.lastIndex;
+  };
+  const unexpected = (offset: number): SyntaxProblem =>
+    offset >= text.length
+      ? { offset: text.length, reason: 'unexpected end of the text' }
+      : { offset, reason: `unexpected '${text[offset]}'` };
+  const match = (pattern: RegExp) => {
+    pattern.lastIndex = at;
+    return pattern.exec(text) ? pattern.lastIndex : undefined;
+  };
+  /** Scans a string starting at its quote; undefined when it is valid. */
+  const string = (): SyntaxProblem | undefined => {
+    at++;
+    for (;;) {
+      const char = text[at];
+      if (char === undefined) return unexpected(at);
+      if (char === '"') {
+        at++;
+        return undefined;
+      }
+      if (char === '\\') {
+        const end = match(ESCAPE);
+        if (end === undefined)
+          return { offset: at, reason: 'invalid escape in a string' };
+        at = end;
+      } else if (char < ' ') {
+        return {
+          offset: at,
+          reason: 'line break or control character in a string',
+        };
+      } else at++;
+    }
+  };
+  /** Scans one scalar, or opens a container; returns its closing bracket. */
+  const value = (): SyntaxProblem | '}' | ']' | undefined => {
+    skipSpace();
+    const char = text[at];
+    if (char === '{' || char === '[') {
+      at++;
+      return char === '{' ? '}' : ']';
+    }
+    if (char === '"') return string();
+    const end = match(NUMBER) ?? match(LITERAL);
+    if (end === undefined) {
+      // A lone minus sign is wrong at the character after it.
+      return unexpected(char === '-' ? at + 1 : at);
+    }
+    at = end;
+    return undefined;
+  };
+
+  // Each open container: its closing bracket.
+  const open: ('}' | ']')[] = [];
+  let expectValue = true;
+  for (;;) {
+    if (expectValue) {
+      const scanned = value();
+      if (typeof scanned === 'object') return scanned;
+      if (scanned) {
+        open.push(scanned);
+        skipSpace();
+        // An empty container closes at once.
+        if (text[at] === scanned) {
+          at++;
+          open.pop();
+        } else if (scanned === '}') {
+          if (text[at] !== '"') return unexpected(at);
+          const problem = string();
+          if (problem) return problem;
+          skipSpace();
+          if (text[at] !== ':') return unexpected(at);
+          at++;
+          continue;
+        } else continue;
+      }
+    }
+    // After a value: a comma, the closing bracket, or the end of the text.
+    skipSpace();
+    const close = open.at(-1);
+    if (close === undefined)
+      return at < text.length ? unexpected(at) : undefined;
+    if (text[at] === close) {
+      at++;
+      open.pop();
+      expectValue = false;
+      continue;
+    }
+    if (text[at] !== ',') return unexpected(at);
+    at++;
+    expectValue = true;
+    if (close === '}') {
+      skipSpace();
+      if (text[at] !== '"') return unexpected(at);
+      const problem = string();
+      if (problem) return problem;
+      skipSpace();
+      if (text[at] !== ':') return unexpected(at);
+      at++;
+    }
+  }
+}
+
 /** Parses JSON text, reporting a syntax error with its line and column. */
 export function parseSchemaText(text: string): SchemaResult {
   // Editors on Windows may save a UTF-8 byte order mark; JSON.parse rejects it.
@@ -63,23 +187,21 @@ export function parseSchemaText(text: string): SchemaResult {
   let json: unknown;
   try {
     json = JSON.parse(text);
-  } catch (error) {
-    const message = (error as Error).message;
-    // V8 names the offset ("... in JSON at position 42"); input that ends
-    // early has none, so the error is at its end.
-    const offset = /at position (\d+)/.exec(message)?.[1];
-    const at = position(
-      text,
-      offset === undefined ? text.length : Number(offset),
-    );
-    const reason = message.replace(/\s*(in JSON )?at position \d+.*$/, '');
+  } catch {
+    // The scanner and JSON.parse agree on what is valid; if they ever do
+    // not, the error is reported at the end of the text.
+    const problem = findJsonSyntaxError(text) ?? {
+      offset: text.length,
+      reason: 'not valid JSON',
+    };
+    const at = position(text, problem.offset);
     return {
       ok: false,
       errors: [
         {
           path: '(root)',
           ...at,
-          message: `invalid JSON at line ${at.line}, column ${at.column}: ${reason}`,
+          message: `invalid JSON at line ${at.line}, column ${at.column}: ${problem.reason}`,
         },
       ],
     };
