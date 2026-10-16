@@ -4,6 +4,11 @@
 // source map for the schema), and the launcher, launch-editor's editor guess
 // behind a seam the tests replace, so no test ever starts an editor.
 
+// The helpers' declarations, for every package that type-checks this file
+// (the portal's too). An ambient declaration file has no module to import.
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="./launch-editor.d.ts" />
+
 import { type ChildProcess, exec, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isIPv4 } from 'node:net';
