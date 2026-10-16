@@ -15,13 +15,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lock, Undo2 } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { fullDate, relativeDate } from '../../lib/dates';
 import { DiffView } from '../schema/diff-view';
 import { undoChanges, undoFailure } from './history-api';
-
-const DATE = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
 
 /** A side of a value change as the history shows it: secrets stay masked. */
 const shown = (value: string | null, preview: string | null) =>
@@ -32,7 +28,8 @@ const shown = (value: string | null, preview: string | null) =>
  * secrets masked), and its undo, or why it can't be undone.
  */
 export function HistoryEntry({ change }: { change: Change }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const at = new Date(change.at);
   const titleId = useId();
   const schema = change.operation === 'schema';
   return (
@@ -69,7 +66,9 @@ export function HistoryEntry({ change }: { change: Change }) {
                 {t(`history.operations.${change.operation}`)}
               </Badge>
             )}
-            <time dateTime={change.at}>{DATE.format(new Date(change.at))}</time>
+            <time dateTime={change.at} title={fullDate(at, i18n.language)}>
+              {relativeDate(at, new Date(), i18n.language)}
+            </time>
             {change.undoOf !== null && (
               <span>{t('history.entry.undoOf', { id: change.undoOf })}</span>
             )}

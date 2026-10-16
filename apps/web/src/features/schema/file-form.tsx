@@ -474,7 +474,7 @@ function Overrides({
                   <div className="w-1/2 min-w-0">
                     <ChoiceSelect
                       label={t('schemaEditor.fileForm.rowVariable', {
-                        kind,
+                        kind: t(`schemaEditor.fileForm.${kind}`).toLowerCase(),
                         index: number,
                       })}
                       mono
@@ -518,7 +518,7 @@ function Overrides({
                 size="icon-sm"
                 variant="ghost"
                 aria-label={t('schemaEditor.fileForm.removeRow', {
-                  kind,
+                  kind: t(`schemaEditor.fileForm.${kind}`).toLowerCase(),
                   index: number,
                 })}
                 onClick={() => remove(index)}

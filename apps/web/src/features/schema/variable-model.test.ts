@@ -1,5 +1,6 @@
 import type { SchemaDocument } from '@configure-env/core/schema';
 import { describe, expect, it } from 'vitest';
+import { createI18n } from '../../i18n';
 import { schemaDocument, typedSchemaVariables } from '../../mocks/fixtures';
 import {
   EMPTY_VARIABLE,
@@ -13,6 +14,8 @@ import {
   variableEdit,
   variableFormSchema,
 } from './variable-model';
+
+const { t } = createI18n('en');
 
 const document: SchemaDocument = {
   ...schemaDocument,
@@ -174,7 +177,7 @@ describe('fieldForPath', () => {
 
 describe('variableFormSchema', () => {
   const check = (original: string | undefined, form: VariableFormValues) =>
-    variableFormSchema(document, original).safeParse(form);
+    variableFormSchema(document, original, t).safeParse(form);
   const issues = (result: ReturnType<typeof check>) =>
     result.success
       ? []

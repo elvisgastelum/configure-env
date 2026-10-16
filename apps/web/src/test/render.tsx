@@ -3,27 +3,33 @@
 
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
 import { act, render } from '@testing-library/react';
+import type { i18n } from 'i18next';
 import type { ReactNode } from 'react';
 import { AppProviders } from '../app-providers';
 import { createAppRouter, createQueryClient } from '../router';
 
-export function renderWithProviders(ui: ReactNode) {
+/** `ui` in the portal's providers, in English or in `i18n`'s language. */
+export function renderWithProviders(ui: ReactNode, i18n?: i18n) {
   const queryClient = createQueryClient();
   return {
     queryClient,
-    ...render(<AppProviders queryClient={queryClient}>{ui}</AppProviders>),
+    ...render(
+      <AppProviders queryClient={queryClient} i18n={i18n}>
+        {ui}
+      </AppProviders>,
+    ),
   };
 }
 
 /** The app at `path`, once its route has loaded and rendered. */
-export async function renderApp(path = '/') {
+export async function renderApp(path = '/', i18n?: i18n) {
   const queryClient = createQueryClient();
   const router = createAppRouter(
     queryClient,
     createMemoryHistory({ initialEntries: [path] }),
   );
   const result = render(
-    <AppProviders queryClient={queryClient}>
+    <AppProviders queryClient={queryClient} i18n={i18n}>
       <RouterProvider router={router} />
     </AppProviders>,
   );
