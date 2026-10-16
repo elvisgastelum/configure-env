@@ -635,5 +635,87 @@
   "events": {
     "changed_one": "{{paths}} changed outside the portal; the views show it now.",
     "changed_other": "{{paths}} changed outside the portal; the views show them now."
+  },
+  "apply": {
+    "open": "Apply",
+    "title": "Apply",
+    "description": "Write the env files the schema describes, as configure-env apply does.",
+    "descriptionFiles": "Write {{files}} as the schema describes it, as configure-env apply does.",
+    "close": "Close",
+    "cancel": "Cancel",
+    "planning": "Reading the plan…",
+    "failed": "Could not plan or apply: {{message}}",
+    "values": {
+      "lead": "The values the files take. Defaults are filled in; an optional value left empty takes its default.",
+      "none": "The files need no value.",
+      "label": "Value of {{name}}",
+      "required": "Required",
+      "generate": "Generate {{name}}",
+      "generateShort": "Generate",
+      "problem": "{{name}} {{message}}",
+      "preview": "Preview"
+    },
+    "plan": {
+      "changes_one": "{{count}} file changes",
+      "changes_other": "{{count}} files change",
+      "same_one": "{{count}} stays as it is",
+      "same_other": "{{count}} stay as they are",
+      "nothing": "Every file is current; there is nothing to write.",
+      "action": {
+        "create": "Create",
+        "update": "Update",
+        "mode": "Mode only",
+        "unchanged": "Unchanged",
+        "skip": "Skip"
+      },
+      "adds": "Adds {{keys}}",
+      "prunes": "Removes {{keys}}",
+      "mode": "Mode {{from}} to {{to}}",
+      "reason": {
+        "exists": "Create-only and already there: it is never overwritten.",
+        "refused": "Refused: {{error}}",
+        "loosens": "Skipped: {{error}}"
+      },
+      "diff": "Changes to {{path}}",
+      "line": {
+        "added": "added",
+        "removed": "removed",
+        "changed": "changed"
+      },
+      "unchangedLines_one": "{{count}} unchanged line",
+      "unchangedLines_other": "{{count}} unchanged lines",
+      "errors": "The plan cannot be applied:",
+      "error": "{{subject}} {{message}}",
+      "protected": "{{key}} in {{file}} {{message}}",
+      "protectedReason": "{{key}} in {{file}} {{message}} ({{reason}})",
+      "replace": "Replace the protected values",
+      "back": "Back",
+      "apply": "Apply…",
+      "stale": "The files changed since the plan was shown. This is the plan now; nothing was written.",
+      "refused": "Nothing was written: {{message}}"
+    },
+    "confirm": {
+      "title_one": "Write {{count}} file?",
+      "title_other": "Write {{count}} files?",
+      "back": "Back",
+      "write": "Write"
+    },
+    "result": {
+      "list": "Result per file",
+      "written_one": "{{count}} file written.",
+      "written_other": "{{count}} files written.",
+      "failed": "Some files were not written.",
+      "action": {
+        "create": "Created",
+        "update": "Updated",
+        "mode": "Mode set",
+        "unchanged": "Unchanged",
+        "skip": "Skipped"
+      },
+      "notWritten": "Not written",
+      "replaced": "Replaced {{key}} in {{file}}",
+      "warnings": "Warnings",
+      "done": "Done"
+    }
   }
 }

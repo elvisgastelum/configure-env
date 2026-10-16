@@ -6,28 +6,25 @@ import {
 import { TYPE } from '@configure-env/design-system/recipes';
 import { useQuery } from '@tanstack/react-query';
 import { LayoutGroup } from 'motion/react';
-import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { filesQuery, schemaQuery, variablesQuery } from '../../lib/api';
 import { schemaStatus } from '../../lib/schema-status';
+import { ApplyButton } from '../apply/apply-dialog';
 import { FileCard } from '../overview/file-card';
 import { InvalidSchema, NoSchema } from '../overview/schema-states';
 import { FileDetail } from './file-detail';
 
 /**
  * The env files workspace: a card per schema file, each opening its detail
- * in their place (`?focus=<path>`, as the palette jumps to it).
+ * in their place (`?focus=<path>`, as the palette jumps to it), and Apply.
  */
 export function FilesPage({
   focus,
   onFocusChange,
-  actions,
 }: {
   /** The file whose detail is open. */
   focus?: string;
   onFocusChange: (path?: string) => void;
-  /** The page's actions, beside its title. */
-  actions?: ReactNode;
 }) {
   const { t } = useTranslation();
   const schema = useQuery(schemaQuery);
@@ -40,7 +37,7 @@ export function FilesPage({
           <h1 className={TYPE.subTitle}>{t('nav.files')}</h1>
           <p className="text-pretty text-muted-foreground">{t('files.lead')}</p>
         </div>
-        {status === 'valid' && actions}
+        {status === 'valid' && <ApplyButton />}
       </header>
       {schema.error && (
         <p role="alert" className="text-destructive">

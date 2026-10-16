@@ -5,6 +5,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import type {
   Check,
   Files,
+  Plan,
   Project,
   Schema,
   Validate,
@@ -278,6 +279,80 @@ export const fileLines: Record<string, string[]> = {
     '# Copy to .env and fill in the secrets.',
     'API_URL=https://api.example.com',
     'PORT=3000',
+  ],
+};
+
+/** A plan with every action a file can take, for the preview. */
+export const everyActionPlan: Plan = {
+  fingerprint: 'plan-every-action',
+  ok: true,
+  errors: [],
+  protected: [],
+  files: [
+    {
+      path: 'config/app.env',
+      policy: 'generate',
+      action: 'create',
+      addedKeys: ['PORT', 'LOG_LEVEL'],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: null,
+      fingerprint: null,
+      diff: [
+        { kind: 'added', line: 'PORT=3000' },
+        { kind: 'added', line: 'LOG_LEVEL=info' },
+      ],
+    },
+    {
+      path: '.env',
+      policy: 'merge',
+      action: 'update',
+      addedKeys: ['API_KEY'],
+      prunedKeys: [],
+      mode: '600',
+      currentMode: '600',
+      fingerprint: 'env-1',
+      diff: [
+        { kind: 'same', line: 'PORT=8080' },
+        { kind: 'removed', line: 'LOG_LEVEL=debug' },
+        { kind: 'added', line: 'LOG_LEVEL=info' },
+        { kind: 'added', line: 'API_KEY=••••••••' },
+      ],
+    },
+    {
+      path: '.env.local',
+      policy: 'merge',
+      action: 'mode',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '600',
+      currentMode: '644',
+      fingerprint: 'local-1',
+      diff: [{ kind: 'same', line: 'PORT=8080' }],
+    },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      action: 'unchanged',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: '644',
+      fingerprint: 'example-1',
+      diff: [{ kind: 'same', line: 'PORT=3000' }],
+    },
+    {
+      path: '.env.seed',
+      policy: 'create-only',
+      action: 'skip',
+      reason: 'exists',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: '644',
+      fingerprint: 'seed-1',
+      diff: [],
+    },
   ],
 };
 

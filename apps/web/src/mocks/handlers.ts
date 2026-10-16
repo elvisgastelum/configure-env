@@ -5,6 +5,7 @@
 // schema writer, as the API does, so they refuse what the API refuses.
 
 import * as writer from '@configure-env/core/schema';
+import type { ApplyRequest, PlanRequest } from '@configure-env/api-client';
 import type {
   FileInput,
   SchemaDocument,
@@ -14,10 +15,12 @@ import type {
 import { HttpResponse, delay, http, sse } from 'msw';
 import * as fixtures from './fixtures';
 import {
+  applyPlan,
   eventClients,
   findFile,
   findVariable,
   mockState,
+  planOf,
   plainValue,
   problemsOf,
   protectedProblems,
@@ -216,20 +219,32 @@ export const handlers = [
       );
     return json({ file, key, value: plainValue(file, key) });
   }),
-  // A dry run: only the value and rule errors of the given values.
-  http.post('/api/plan', async ({ request }) => {
-    const body = (await request.json()) as {
-      values?: Record<string, string>;
-      files?: string[];
-    };
-    const errors = problemsOf(body.files?.[0] ?? '.env', body.values ?? {});
-    return json({
-      fingerprint: 'plan',
-      ok: errors.length === 0,
-      files: [],
-      errors,
-      protected: [],
-    });
+  // What applying would do; the value and rule errors of the given values.
+  http.post('/api/plan', async ({ request }) =>
+    json(planOf((await request.json()) as PlanRequest)),
+  ),
+  http.post('/api/apply', async ({ request }) => {
+    const body = (await request.json()) as ApplyRequest;
+    const plan = planOf(body);
+    if (plan.fingerprint !== body.fingerprint)
+      return HttpResponse.json(
+        {
+          statusCode: 409,
+          message: 'the plan changed since it was shown; nothing was written',
+          plan,
+        },
+        { status: 409 },
+      );
+    if (!plan.ok)
+      return HttpResponse.json(
+        {
+          statusCode: 422,
+          message: 'the plan has errors; nothing was written',
+          plan,
+        },
+        { status: 422 },
+      );
+    return json(applyPlan(body));
   }),
   http.post('/api/values/set', async ({ request }) => {
     const body = (await request.json()) as ValuesBody;

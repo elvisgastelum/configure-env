@@ -3,10 +3,15 @@
 // would. Tests reset it after each test; stories before each story.
 
 import type {
+  Applied,
   EditProblem,
+  FilePlan,
   Files,
+  Plan,
   PlanError,
+  PlanRequest,
   Schema,
+  Variable,
   VariableSpec,
   Variables,
 } from '@configure-env/api-client';
@@ -216,7 +221,7 @@ export function writeValue(file: string, key: string, value?: string) {
 }
 
 /** The line of `key` in `file`'s lines: replaced, added, or removed. */
-function writeLine(file: string, key: string, shown?: string) {
+export function writeLine(file: string, key: string, shown?: string) {
   const lines = mockState.lines.get(file) ?? [];
   const at = lines.findIndex((line) => line.startsWith(`${key}=`));
   if (shown === undefined) {
@@ -247,4 +252,145 @@ export function writeSchema(document: unknown): Schema {
     fingerprint: `schema-${mockState.schemaWrites + 1}`,
   };
   return mockState.schema;
+}
+
+/** A short hash of `text`, so a plan fingerprint names no value. */
+function hash(text: string): string {
+  let value = 5381;
+  for (const char of text)
+    value = ((value << 5) + value + char.charCodeAt(0)) | 0;
+  return (value >>> 0).toString(16);
+}
+
+/** The variables `path` lists, in schema order. */
+const variablesIn = (path: string) =>
+  mockState.variables.variables.filter((variable) =>
+    variable.files.some((entry) => entry.file === path),
+  );
+
+/** The value a run writes for `variable`: given, else its default. */
+const valueFor = (variable: Variable, values: Record<string, string>) =>
+  values[variable.name] ??
+  (variable.spec.default === undefined ? '' : String(variable.spec.default));
+
+const shownLine = (variable: Variable, value: string) =>
+  `${variable.name}=${variable.spec.secret && value !== '' ? MASK : value}`;
+
+/**
+ * What applying would do, as POST /api/plan answers it for the sample
+ * project: a template is left as it is, a missing file is created with its
+ * variables, a merge file gains its missing keys and its schema mode.
+ */
+export function planOf(inputs: PlanRequest): Plan {
+  const values = inputs.values ?? {};
+  const errors: PlanError[] = [];
+  const seen = new Set<string>();
+  const addError = (error: PlanError) => {
+    const id = JSON.stringify(error);
+    if (seen.has(id)) return;
+    seen.add(id);
+    errors.push(error);
+  };
+  const infos = mockState.files.files.filter(
+    (info) => !inputs.files || inputs.files.includes(info.path),
+  );
+  const files = infos.map((info): FilePlan => {
+    const lines = mockState.lines.get(info.path) ?? [];
+    const base = {
+      path: info.path,
+      policy: info.policy,
+      addedKeys: [] as string[],
+      prunedKeys: [] as string[],
+      mode: info.mode.expected ?? info.mode.actual ?? '644',
+      currentMode: info.mode.actual,
+      fingerprint: info.fingerprint ?? null,
+    };
+    for (const error of problemsOf(info.path, values)) addError(error);
+    if (info.template)
+      return {
+        ...base,
+        action: 'unchanged',
+        diff: lines.map((line) => ({ kind: 'same', line })),
+      };
+    if (info.exists && info.policy === 'create-only')
+      return { ...base, action: 'skip', reason: 'exists', diff: [] };
+    const added = info.exists
+      ? info.drift.missingKeys.flatMap((key) => findVariable(key) ?? [])
+      : variablesIn(info.path);
+    for (const variable of added)
+      if (variable.spec.required && valueFor(variable, values) === '')
+        addError({ kind: 'value', key: variable.name, message: 'is required' });
+    const diff = [
+      ...lines.map((line) => ({ kind: 'same' as const, line })),
+      ...added.map((variable) => ({
+        kind: 'added' as const,
+        line: shownLine(variable, valueFor(variable, values)),
+      })),
+    ];
+    const action = !info.exists
+      ? 'create'
+      : added.length
+        ? 'update'
+        : base.mode !== base.currentMode
+          ? 'mode'
+          : 'unchanged';
+    return {
+      ...base,
+      action,
+      addedKeys: added.map((variable) => variable.name),
+      diff,
+    };
+  });
+  return {
+    fingerprint: `plan-${hash(
+      JSON.stringify([
+        mockState.writes,
+        values,
+        inputs.files ?? null,
+        files.map((file) => file.action),
+      ]),
+    )}`,
+    ok: errors.length === 0,
+    files,
+    errors,
+    protected: [],
+  };
+}
+
+const WRITES = new Set<FilePlan['action']>(['create', 'update', 'mode']);
+
+/** Writes the plan of `inputs`, as POST /api/apply does once it matches. */
+export function applyPlan(inputs: PlanRequest): Applied {
+  const values = inputs.values ?? {};
+  const plan = planOf(inputs);
+  for (const file of plan.files) {
+    if (!WRITES.has(file.action)) continue;
+    const info = findFile(file.path)!;
+    if (file.action === 'create') mockState.lines.set(file.path, []);
+    for (const key of file.addedKeys) {
+      const value = valueFor(findVariable(key)!, values);
+      if (value === '') writeLine(file.path, key, '');
+      else writeValue(file.path, key, value);
+    }
+    info.exists = true;
+    info.mode.actual = file.mode;
+    info.drift = {
+      ...info.drift,
+      status: 'current',
+      drift: false,
+      missingKeys: [],
+    };
+    touchFile(file.path);
+  }
+  return {
+    ok: true,
+    files: plan.files.map((file) => ({
+      path: file.path,
+      action: file.action,
+      ok: true,
+      written: WRITES.has(file.action),
+    })),
+    replaced: [],
+    warnings: [],
+  };
 }

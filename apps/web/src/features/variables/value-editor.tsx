@@ -27,8 +27,8 @@ import {
 
 const NUMERIC = new Set(['number', 'integer', 'port']);
 
-/** The control that fits the variable's type, over a string draft. */
-function ValueControl({
+/** The control that fits the variable's type, over a string draft; the apply flow prompts with it too. */
+export function ValueControl({
   variable,
   label,
   draft,
