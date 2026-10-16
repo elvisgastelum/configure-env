@@ -1,3 +1,4 @@
+import { FOCUS_RING } from '@configure-env/design-system/recipes';
 import type { DiffLine as PlanLine } from '@configure-env/api-client';
 import { cn } from '@configure-env/design-system/utils';
 import { useMemo } from 'react';
@@ -33,7 +34,14 @@ export function UnifiedDiff({
   const { t } = useTranslation();
   const items = useMemo(() => foldRows(rowsOf(lines)), [lines]);
   return (
-    <div className="max-h-80 overflow-auto rounded-lg border">
+    // Focusable, so a keyboard can scroll a diff wider or taller than its box.
+    <div
+      tabIndex={0}
+      className={cn(
+        'max-h-80 overflow-auto rounded-lg border outline-none',
+        FOCUS_RING,
+      )}
+    >
       <table aria-label={label} className="w-full font-mono text-xs">
         <tbody>
           {items.map((item, index) =>

@@ -60,10 +60,6 @@ for (const width of WIDTHS) {
       portal: page,
       served,
     }) => {
-      // PV-20 T3: at every width the apply dialog scrolls sideways: the
-      // diff's long lines widen the dialog's content instead of scrolling
-      // inside their own box, so the plan is cut off on the right.
-      test.fail(true, 'the apply plan dialog overflows sideways');
       await page.goto(`${served.origin}/check`);
       await page.getByRole('button', { name: 'Apply every file' }).click();
       const dialog = page.getByRole('dialog', { name: 'Apply' });

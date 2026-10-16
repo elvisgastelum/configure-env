@@ -22,8 +22,8 @@ test('fix drift until every file matches the schema', async ({
     })
     .fill('8080');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  // No toast assertion: the fixed item leaves the report, and the "Saved"
-  // toast can be lost with it (reported for PV-20 T3; see the README).
+  // The fixed item leaves the report; its toast stays.
+  await expect(page.getByText('Saved WEB_PORT in .env.example')).toBeVisible();
   await expect
     .poll(async () =>
       dotenvValue(await served.read('.env.example'), 'WEB_PORT'),
@@ -83,11 +83,8 @@ test('fix drift until every file matches the schema', async ({
 test('applying one file from check keeps its result until Done', async ({
   portal: page,
 }) => {
-  // PV-20 T3: the dialog belongs to the file's "Apply <path>" button; once the
-  // file stops drifting the report drops that button and the dialog unmounts,
-  // so "1 file written." flashes and "Done" disappears (the same unmount can
-  // also swallow the "Saved <name> in <file>" toast of an in-place Set/Fix).
-  test.fail();
+  // The file stops drifting once written and its "Apply <path>" button
+  // leaves the report; the dialog it opened must stay until Done.
   await navigate(page, 'Check');
   await page
     .getByRole('button', { name: 'Apply deploy/.env.production.example' })

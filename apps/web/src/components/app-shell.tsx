@@ -6,6 +6,7 @@ import {
   EmptyTitle,
 } from '@configure-env/design-system/components/atoms/empty';
 import { ScrollProgress } from '@configure-env/design-system/motion/scroll-progress';
+import { PortalContainer } from '@configure-env/design-system/components/atoms/portal-container';
 import { useQuery } from '@tanstack/react-query';
 import { KeyRound } from 'lucide-react';
 import { type ReactNode, Suspense, lazy, useState } from 'react';
@@ -62,7 +63,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             tabIndex={-1}
             className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 outline-none md:px-8"
           >
-            {children}
+            {/* Menus opened on a page portal into <main>, inside a landmark. */}
+            <PortalContainer>{children}</PortalContainer>
           </main>
         </div>
       </div>

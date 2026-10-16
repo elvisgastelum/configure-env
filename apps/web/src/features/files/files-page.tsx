@@ -95,7 +95,11 @@ function FileCards({
       <RevealGroup as="ul" className="grid gap-3 md:grid-cols-2">
         {list.map((file) => (
           <RevealItem as="li" key={file.path}>
-            <FileCard file={file} onOpen={() => onFocusChange(file.path)} />
+            <FileCard
+              file={file}
+              level={2}
+              onOpen={() => onFocusChange(file.path)}
+            />
           </RevealItem>
         ))}
       </RevealGroup>

@@ -80,9 +80,6 @@ for (const { path, heading, action } of PAGES) {
     portal: page,
     served,
   }) => {
-    // PV-20 T3: on /schema the "Variables" tabpanel (role=tabpanel,
-    // tabindex=0) is a tab stop that shows no focus ring.
-    test.fail(path === '/schema', 'the schema tabpanel has no focus ring');
     await page.goto(served.origin + path);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
 

@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test';
 import { axeViolations } from '../src/axe.ts';
 import { expect, test } from '../src/fixtures.ts';
-import { openDrawer, variablesOf } from '../src/portal.ts';
+import { openDrawer, rowOf, variablesOf } from '../src/portal.ts';
 
 const ROUTES = [
   '/',
@@ -35,24 +35,12 @@ async function scan(page: Page) {
   return axeViolations(page);
 }
 
-/** Violations the suite found, left for PV-20 T3 to fix (both themes). */
-const KNOWN: Record<string, string> = {
-  // PV-20 T3: aria-required-children (critical) on the group header rows
-  // div[aria-rowindex="2"|"5"|"9"]: the row holds the "Copy the <group>
-  // group of <file> as dotenv" button directly, not inside a cell.
-  '/variables': 'aria-required-children on the group header rows',
-  // PV-20 T3: heading-order (moderate) on each file card's heading: an h3
-  // right under the page's h1, with no h2 between.
-  '/files': 'heading-order on the file cards',
-};
-
 for (const theme of ['Light', 'Dark'] as const) {
   for (const route of ROUTES) {
     test(`axe: ${route} in the ${theme.toLowerCase()} theme`, async ({
       portal: page,
       served,
     }) => {
-      test.fail(route in KNOWN, KNOWN[route]);
       await useTheme(page, theme);
       await page.goto(served.origin + route);
       expect(await scan(page)).toEqual([]);
@@ -63,15 +51,6 @@ for (const theme of ['Light', 'Dark'] as const) {
     portal: page,
     served,
   }) => {
-    // PV-20 T3: scrollable-region-focusable (serious) on the review dialog's
-    // diff (.max-h-[60vh]) and the apply plan's diff boxes
-    // (section > .max-h-80.overflow-auto): they scroll but cannot take focus.
-    // PV-20 T3: region (moderate) on the copy menu's content: the portal it
-    // opens in sits outside every landmark.
-    // PV-20 T3 (light theme only): color-contrast (serious) on the revealed
-    // secret in the selected grid row (.text-amber-700[data-revealed]):
-    // 4.32:1, #bb4d00 on #e7eeff, under 4.5:1.
-    test.fail(true, 'axe violations in the review, apply and copy dialogs');
     await useTheme(page, theme);
     const found: string[] = [];
     const scanOpen = async (label: string) => {
@@ -81,6 +60,15 @@ for (const theme of ['Light', 'Dark'] as const) {
     };
 
     await variablesOf(page, '.env');
+    // A menu opened on the page portals into <main>, inside a landmark.
+    await rowOf(page, 'CONTACT_API_TOKEN')
+      .getByRole('button', { name: /^Copy CONTACT_API_TOKEN/ })
+      .first()
+      .click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await scanOpen('page copy menu');
+    await page.keyboard.press('Escape');
+
     const drawer = await openDrawer(page, 'CONTACT_API_TOKEN');
     await drawer
       .getByRole('button', {

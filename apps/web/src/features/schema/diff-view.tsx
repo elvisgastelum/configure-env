@@ -1,3 +1,4 @@
+import { FOCUS_RING } from '@configure-env/design-system/recipes';
 import { cn } from '@configure-env/design-system/utils';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -66,7 +67,14 @@ export function DiffView({
     [before, after],
   );
   return (
-    <div className="max-h-[60vh] overflow-auto rounded-lg border">
+    // Focusable, so a keyboard can scroll a diff wider or taller than its box.
+    <div
+      tabIndex={0}
+      className={cn(
+        'max-h-[60vh] overflow-auto rounded-lg border outline-none',
+        FOCUS_RING,
+      )}
+    >
       <table aria-label={label} className="w-full font-mono text-xs">
         <thead className="sticky top-0 bg-background text-left text-muted-foreground">
           <tr>

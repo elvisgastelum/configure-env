@@ -28,8 +28,10 @@ test('validate reports the broken value and fixing it clears it @smoke', async (
     })
     .fill('526381177267');
   await env.getByRole('button', { name: 'Save', exact: true }).click();
-  // No toast assertion: the fixed entry leaves the report, and the "Saved"
-  // toast can be lost with it (reported for PV-20 T3; see the README).
+  // The fixed entry leaves the report; its toast stays.
+  await expect(
+    page.getByText('Saved VITE_CONTACT_WHATSAPP in .env'),
+  ).toBeVisible();
 
   // The report runs again: .env has no error left.
   await expect(page.getByText('2 errors in 2 files.')).toBeVisible();
