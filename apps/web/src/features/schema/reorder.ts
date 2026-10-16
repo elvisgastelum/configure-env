@@ -3,9 +3,10 @@
 
 import { type DragEvent, useState } from 'react';
 
-/** The list with the item at `from` moved to `to`; the same list when out of range. */
+/** The list with the item at `from` moved to `to`; an unchanged copy when out of range. */
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
-  if (from === to || to < 0 || to >= list.length || from < 0) return [...list];
+  const inRange = (index: number) => index >= 0 && index < list.length;
+  if (from === to || !inRange(from) || !inRange(to)) return [...list];
   const next = [...list];
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item as T);

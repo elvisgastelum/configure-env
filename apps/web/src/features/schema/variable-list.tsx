@@ -45,8 +45,15 @@ export function VariableList({
   }
   const shown = order.filter((name) => document.variables[name]);
   const changed = shown.join('\n') !== declared.join('\n');
+  // The indices are those of the rows shown, so the move applies to them.
   const move = (from: number, to: number) =>
-    setOrder((current) => moveItem(current, from, to));
+    setOrder((current) =>
+      moveItem(
+        current.filter((name) => document.variables[name]),
+        from,
+        to,
+      ),
+    );
   const { itemProps } = useDragReorder(move);
 
   return (

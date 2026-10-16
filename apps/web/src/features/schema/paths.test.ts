@@ -34,4 +34,9 @@ describe('parseIssuePath', () => {
     expect(parseIssuePath('files[')).toBeUndefined();
     expect(parseIssuePath('a..b')).toBeUndefined();
   });
+
+  it('gives undefined for a quoted key with an escape JSON does not allow', () => {
+    expect(parseIssuePath('variables["a\\q"]')).toBeUndefined();
+    expect(parseIssuePath('variables["\\u12"]')).toBeUndefined();
+  });
 });

@@ -23,7 +23,14 @@ export function parseIssuePath(path: string): PathSegment[] | undefined {
     if (rest.startsWith('["')) {
       const end = quotedEnd(rest, 1);
       if (end === undefined || rest[end + 1] !== ']') return undefined;
-      segments.push(JSON.parse(rest.slice(1, end + 1)) as string);
+      // The scan finds the closing quote, not whether each escape is valid.
+      let key: string;
+      try {
+        key = JSON.parse(rest.slice(1, end + 1)) as string;
+      } catch {
+        return undefined;
+      }
+      segments.push(key);
       rest = rest.slice(end + 2);
       continue;
     }
