@@ -6,7 +6,8 @@
 // A write is recorded in the history with the schema's text before and
 // after, so it can be undone.
 
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   DEFAULT_EXAMPLE,
   STATE_IGNORE,
@@ -124,6 +125,24 @@ async function sourceText(
 }
 
 /**
+ * ignoreState, but never through a symlink: like every other file the API
+ * writes, the .gitignore must be the root's own. Answers what stopped it.
+ */
+async function ignoreStateInside(root: string): Promise<string | undefined> {
+  const link = await lstat(join(root, '.gitignore')).then(
+    (stats) => stats.isSymbolicLink(),
+    () => false,
+  );
+  if (link) return 'it is a symlink';
+  try {
+    await ignoreState(root);
+    return undefined;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code ?? String(error);
+  }
+}
+
+/**
  * Writes a starting schema inferred from an example env file: a new file, or
  * over the existing one when the request names its fingerprint. Once it is
  * written, the state directory is added to .gitignore, as `configure-env
@@ -141,14 +160,11 @@ export async function initSchema(
       })
     : await createSchemaFile(project.schemaFile, document);
   const view = await answer(project, result);
-  try {
-    await ignoreState(project.root);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code ?? String(error);
+  const problem = await ignoreStateInside(project.root);
+  if (problem)
     view.warnings = [
       ...(view.warnings ?? []),
-      `cannot update .gitignore: ${code}; add ${STATE_IGNORE} to it yourself`,
+      `cannot update .gitignore: ${problem}; add ${STATE_IGNORE} to it yourself`,
     ];
-  }
   return view;
 }

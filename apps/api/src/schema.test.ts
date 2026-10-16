@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DEFAULT_STATE_PATH,
@@ -394,6 +395,26 @@ describe('POST /api/schema/init', () => {
     expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
       '.configure-env/\n',
     );
+  });
+
+  it('never writes through a symlinked .gitignore', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'ignore'), 'node_modules\n');
+      await start({ '.env.example': EXAMPLE });
+      await symlink(join(outside, 'ignore'), join(root, '.gitignore'));
+      const response = await send('post', '/api/schema/init', {});
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(true);
+      expect(response.body.warnings).toEqual([
+        'cannot update .gitignore: it is a symlink; add .configure-env/ to it yourself',
+      ]);
+      expect(await readFile(join(outside, 'ignore'), 'utf8')).toBe(
+        'node_modules\n',
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('touches nothing when it refuses', async () => {
