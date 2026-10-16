@@ -47,6 +47,20 @@ for (const theme of ['Light', 'Dark'] as const) {
     });
   }
 
+  test.describe('a project without a schema', () => {
+    test.use({ fixture: 'empty' });
+
+    test(`axe: the init card in the ${theme.toLowerCase()} theme`, async ({
+      portal: page,
+    }) => {
+      await useTheme(page, theme);
+      await expect(
+        page.getByRole('heading', { name: 'No schema yet' }),
+      ).toBeVisible();
+      expect(await scan(page)).toEqual([]);
+    });
+  });
+
   test(`axe: open dialogs in the ${theme.toLowerCase()} theme`, async ({
     portal: page,
     served,
