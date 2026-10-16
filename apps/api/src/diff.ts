@@ -16,7 +16,7 @@ interface Shown {
 
 /** The `KEY=` start of a line, as the dotenv parser reads one, or of one commented out. */
 const KEY_PREFIX =
-  /^(\s*(?:#[ \t]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=)/;
+  /^(\s*(?:#[#\s]*)?(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=)/;
 
 /** The text's logical lines, each shown with a secret entry's value masked. */
 function shownLines(schema: EnvSchema, text: string): Shown[] {

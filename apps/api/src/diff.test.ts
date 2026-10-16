@@ -54,6 +54,7 @@ describe('maskedLines', () => {
         `NAME="${value}" trailing`,
         `# KEY=${value}`,
         `# NAME=${value}`,
+        `## \t# KEY=${value}`,
         '# a comment',
       ].join('\n') + '\n',
     );
@@ -64,6 +65,7 @@ describe('maskedLines', () => {
       `NAME="${value}" trailing`,
       '# KEY=••••',
       `# NAME=${value}`,
+      '## \t# KEY=••••',
       '# a comment',
     ]);
   });
