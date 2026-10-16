@@ -1,6 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { schemaFingerprint } from '@configure-env/core';
+import {
+  DEFAULT_STATE_PATH,
+  readChanges,
+  schemaFingerprint,
+} from '@configure-env/core';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -46,18 +50,73 @@ const onDisk = async () =>
   JSON.parse(await readFile(join(root, 'env.schema.json'), 'utf8'));
 const diskText = () => readFile(join(root, 'env.schema.json'), 'utf8');
 
-/** The response is the schema now on disk. */
+const history = () => readChanges(join(root, DEFAULT_STATE_PATH));
+
+/**
+ * The response is the schema now on disk, and names the change it recorded
+ * in the history, with the text written.
+ */
 async function expectWritten(response: request.Response) {
   expect(response.status).toBe(200);
   const text = await diskText();
+  const last = (await history()).at(-1);
   expect(response.body).toEqual({
     path: 'env.schema.json',
     valid: true,
     document: JSON.parse(text),
     errors: [],
     fingerprint: schemaFingerprint(text),
+    change: last?.id,
+  });
+  expect(last).toMatchObject({
+    actor: 'portal',
+    file: 'env.schema.json',
+    key: '',
+    operation: 'schema',
+    afterValue: text,
+    afterFingerprint: schemaFingerprint(text),
   });
 }
+
+describe('history', () => {
+  it('records the text before an edit, so it can be undone', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const response = await send('post', '/api/schema/variables', {
+      fingerprint: BASE,
+      name: 'DEBUG',
+      spec: { type: 'boolean' },
+    });
+    await expectWritten(response);
+    expect(await history()).toMatchObject([
+      {
+        beforeValue: TEXT,
+        beforeFingerprint: BASE,
+        beforePreview: '3 variables, 2 files',
+        afterPreview: '4 variables, 2 files',
+        restorable: true,
+      },
+    ]);
+  });
+
+  it('records a new schema as a change that cannot be undone', async () => {
+    await start({});
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect(await history()).toMatchObject([
+      { beforeValue: null, beforeFingerprint: null, restorable: false },
+    ]);
+  });
+
+  it('records nothing for an edit that leaves the text as it is', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const same = await send('put', '/api/schema/variables/PORT', {
+      fingerprint: BASE,
+      changes: { default: 3000 },
+    });
+    expect(same.status).toBe(200);
+    expect(same.body.change).toBeUndefined();
+    expect(await history()).toEqual([]);
+  });
+});
 
 describe('variables', () => {
   it('adds one, joining the files named', async () => {

@@ -2,26 +2,24 @@
 // through the core's per-key edits, so the portal never edits a file on its
 // own. Each write names the fingerprint of the file it was based on, keeps
 // every protected value unless asked to replace it by key, and is recorded
-// in the history of edits, never with a value.
+// in the history of edits: a secret's value never, any other's so the edit
+// can be undone. The answer names the changes recorded.
 
 import { readFile } from 'node:fs/promises';
 import {
-  type ChangeInput,
   type EditContext,
   type EditFailure,
   type EnvFile,
   type EnvSchema,
   type ProtectedProblem,
-  UNKNOWN_SPEC,
-  type VariableSpec,
   generatableProblem,
   generateValue,
-  getValue,
-  parseDotenv,
   readEnvFile,
-  recordChanges,
+  recordHistory,
   serialize,
+  setChanges,
   setValues,
+  unsetChanges,
   unsetValues,
   variablesOf,
 } from '@configure-env/core';
@@ -117,24 +115,6 @@ async function failure(
   }
 }
 
-/** Records the changed keys; a history it cannot write is a warning. */
-async function record(
-  project: Project,
-  changes: ChangeInput[],
-): Promise<string[]> {
-  try {
-    await recordChanges(project.statePath, 'portal', changes);
-    return [];
-  } catch (error) {
-    return [`the history was not recorded: ${(error as Error).message}`];
-  }
-}
-
-const specOf = (schema: EnvSchema, file: EnvFile, key: string): VariableSpec =>
-  variablesOf(schema, file.spec).has(key)
-    ? schema.variables[key]!
-    : UNKNOWN_SPEC;
-
 /** The fingerprint of the file after an edit that may have written it. */
 const fingerprintAfter = (file: EnvFile, written: boolean) =>
   contentFingerprint(written ? serialize(file.doc) : file.previous);
@@ -168,7 +148,6 @@ export async function setFileValues(
   }
   if (errors.length) throw refused('invalid', errors);
 
-  const before = parseDotenv(file.previous ?? '');
   const context = await editContext(schema, project);
   const result = await setValues(context, file, pairs, {
     replace: new Set(body.replaceProtected ?? []),
@@ -176,26 +155,19 @@ export async function setFileValues(
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const changed = result.keys.filter((entry) => entry.status !== 'unchanged');
-  const warnings = [
-    ...(result.stateError ?? []),
-    ...(await record(
-      project,
-      changed.map((entry) => ({
-        file: body.file,
-        key: entry.key,
-        operation: result.replaced.includes(entry.key) ? 'replace' : 'set',
-        spec: entry.spec,
-        before: getValue(before, entry.key),
-        after: entry.plain,
-      })),
-    )),
-  ];
+  const history = await recordHistory(
+    project.statePath,
+    'portal',
+    setChanges(file, result),
+  );
+  const warnings = [...(result.stateError ?? []), ...history.warnings];
   return {
     file: body.file,
     fingerprint: fingerprintAfter(file, changed.length > 0),
     keys: result.keys.map(({ key, status }) => ({ key, status })),
     replaced: result.replaced,
     generated: generate,
+    changes: history.ids,
     warnings,
   };
 }
@@ -207,7 +179,6 @@ export async function unsetFileValues(
   body: z.output<typeof unsetValuesRequest>,
 ): Promise<ValuesEdit> {
   const file = await openFile(schema, project, body.file, body.fingerprint);
-  const before = parseDotenv(file.previous ?? '');
   const context = await editContext(schema, project);
   const result = await unsetValues(context, file, body.keys, {
     replace: new Set(body.replaceProtected ?? []),
@@ -215,25 +186,19 @@ export async function unsetFileValues(
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const removed = result.keys.filter((entry) => entry.status === 'removed');
-  const warnings = [
-    ...(result.stateError ?? []),
-    ...(await record(
-      project,
-      removed.map(({ key }) => ({
-        file: body.file,
-        key,
-        operation: result.replaced.includes(key) ? 'replace' : 'unset',
-        spec: specOf(schema, file, key),
-        before: getValue(before, key),
-      })),
-    )),
-  ];
+  const history = await recordHistory(
+    project.statePath,
+    'portal',
+    unsetChanges(schema, file, result),
+  );
+  const warnings = [...(result.stateError ?? []), ...history.warnings];
   return {
     file: body.file,
     fingerprint: fingerprintAfter(file, removed.length > 0),
     keys: result.keys,
     replaced: result.replaced,
     generated: [],
+    changes: history.ids,
     warnings,
   };
 }

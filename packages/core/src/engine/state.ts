@@ -484,8 +484,8 @@ export interface StateTransaction {
   exists: boolean;
   /** Replaces what the database holds with `state`, in this transaction. */
   write: (state: State) => void;
-  /** Appends rows to the history of edits, in this transaction. */
-  insertChanges: (rows: readonly ChangeRow[]) => void;
+  /** Appends rows to the history of edits, in this transaction; their ids. */
+  insertChanges: (rows: readonly ChangeRow[]) => number[];
 }
 
 /** A row of the history of edits, as written; `id` is assigned. */
@@ -537,10 +537,16 @@ export async function withStateTransaction<T>(
         state: current.state,
         exists: current.exists,
         write: (state) => writeAll(db, state),
-        insertChanges: (rows) => {
+        insertChanges: (rows) =>
           // One statement per row keeps clear of SQLite's bound-parameter limit.
-          for (const row of rows) db.insert(tables.changes).values(row).run();
-        },
+          rows.map(
+            (row) =>
+              db
+                .insert(tables.changes)
+                .values(row)
+                .returning({ id: tables.changes.id })
+                .get().id,
+          ),
       });
       sqlite.exec('COMMIT');
     } catch (error) {

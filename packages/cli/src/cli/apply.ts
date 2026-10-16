@@ -7,6 +7,7 @@ import {
   type Plan,
   type PlanError,
   type VariableSpec,
+  appliedChanges,
   applyPlan,
   fileRules,
   getValue,
@@ -32,6 +33,7 @@ import {
   takesValue,
   parseCommand,
   parseSets,
+  recordRun,
   resolveValues,
   ruleErrors,
   usageError,
@@ -215,9 +217,27 @@ const protectedChanges = (
 /**
  * Writes the plan, in the state's write transaction when it touches protected values
  * (see writeProtected), settling its checks and values with the state as it
- * is then. `allowed` are the keys --replace-protected may replace.
+ * is then, and records the keys it changed in the history (`history`: the
+ * warning when it could not). `allowed` are the keys --replace-protected
+ * may replace.
  */
-function writeRun(
+async function writeRun(
+  context: Context,
+  schema: EnvSchema,
+  guard: Guard,
+  plan: Plan,
+  allowed: ReadonlySet<string>,
+) {
+  const written = await writeFiles(context, schema, guard, plan, allowed);
+  const history = await recordRun(
+    context,
+    appliedChanges(schema, plan, written.value, written.replaced),
+  );
+  return { ...written, history };
+}
+
+/** Writes the plan for writeRun. */
+function writeFiles(
   context: Context,
   schema: EnvSchema,
   guard: Guard,
@@ -257,13 +277,14 @@ function writeRun(
 
 /**
  * The warnings of a run: a state it could not read, when it pruned a key in
- * a file it wrote, then one it could not write.
+ * a file it wrote, then one it could not write, then a history it could not
+ * record.
  */
 const warningsOf = (
   guard: Guard,
   plan: Plan,
   results: readonly ApplyResult[],
-  written: { warning?: string },
+  written: { warning?: string; history: readonly string[] },
 ) => {
   const pruned = plan.files.some(
     (file, i) => file.prunedKeys?.length && results[i]?.written,
@@ -271,6 +292,7 @@ const warningsOf = (
   return [
     ...(guard.unread && pruned ? [guard.unread] : []),
     ...(written.warning ? [written.warning] : []),
+    ...written.history,
   ];
 };
 

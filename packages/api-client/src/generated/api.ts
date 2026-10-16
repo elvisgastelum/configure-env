@@ -674,6 +674,14 @@ export interface Schema {
   errors: SchemaError[];
   /** Identifies the bytes read; a schema edit names it. Absent when the file cannot be read. */
   fingerprint?: string;
+  /**
+   * After a write: the id of the change it recorded in the history, which POST /api/history/{id}/undo takes.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  change?: number;
+  /** After a write: what went wrong once the file was written, such as the history not recorded. */
+  warnings?: string[];
 }
 
 export type SchemaEditRefusedStatusCode =
@@ -837,6 +845,12 @@ export interface ValuesEdit {
   replaced: string[];
   /** The keys set to a generated value. */
   generated: string[];
+  /**
+   * The ids of the changes recorded in the history, one per changed key, which POST /api/history/{id}/undo takes; empty when the history was not recorded.
+   * @items.minimum -9007199254740991
+   * @items.maximum 9007199254740991
+   */
+  changes: number[];
   /** What went wrong after the file was written: the protected state or the history not recorded. */
   warnings: string[];
 }

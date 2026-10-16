@@ -10,6 +10,7 @@ import {
   type VariableSpec,
   filePathProblem,
   parseSchema,
+  schemaChanges,
   validateValue,
 } from '@configure-env/core';
 import {
@@ -19,6 +20,8 @@ import {
   contextOf,
   NO_TERMINAL,
   parseCommand,
+  printWarnings,
+  recordRun,
   usageError,
 } from './common.ts';
 import { INIT_HELP } from './help.ts';
@@ -188,10 +191,13 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
       'the inferred schema is invalid:',
       ...checked.errors.map((error) => `  ${error.path}: ${error.message}`),
     ]);
+  const text = `${JSON.stringify(schema, null, 2)}\n`;
+  // The schema it replaces, for the history: --force may overwrite one.
+  const previous = options.force
+    ? await readFile(schemaPath, 'utf8').catch(() => undefined)
+    : undefined;
   try {
-    await writeFile(schemaPath, `${JSON.stringify(schema, null, 2)}\n`, {
-      flag: options.force ? 'w' : 'wx',
-    });
+    await writeFile(schemaPath, text, { flag: options.force ? 'w' : 'wx' });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'EEXIST')
@@ -213,6 +219,15 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     ]);
   }
 
+  const warnings = await recordRun(
+    context,
+    schemaChanges(
+      relative(root, schemaPath).split(sep).join('/'),
+      previous,
+      text,
+    ),
+  );
+
   const count = Object.keys(variables).length;
   const summary = [
     `Wrote ${shownPath}: ${count} variable${count === 1 ? '' : 's'}${from ? ` from ${from}` : ''}`,
@@ -231,5 +246,6 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     );
   else if (interactive) prompts.outro(summary.join('\n'));
   else summary.forEach((line) => io.stdout(line));
+  printWarnings(io, warnings);
   return 0;
 }

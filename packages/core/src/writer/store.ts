@@ -51,8 +51,13 @@ export type SchemaWriteFailure = {
   errors: SchemaError[];
 };
 
+/**
+ * A write that succeeded: the schema as it is now, whether it was written,
+ * and the text it replaced (absent when the file was created).
+ */
 export type SchemaWriteResult =
-  { ok: true; file: SchemaFile; written: boolean } | SchemaWriteFailure;
+  | { ok: true; file: SchemaFile; written: boolean; previous?: string }
+  | SchemaWriteFailure;
 
 /** The fingerprint of schema text: `sha256:` and its hex digest. */
 export function schemaFingerprint(text: string): string {
@@ -176,6 +181,7 @@ export async function writeSchemaFile(
   const file = (written: boolean): SchemaWriteResult => ({
     ok: true,
     written,
+    previous: current,
     file: {
       text,
       fingerprint: schemaFingerprint(text),

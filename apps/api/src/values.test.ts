@@ -56,16 +56,21 @@ describe('POST /api/values/set', () => {
       ],
       replaced: [],
       generated: [],
+      changes: [1],
       warnings: [],
     });
     expect(await history()).toEqual([
       expect.objectContaining({
+        id: 1,
         actor: 'portal',
         file: '.env',
         key: 'PORT',
         operation: 'set',
         beforePreview: '8080',
         afterPreview: '9090',
+        beforeValue: '8080',
+        afterValue: '9090',
+        restorable: true,
       }),
     ]);
   });
@@ -177,7 +182,13 @@ describe('POST /api/values/set', () => {
       keys: [{ key: 'TOKEN', status: 'added' }],
     });
     const [row] = await history();
-    expect(row).toMatchObject({ key: 'TOKEN', afterPreview: '••••' });
+    expect(row).toMatchObject({
+      key: 'TOKEN',
+      afterPreview: '••••',
+      afterValue: null,
+      restorable: false,
+    });
+    expect(response.body.changes).toEqual([row!.id]);
     expect(JSON.stringify(await history())).not.toContain(token);
   });
 
@@ -263,14 +274,18 @@ describe('POST /api/values/unset', () => {
         { key: 'NAME', status: 'removed' },
         { key: 'TOKEN', status: 'absent' },
       ],
+      changes: [1],
     });
     expect(await history()).toEqual([
       expect.objectContaining({
+        id: 1,
         key: 'NAME',
         operation: 'unset',
         beforePreview: 'app',
         afterPreview: null,
         afterFingerprint: null,
+        beforeValue: 'app',
+        restorable: true,
       }),
     ]);
   });

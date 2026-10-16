@@ -72,6 +72,14 @@ export const schemaResponse = named(
       description:
         'Identifies the bytes read; a schema edit names it. Absent when the file cannot be read.',
     }),
+    change: z.int().optional().meta({
+      description:
+        'After a write: the id of the change it recorded in the history, which POST /api/history/{id}/undo takes.',
+    }),
+    warnings: z.array(z.string()).optional().meta({
+      description:
+        'After a write: what went wrong once the file was written, such as the history not recorded.',
+    }),
   }),
 );
 
@@ -389,6 +397,10 @@ export const valuesResponse = named(
     generated: z
       .array(z.string())
       .meta({ description: 'The keys set to a generated value.' }),
+    changes: z.array(z.int()).meta({
+      description:
+        'The ids of the changes recorded in the history, one per changed key, which POST /api/history/{id}/undo takes; empty when the history was not recorded.',
+    }),
     warnings: z.array(z.string()).meta({
       description:
         'What went wrong after the file was written: the protected state or the history not recorded.',
