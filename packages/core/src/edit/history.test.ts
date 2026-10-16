@@ -75,8 +75,9 @@ async function set(pairs: Record<string, string>) {
     new Map(Object.entries(pairs)),
   );
   if (!result.ok) throw new Error(JSON.stringify(result));
-  return (await recordHistory(statePath(), 'cli', setChanges(schema, file, result)))
-    .ids;
+  return (
+    await recordHistory(statePath(), 'cli', setChanges(schema, file, result))
+  ).ids;
 }
 
 async function unset(...keys: string[]) {
@@ -258,6 +259,21 @@ describe('undoChange of a schema write', () => {
       message:
         'env.schema.json no longer exists, so this change was not undone',
     });
+  });
+
+  it('writes the recorded text back byte for byte, whatever its formatting', async () => {
+    // Formatting the writer would never produce: mixed indents, a compact
+    // object, a key order of its own and no final newline.
+    const original =
+      '{"files": [],\n    "version": 1,\n  "variables": {"A": {"type": "string"}}}';
+    await writeFile(schemaFile(), original);
+    const [id] = await writeSchema(['A', 'B']);
+    expect(await readFile(schemaFile(), 'utf8')).not.toBe(original);
+    expect(await undoChange(await undoContext(), id!)).toMatchObject({
+      ok: true,
+      change: { afterValue: original },
+    });
+    expect(await readFile(schemaFile(), 'utf8')).toBe(original);
   });
 
   it('records nothing for a write that changed no text', () => {

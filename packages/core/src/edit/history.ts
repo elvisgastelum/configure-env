@@ -17,7 +17,7 @@ import {
 import type { Plan } from '../engine/plan.ts';
 import { fingerprint, loadState } from '../engine/state.ts';
 import type { EnvSchema, VariableSpec } from '../schema/definition.ts';
-import { schemaFingerprint, writeSchemaFile } from '../writer/store.ts';
+import { restoreSchemaFile, schemaFingerprint } from '../writer/store.ts';
 import {
   type EditContext,
   type EditFailure,
@@ -352,18 +352,10 @@ async function undoSchema(
       change,
       `${change.file} changed after this change was made, so it was not undone`,
     );
-  let document: unknown;
-  try {
-    document = JSON.parse(change.beforeValue!.replace(/^\uFEFF/, ''));
-  } catch {
-    return invalid(
-      change,
-      `the schema before this change was not valid JSON, so it is not written back`,
-    );
-  }
-  const written = await writeSchemaFile(
+  // The exact text the change replaced, never a reformatted one.
+  const written = await restoreSchemaFile(
     context.schemaFile,
-    document as Parameters<typeof writeSchemaFile>[1],
+    change.beforeValue!,
     { fingerprint: now },
   );
   if (!written.ok) {

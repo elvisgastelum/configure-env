@@ -200,6 +200,51 @@ export async function writeSchemaFile(
 }
 
 /**
+ * Writes `text` to the schema file at `path` as it is, byte for byte, when
+ * the file still has the fingerprint `expected` names: an undo puts back the
+ * exact text a change replaced, never a reformatted one. The text must be a
+ * valid schema. A symlink is written through, to its target.
+ */
+export async function restoreSchemaFile(
+  path: string,
+  text: string,
+  expected: { fingerprint: string },
+): Promise<SchemaWriteResult> {
+  const parsed = parseSchemaText(text);
+  if (!parsed.ok) return { ok: false, kind: 'invalid', errors: parsed.errors };
+  let target: string, current: string, mode: number;
+  try {
+    target = await realpath(path);
+    current = await readFile(target, 'utf8');
+    mode = (await stat(target)).mode & 0o777;
+  } catch (error) {
+    return failure('io', ioError(path, 'read', error));
+  }
+  if (schemaFingerprint(current) !== expected.fingerprint) return stale(path);
+  const file = (written: boolean): SchemaWriteResult => ({
+    ok: true,
+    written,
+    previous: current,
+    file: {
+      text,
+      fingerprint: schemaFingerprint(text),
+      document: JSON.parse(
+        text.startsWith('\uFEFF') ? text.slice(1) : text,
+      ) as SchemaDocument,
+      schema: parsed.schema,
+    },
+  });
+  if (text === current) return file(false);
+  try {
+    if (!(await replaceAtomically(target, text, mode, expected.fingerprint)))
+      return stale(path);
+  } catch (error) {
+    return failure('io', ioError(path, 'write', error));
+  }
+  return file(true);
+}
+
+/**
  * Reads the schema file, applies `edit` to its document and writes the
  * result, all against `fingerprint`: the fingerprint the caller last saw, so
  * an edit made from an outdated view is refused before it runs.
