@@ -1,0 +1,4 @@
+# Playwright's HTML report and per-test output (traces, screenshots)
+/playwright-report/
+/test-results/
+/blob-report/

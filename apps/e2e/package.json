@@ -1,0 +1,21 @@
+{
+  "name": "@configure-env/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end and accessibility tests of the configure-env portal, run against configure-env serve on fixture projects",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0",
+    "@types/node": "22.20.5",
+    "typescript": "~6.0.3"
+  }
+}
