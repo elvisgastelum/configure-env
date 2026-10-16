@@ -6,11 +6,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@configure-env/design-system/components/atoms/sheet';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SchemaEdit } from './edits';
 import type { ReviewRequest } from './review-dialog';
 import { VariableFormBody } from './variable-form';
-import { showServerErrors } from './variable-model';
+import { TypeOptions } from './type-options';
+import { type TypeSwitch, TypeSwitchDialog } from './type-switch-dialog';
+import {
+  EMPTY_VARIABLE,
+  droppedBySwitch,
+  showServerErrors,
+} from './variable-model';
 
 /** Which variable the sheet edits: a name, or none to add one. */
 export interface VariableTarget {
@@ -36,6 +43,7 @@ export function VariableSheet({
 }) {
   const { t } = useTranslation();
   const name = target?.name;
+  const [typeSwitch, setTypeSwitch] = useState<TypeSwitch>();
   return (
     <Sheet
       open={target !== undefined}
@@ -65,6 +73,26 @@ export function VariableSheet({
               document={document}
               original={name}
               onCancel={onClose}
+              typeOptions={(form) => (
+                <TypeOptions form={form} document={document} original={name} />
+              )}
+              onTypeChange={(form, next, apply) => {
+                const values = form.getValues();
+                const dropped = droppedBySwitch(values, next);
+                const clearAndApply = () => {
+                  for (const field of dropped)
+                    form.setValue(field, EMPTY_VARIABLE[field]);
+                  apply();
+                };
+                if (dropped.length === 0) clearAndApply();
+                else
+                  setTypeSwitch({
+                    from: values.type,
+                    to: next,
+                    dropped,
+                    confirm: clearAndApply,
+                  });
+              }}
               onSubmit={(edit, form) =>
                 onReview(edit, {
                   onSaved: onClose,
@@ -81,6 +109,10 @@ export function VariableSheet({
           </div>
         )}
       </SheetContent>
+      <TypeSwitchDialog
+        change={typeSwitch}
+        onClose={() => setTypeSwitch(undefined)}
+      />
     </Sheet>
   );
 }
