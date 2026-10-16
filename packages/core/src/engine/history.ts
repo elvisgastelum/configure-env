@@ -93,12 +93,26 @@ export const UNDECLARED_UNDO_REASON =
 export const LEGACY_UNDO_REASON =
   "this change was recorded before the history kept values, so it can't be undone";
 
+/**
+ * Whether `change` is a secret's: its previews are masked, its values never
+ * kept. A change recorded before the history said why a value was not kept
+ * (`not_kept` null, not restorable) is a secret's when a preview is the
+ * mask, as only a secret's was.
+ */
+export function isSecretChange(change: ChangeRecord): boolean {
+  if (change.notKept !== null) return change.notKept === 'secret';
+  return (
+    !change.restorable &&
+    (change.beforePreview === SECRET_PREVIEW ||
+      change.afterPreview === SECRET_PREVIEW)
+  );
+}
+
 /** Why `change` cannot be undone; undefined when it can. */
 export function undoBlocker(change: ChangeRecord): string | undefined {
   if (change.restorable) return undefined;
+  if (isSecretChange(change)) return SECRET_UNDO_REASON;
   switch (change.notKept) {
-    case 'secret':
-      return SECRET_UNDO_REASON;
     case 'undeclared':
       return UNDECLARED_UNDO_REASON;
     case 'schema-created':

@@ -7,12 +7,14 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import {
   DEFAULT_STATE_PATH,
+  LEGACY_UNDO_REASON,
+  SECRET_PREVIEW,
   SECRET_UNDO_REASON,
   readChanges,
 } from '@configure-env/core';
 import { describe, expect, it } from 'vitest';
 import { HISTORY_LIMIT } from './history.ts';
-import { run, useProject } from './test-helpers.ts';
+import { run, useProject, writeV1State } from './test-helpers.ts';
 
 const SCHEMA = {
   version: 1,
@@ -305,6 +307,57 @@ describe('configure-env history', () => {
     expect(r.code).toBe(1);
     expect(r.err).toEqual([
       'configure-env: .configure-env/state.db: is not a valid state database',
+    ]);
+  });
+
+  it("says a secret's change an older version recorded can't be undone as a secret's", async () => {
+    await writeV1State(path(DEFAULT_STATE_PATH), [
+      {
+        actor: 'portal',
+        file: 'app.env',
+        key: 'TOKEN',
+        operation: 'set',
+        afterPreview: SECRET_PREVIEW,
+        at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        actor: 'cli',
+        file: 'app.env',
+        key: 'NAME',
+        operation: 'set',
+        afterPreview: 'plain',
+        at: '2026-01-02T00:00:00.000Z',
+      },
+    ]);
+    const document = json(await cli(['history', '--json']));
+    expect(document).toMatchObject({ ok: true, total: 2 });
+    expect(document.changes).toEqual([
+      {
+        id: 2,
+        at: '2026-01-02T00:00:00.000Z',
+        actor: 'cli',
+        file: 'app.env',
+        key: 'NAME',
+        operation: 'set',
+        before: null,
+        after: 'plain',
+        restorable: false,
+        undoBlocker: LEGACY_UNDO_REASON,
+        undoOf: null,
+      },
+      {
+        id: 1,
+        at: '2026-01-01T00:00:00.000Z',
+        actor: 'portal',
+        file: 'app.env',
+        key: 'TOKEN',
+        operation: 'set',
+        before: null,
+        after: SECRET_PREVIEW,
+        restorable: false,
+        undoBlocker: SECRET_UNDO_REASON,
+        undoOf: null,
+      },
     ]);
   });
 

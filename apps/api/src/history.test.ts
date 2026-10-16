@@ -2,6 +2,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   DEFAULT_STATE_PATH,
+  LEGACY_UNDO_REASON,
+  SECRET_PREVIEW,
   SECRET_UNDO_REASON,
   UNDECLARED_UNDO_REASON,
   readChanges,
@@ -18,6 +20,7 @@ import {
   removeProject,
   startServer,
   writeProject,
+  writeV1State,
 } from './test-helpers.ts';
 
 const bearer = `Bearer ${TOKEN}`;
@@ -253,6 +256,63 @@ describe('POST /api/history/:id/undo', () => {
   it('answers 404 for no such change and 400 for no id', async () => {
     expect((await post('/api/history/7/undo')).status).toBe(404);
     expect((await post('/api/history/x/undo')).status).toBe(400);
+  });
+});
+
+describe('a history an older version recorded', () => {
+  const statePath = () => join(root, DEFAULT_STATE_PATH);
+  const legacyRows = () =>
+    writeV1State(statePath(), [
+      {
+        actor: 'portal',
+        file: '.env',
+        key: 'TOKEN',
+        operation: 'set',
+        afterPreview: SECRET_PREVIEW,
+        at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        actor: 'cli',
+        file: '.env',
+        key: 'NAME',
+        operation: 'set',
+        beforePreview: 'one',
+        afterPreview: 'two',
+        at: '2026-01-02T00:00:00.000Z',
+      },
+    ]);
+
+  it("shows a secret's change as a secret's, which can't be undone", async () => {
+    await legacyRows();
+    const response = await get('/api/history');
+    expect(response.status).toBe(200);
+    expect(response.body.changes).toMatchObject([
+      {
+        id: 2,
+        key: 'NAME',
+        secret: false,
+        restorable: false,
+        beforeValue: null,
+        afterValue: null,
+        undoBlocker: LEGACY_UNDO_REASON,
+      },
+      {
+        id: 1,
+        key: 'TOKEN',
+        secret: true,
+        restorable: false,
+        afterPreview: SECRET_PREVIEW,
+        undoBlocker: SECRET_UNDO_REASON,
+      },
+    ]);
+    const undo = await post('/api/history/1/undo');
+    expect(undo.status).toBe(422);
+    expect(undo.body).toMatchObject({
+      kind: 'not-restorable',
+      message: SECRET_UNDO_REASON,
+      errors: [{ message: SECRET_UNDO_REASON }],
+      change: { id: 1, key: 'TOKEN', secret: true, restorable: false },
+    });
   });
 });
 

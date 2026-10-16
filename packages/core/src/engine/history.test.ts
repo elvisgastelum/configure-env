@@ -7,15 +7,17 @@ import {
   SCHEMA_CREATE_UNDO_REASON,
   SECRET_UNDO_REASON,
   UNDECLARED_UNDO_REASON,
+  SECRET_PREVIEW,
   queryChanges,
   readChange,
+  isSecretChange,
   readChanges,
   recordChanges,
   undoBlocker,
 } from './history.ts';
 import { schemaFingerprint } from '../writer/store.ts';
 import { DEFAULT_STATE_PATH, fingerprint, loadState } from './state.ts';
-import { useTempRoot } from './test-helpers.ts';
+import { useTempRoot, writeV1State } from './test-helpers.ts';
 
 const temp = useTempRoot();
 const statePath = () => join(temp.dirs.root, DEFAULT_STATE_PATH);
@@ -294,5 +296,41 @@ describe('queryChanges', () => {
       },
     ]);
     expect(undoBlocker(changes[0]!)).toBe(LEGACY_UNDO_REASON);
+  });
+
+  it("says a secret's change an older version recorded is a secret's", async () => {
+    await writeV1State(statePath(), [
+      {
+        actor: 'cli',
+        file: '.env',
+        key: 'TOKEN',
+        operation: 'set',
+        afterPreview: SECRET_PREVIEW,
+        at: at(1).toISOString(),
+      },
+      {
+        actor: 'portal',
+        file: '.env',
+        key: 'TOKEN',
+        operation: 'unset',
+        beforePreview: SECRET_PREVIEW,
+        at: at(2).toISOString(),
+      },
+      {
+        actor: 'cli',
+        file: '.env',
+        key: 'NAME',
+        operation: 'set',
+        afterPreview: 'plain',
+        at: at(3).toISOString(),
+      },
+    ]);
+    const changes = await readChanges(statePath());
+    expect(changes.map(undoBlocker)).toEqual([
+      SECRET_UNDO_REASON,
+      SECRET_UNDO_REASON,
+      LEGACY_UNDO_REASON,
+    ]);
+    expect(changes.map(isSecretChange)).toEqual([true, true, false]);
   });
 });
