@@ -89,9 +89,21 @@ Every change to the env files or the schema, from the portal or the CLI (`set`, 
 - **Toast:** the toast after saving a value, generating or unsetting one, or saving a schema edit has an **Undo** action. It undoes the changes that edit recorded, by the ids the write answered with (`changes` of a value write, `change` of each schema write; a change and a rename undo together, the latest first).
 - **Variable drawer:** a **History** tab next to **Details** lists that variable's changes in every file, with the same diffs and undo, and links to the page filtered to it.
 
+## Open in editor
+
+Every item that points at a place in a file has an **Open in editor** button (an arrow out of a square; its tooltip shows the shortcut `o`). It sends `POST /api/open-in-editor`, and the API starts the editor on this machine (`$LAUNCH_EDITOR`, `$VISUAL`, `$EDITOR`, else a running VS Code, Cursor, Zed or JetBrains IDE) at the line it resolves.
+
+- **Variables:** a row of the table opens the variable's entry in the file the value column shows. In the drawer, **Definition** opens its definition in the schema file, and each file of the value table opens its entry there.
+- **Env files:** the file detail opens the file, and each of its entries at its line.
+- **Check and validate:** a variable's item opens its entry in that file, a line that does not parse opens at that line, and a file's own problems (drift, mode) at its top.
+- **Schema errors:** each error of an invalid schema opens at its JSON path (the API maps it to a line with a source map of the file), or at the line and column of a syntax error.
+- **Shortcut:** `o` opens the item that holds the focus, else the selected row of the variables table, else, in the drawer, the variable's definition. It does nothing while typing in a field or with a menu open.
+- **Toast:** says the file and line the editor opened, or, when no editor was found, how to set one. A file that does not exist yet has no button.
+
 ## Tests and stories
 
 - The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes check and validate from it, so a fix shows in the next report.
 - `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens, and `dropEvents()` (`src/mocks/store.ts`) ends the streams so the portal reconnects.
+- `POST /api/open-in-editor` opens nothing: it answers the line of the key in the sample file's lines. `scenarios.noEditor` answers that no editor was found, `scenarios.editorRefused` a refused path.
 - The history lives in the mock store too: value and schema writes record their changes (a secret's without its values), and an undo checks that the value or the schema text is still what the change wrote, as the API checks its fingerprint.
 - The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate`, `Portal/Schema` and `Portal/History`. Run them with `pnpm storybook:web`.

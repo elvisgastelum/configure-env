@@ -13,6 +13,8 @@ import { CodeBlock } from '@configure-env/design-system/components/molecules/cod
 import { Link } from '@tanstack/react-router';
 import { ArrowRight, ExternalLink, FileWarning, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 
 export const INIT_COMMAND = 'npx configure-env init';
 export const INIT_DOCS_URL =
@@ -89,11 +91,25 @@ export function InvalidSchema({
           <li
             key={`${error.path}:${error.message}`}
             className="flex flex-wrap items-baseline gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm"
+            {...editorItem}
           >
             <code className="font-mono text-xs text-muted-foreground">
               {error.path}
             </code>
-            <span>{error.message}</span>
+            <span className="min-w-0 flex-1">{error.message}</span>
+            <OpenInEditorButton
+              target={
+                error.line === undefined
+                  ? { file: schema.path, path: error.path }
+                  : {
+                      file: schema.path,
+                      line: error.line,
+                      ...(error.column === undefined
+                        ? {}
+                        : { column: error.column }),
+                    }
+              }
+            />
           </li>
         ))}
       </ul>

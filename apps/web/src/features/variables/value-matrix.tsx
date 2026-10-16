@@ -12,6 +12,8 @@ import {
 import { TYPE } from '@configure-env/design-system/recipes';
 import { Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { editorItem } from '../editor/editor';
+import { OpenInEditorButton } from '../editor/open-in-editor';
 import { CopyMenu } from './copy-menu';
 import { statusesOf } from './model';
 import { SecretValue } from './secret-value';
@@ -40,6 +42,9 @@ export function ValueMatrix({
 }) {
   const { t } = useTranslation();
   const { name } = variable;
+  const existing = new Set(
+    files.filter((file) => file.exists).map((file) => file.path),
+  );
   if (variable.files.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
@@ -71,7 +76,7 @@ export function ValueMatrix({
             file: value.file,
           });
           return (
-            <TableRow key={value.file} data-file={value.file}>
+            <TableRow key={value.file} data-file={value.file} {...editorItem}>
               <TableCell className="align-top font-mono text-xs">
                 {value.file}
               </TableCell>
@@ -111,6 +116,11 @@ export function ValueMatrix({
                     >
                       <Pencil aria-hidden="true" />
                     </Button>
+                  )}
+                  {existing.has(value.file) && (
+                    <OpenInEditorButton
+                      target={{ file: value.file, key: name }}
+                    />
                   )}
                   <ValueActions variable={variable} file={value.file} />
                   <CopyMenu

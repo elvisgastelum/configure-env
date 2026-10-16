@@ -698,3 +698,25 @@ export function undoMockChange(id: number): { status: number; body: object } {
     },
   };
 }
+
+/**
+ * Where open-in-editor opens: the position asked, else the last line that
+ * sets the key (the variable's definition, in the schema, at the top).
+ */
+export function editorPosition(body: {
+  file: string;
+  line?: number;
+  column?: number;
+  key?: string;
+}): { line: number; column: number } {
+  if (body.line !== undefined)
+    return { line: body.line, column: body.column ?? 1 };
+  const lines = mockState.lines.get(body.file) ?? [];
+  const key = body.key;
+  const index = key
+    ? lines.findLastIndex((text) =>
+        new RegExp(`^\\s*(export\\s+)?${key}\\s*=`).test(text),
+      )
+    : -1;
+  return { line: index + 1 || 1, column: 1 };
+}

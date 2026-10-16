@@ -25,6 +25,7 @@ import {
   statusesOf,
 } from './model';
 import { StatusBadges } from './status-badges';
+import { editorItem } from '../editor/editor';
 
 /** From this many rows on, only the rows in view are rendered. */
 export const VIRTUALIZE_AT = 200;
@@ -314,6 +315,7 @@ function VariableRow({
       aria-rowindex={index + 2}
       aria-selected={isSelected}
       data-variable={name}
+      {...editorItem}
       style={{ ...style, height: ROW_HEIGHT }}
       onClick={() => onSelect(name)}
       onDoubleClick={() => onOpen(name)}
