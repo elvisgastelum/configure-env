@@ -717,5 +717,31 @@
       "warnings": "Warnings",
       "done": "Done"
     }
+  },
+  "check": {
+    "lead": "The drift report of configure-env check, by file. Each item links to its variable and fixes in place: set the value, or apply the file.",
+    "error": "The check could not run: {{message}}",
+    "loading": "Running check",
+    "run": "Run check",
+    "applyAll": "Apply every file",
+    "applyFile": "Apply {{path}}",
+    "passing": "Every env file matches the schema.",
+    "summary_one": "{{count}} file drifts from the schema.",
+    "summary_other": "{{count}} files drift from the schema.",
+    "summaryErrors": "Check found value errors.",
+    "valueErrors": "Value errors",
+    "nothing": "Nothing to fix.",
+    "set": "Set",
+    "setLabel": "Set {{name}} in {{file}}",
+    "openFile": "Open {{path}}",
+    "item": {
+      "absent": "The file does not exist yet",
+      "differs": "Its content differs from what apply writes",
+      "refused": "Refused: {{message}}",
+      "missing": "is missing",
+      "unknown": "is not in the schema",
+      "mode": "Mode {{actual}}, the schema wants {{expected}}",
+      "line": "Line {{line}} is not a valid entry"
+    }
   }
 }

@@ -363,6 +363,70 @@ export const check: Check = {
   errors: [{ kind: 'value', key: 'API_URL', message: 'is not a URL' }],
 };
 
+/** A drift report with every kind of item check gives, for the check page. */
+export const driftCheck: Check = {
+  ok: false,
+  drift: true,
+  errors: [
+    { kind: 'value', key: 'LOG_LEVEL', message: 'must be one of debug, info' },
+  ],
+  files: [
+    {
+      path: '.env',
+      policy: 'merge',
+      status: 'missing-keys',
+      drift: true,
+      missingKeys: ['API_KEY'],
+      unknownKeys: ['EXTRA'],
+      invalid: [
+        { key: 'API_URL', message: 'is not a URL', shown: 'localhost:4000' },
+      ],
+      rules: [
+        {
+          rule: 'distinctFrom',
+          key: 'DB_PASSWORD',
+          others: ['API_KEY'],
+          message: 'must differ from API_KEY',
+        },
+      ],
+      invalidLines: [6],
+      protected: [
+        {
+          kind: 'protected',
+          key: 'DB_PASSWORD',
+          message: 'no longer matches the value the state recorded',
+          reason: 'The database was created with it.',
+        },
+      ],
+      mode: { actual: '644', expected: '600' },
+    },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      status: 'current',
+      drift: false,
+      missingKeys: [],
+      unknownKeys: [],
+      invalid: [],
+      rules: [],
+      invalidLines: [],
+      protected: [],
+    },
+    {
+      path: 'config/app.env',
+      policy: 'generate',
+      status: 'missing',
+      drift: true,
+      missingKeys: [],
+      unknownKeys: [],
+      invalid: [],
+      rules: [],
+      invalidLines: [],
+      protected: [],
+    },
+  ],
+};
+
 export const validate: Validate = {
   ok: false,
   files: [

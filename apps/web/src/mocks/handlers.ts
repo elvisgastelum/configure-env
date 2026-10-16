@@ -16,6 +16,7 @@ import { HttpResponse, delay, http, sse } from 'msw';
 import * as fixtures from './fixtures';
 import {
   applyPlan,
+  checkOf,
   eventClients,
   findFile,
   findVariable,
@@ -362,6 +363,11 @@ export const scenarios = {
     http.get('/api/check', schemaNeeded),
     http.get('/api/validate', schemaNeeded),
   ],
+  /**
+   * Check and validate report the sample project as it is now, so a fix
+   * made in the portal shows in the next report.
+   */
+  liveReports: [http.get('/api/check', () => json(checkOf()))],
   /** Every env file matches its schema. */
   passing: [
     http.get('/api/check', () => json(fixtures.passingCheck)),

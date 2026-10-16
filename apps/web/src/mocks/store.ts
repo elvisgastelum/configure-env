@@ -4,7 +4,9 @@
 
 import type {
   Applied,
+  Check,
   EditProblem,
+  FileDrift,
   FilePlan,
   Files,
   Plan,
@@ -392,5 +394,57 @@ export function applyPlan(inputs: PlanRequest): Applied {
     })),
     replaced: [],
     warnings: [],
+  };
+}
+
+/** The invalid values each file holds now, masked as the API shows them. */
+const invalidIn = (path: string) =>
+  mockState.variables.variables.flatMap((variable) =>
+    variable.files
+      .filter((entry) => entry.file === path && entry.status === 'invalid')
+      .map((entry) => ({
+        key: variable.name,
+        message: entry.error ?? 'is invalid',
+        shown: entry.value ?? '',
+      })),
+  );
+
+/**
+ * The drift report as GET /api/check answers it for the sample project as
+ * it is now, so a fix shows in the next report.
+ */
+export function checkOf(): Check {
+  const files = mockState.files.files.map((info): FileDrift => {
+    const { expected, actual } = info.mode;
+    const mode =
+      info.exists && expected && actual && expected !== actual
+        ? { mode: { actual, expected } }
+        : {};
+    return {
+      path: info.path,
+      policy: info.policy,
+      status: info.drift.status,
+      drift: info.drift.drift,
+      missingKeys: [...info.drift.missingKeys],
+      unknownKeys: [...info.drift.unknownKeys],
+      invalid: info.template ? [] : invalidIn(info.path),
+      rules: [],
+      invalidLines: info.parseErrors.map(({ line }) => line),
+      protected: [],
+      ...mode,
+    };
+  });
+  const clean = (file: FileDrift) =>
+    !file.drift &&
+    !file.invalid.length &&
+    !file.rules.length &&
+    !file.invalidLines.length &&
+    !file.protected.length &&
+    !file.mode;
+  return {
+    ok: files.every(clean),
+    drift: files.some((file) => file.drift),
+    files,
+    errors: [],
   };
 }
