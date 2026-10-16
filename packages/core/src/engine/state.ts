@@ -623,6 +623,9 @@ export async function loadState(path: string): Promise<StateResult> {
  * as that version can read it. Undefined when the database does not exist.
  * A database of a newer version, or one whose state is not valid, is an
  * error naming the path, as `loadState` reports it.
+ *
+ * @internal For the history's reads only: its callback takes better-sqlite3's
+ * own type, which the published declarations cannot name.
  */
 export function readStateDatabase<T>(
   path: string,
