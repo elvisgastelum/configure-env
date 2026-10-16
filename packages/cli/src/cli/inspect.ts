@@ -139,7 +139,7 @@ const validCell = (row: Row) =>
   row.unknown ? 'unknown' : row.valid === null ? '-' : (row.error ?? 'ok');
 
 /** Rows as columns padded to their widest cell, two spaces apart. */
-function table(cells: string[][]): string[] {
+export function table(cells: string[][]): string[] {
   const widths = cells[0]!.map((_, column) =>
     Math.max(...cells.map((line) => [...line[column]!].length)),
   );

@@ -1,11 +1,17 @@
 // The history of edits the CLI records: every write command (set, unset,
-// apply, init) records what it changed, a secret's value never.
+// apply, init) records what it changed, a secret's value never; and
+// `configure-env history`, which lists it.
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { DEFAULT_STATE_PATH, readChanges } from '@configure-env/core';
+import {
+  DEFAULT_STATE_PATH,
+  SECRET_UNDO_REASON,
+  readChanges,
+} from '@configure-env/core';
 import { describe, expect, it } from 'vitest';
+import { HISTORY_LIMIT } from './history.ts';
 import { run, useProject } from './test-helpers.ts';
 
 const SCHEMA = {
@@ -25,6 +31,7 @@ const cli = (
 ) => run(argv, { cwd: dirs.root, ...options });
 const path = (name: string) => join(dirs.root, name);
 const history = () => readChanges(path(DEFAULT_STATE_PATH));
+const json = (r: { out: string[] }) => JSON.parse(r.out.join('\n'));
 // Built at run time: no secret-looking literal in the sources.
 const fakeSecret = (tag: string) => ['tok', tag, 'y'.repeat(12)].join('-');
 
@@ -183,5 +190,128 @@ describe('the history init records', () => {
         restorable: true,
       },
     ]);
+  });
+});
+
+describe('configure-env history', () => {
+  it('says so when nothing was recorded, and changes nothing', async () => {
+    expect(await cli(['history'])).toEqual({
+      code: 0,
+      out: ['No changes recorded yet.'],
+      err: [],
+    });
+    expect(json(await cli(['history', '--json']))).toEqual({
+      command: 'history',
+      ok: true,
+      total: 0,
+      changes: [],
+    });
+    await expect(readFile(path(DEFAULT_STATE_PATH))).rejects.toThrow();
+  });
+
+  it('lists the latest changes, newest first, a secret masked', async () => {
+    await writeFile(path('app.env'), 'NAME=old\n');
+    const token = fakeSecret('history');
+    await cli(['set', '--ci', 'NAME=new', `TOKEN=${token}`]);
+    await cli(['unset', '--ci', 'NAME']);
+    const r = await cli(['history']);
+    expect(r.code).toBe(0);
+    expect(r.err).toEqual([]);
+    const rows = r.out.map((line) => line.split(/\s{2,}/));
+    expect(rows[0]).toEqual([
+      'ID',
+      'WHEN (UTC)',
+      'BY',
+      'CHANGE',
+      'FILE',
+      'KEY',
+      'BEFORE',
+      'AFTER',
+    ]);
+    expect(rows.slice(1).map((row) => [row[0], ...row.slice(2)])).toEqual([
+      ['3', 'cli', 'unset', 'app.env', 'NAME', 'new', '-'],
+      ['2', 'cli', 'set', 'app.env', 'TOKEN', '-', '••••'],
+      ['1', 'cli', 'set', 'app.env', 'NAME', 'old', 'new'],
+    ]);
+    expect(rows[1]![1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(r.out.join('\n')).not.toContain(token);
+
+    const document = json(await cli(['history', '--json']));
+    expect(document).toMatchObject({ command: 'history', ok: true, total: 3 });
+    expect(document.changes[1]).toEqual({
+      id: 2,
+      at: expect.any(String),
+      actor: 'cli',
+      file: 'app.env',
+      key: 'TOKEN',
+      operation: 'set',
+      before: null,
+      after: '••••',
+      restorable: false,
+      undoBlocker: SECRET_UNDO_REASON,
+      undoOf: null,
+    });
+    expect(document.changes[2]).toMatchObject({
+      id: 1,
+      before: 'old',
+      after: 'new',
+      restorable: true,
+      undoOf: null,
+    });
+    expect(JSON.stringify(document)).not.toContain(token);
+    expect(JSON.stringify(document)).not.toMatch(/fingerprint/i);
+  });
+
+  it(`shows the ${HISTORY_LIMIT} latest and how many there are`, async () => {
+    await writeFile(path('app.env'), '');
+    for (let i = 0; i <= HISTORY_LIMIT; i += 1)
+      await cli(['set', '--ci', `PORT=${1000 + i}`]);
+    const r = await cli(['history']);
+    expect(r.out).toHaveLength(HISTORY_LIMIT + 2);
+    expect(r.out.at(-1)).toBe(
+      `The ${HISTORY_LIMIT} latest of ${HISTORY_LIMIT + 1} changes; undo one in the portal (configure-env serve).`,
+    );
+    const document = json(await cli(['history', '--json']));
+    expect(document.total).toBe(HISTORY_LIMIT + 1);
+    expect(document.changes).toHaveLength(HISTORY_LIMIT);
+    expect(document.changes[0].id).toBe(HISTORY_LIMIT + 1);
+  });
+
+  it('names an undo and the schema writes', async () => {
+    await rm(path('env.schema.json'));
+    await cli(['init', '--ci']);
+    const r = await cli(['history']);
+    expect(r.out[1]!.split(/\s{2,}/).slice(2)).toEqual([
+      'cli',
+      'schema',
+      'env.schema.json',
+      '-',
+      '-',
+      '0 variables, 0 files',
+    ]);
+  });
+
+  it('refuses --file and a history it cannot read', async () => {
+    expect(await cli(['history', '--file', 'app.env'])).toMatchObject({
+      code: 2,
+      err: ['configure-env: history takes no --file'],
+    });
+    await mkdir(path('.configure-env'));
+    await writeFile(
+      path(DEFAULT_STATE_PATH),
+      'not a database at all, long enough',
+    );
+    const r = await cli(['history']);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      'configure-env: .configure-env/state.db: is not a valid state database',
+    ]);
+  });
+
+  it('prints its help', async () => {
+    const r = await cli(['history', '--help']);
+    expect(r.code).toBe(0);
+    expect(r.out[0]).toContain('Usage: configure-env history [options]');
+    expect(r.out[0]).toContain(`Lists the ${HISTORY_LIMIT} latest changes`);
   });
 });

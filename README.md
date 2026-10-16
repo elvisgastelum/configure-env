@@ -18,6 +18,7 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | `unset`    | remove one variable                                |
 | `list`     | list the variables and where they are set          |
 | `validate` | validate the values against the schema             |
+| `history`  | list the latest changes to env files and the schema |
 | `install`  | install the agent skill for Claude Code and others |
 
 Each command runs as an interactive TUI for people, or with `--ci` for unattended runs.
@@ -220,7 +221,7 @@ The state is `.configure-env/state.db` under the root, a SQLite database, or the
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each protected value, never the value. Every write command (`set`, `unset`, `apply`, `init`, and the portal's writes) records what it changed in the history of edits; a history it cannot write is a warning, never a failure. Its tables are:
+`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each protected value, never the value. Every write command (`set`, `unset`, `apply`, `init`, and the portal's writes) records what it changed in the history of edits, which `configure-env history` lists; a history it cannot write is a warning, never a failure. Its tables are:
 
 | Table                    | What it holds                                                                                                                                                                                          |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -304,6 +305,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `unset` | removes variables from one file                                        |
 | `list`  | shows each file's variables: set, valid, value (secrets masked)        |
 | `validate` | checks the current values against the schema; exits 1 on errors     |
+| `history` | lists the latest changes the CLI and the portal made (see "history") |
 | `install` | `install skill` installs the agent skill (see "AI agents")           |
 | `serve` | starts the local portal for the project in a browser (see "Portal (serve)") |
 
@@ -489,6 +491,35 @@ configure-env list --file .env --json
 configure-env validate
 configure-env validate --file .env --strict
 configure-env validate --json
+```
+
+### history
+
+`history` changes nothing. It lists the 20 latest changes recorded in the history of edits (`.configure-env/state.db`), newest first: every `set`, `unset`, `apply` and `init`, and every edit made in the portal.
+
+| Column       | Shows                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| `ID`         | the change's number                                                                                     |
+| `WHEN (UTC)` | when it was made                                                                                        |
+| `BY`         | `cli` or `portal`                                                                                       |
+| `CHANGE`     | `set`, `unset`, `replace` (a protected value replaced) or `schema`; an undo adds `(undid N)`             |
+| `FILE`       | the env file, or the schema file                                                                        |
+| `KEY`        | the variable; `-` for the schema                                                                        |
+| `BEFORE`     | the value before, cut at 30 characters, masked for a secret (`-` when it was not set; for the schema, its variable and file counts) |
+| `AFTER`      | the same, after                                                                                         |
+
+```text
+ID  WHEN (UTC)        BY      CHANGE  FILE             KEY        BEFORE                AFTER
+3   2026-10-16 09:12  portal  set     .env             WEB_PORT   8080                  8081
+2   2026-10-16 09:10  cli     set     .env             API_TOKEN  -                     ••••
+1   2026-10-16 09:02  cli     schema  env.schema.json  -          -                     2 variables, 1 file
+```
+
+Undo stays in the portal for now: its History page undoes a change while the file still holds what the change wrote. A secret's value is never stored, so its change can't be undone. With `--json` it prints `{ "command": "history", "ok", "total", "changes" }`, `total` counting every change recorded; each change has `id`, `at`, `actor`, `file`, `key`, `operation`, `before` and `after` (the previews), `restorable`, `undoBlocker` (why it can't be undone, only when it can't) and `undoOf`. A history it cannot read exits 1.
+
+```sh
+configure-env history
+configure-env history --json
 ```
 
 ### JSON output

@@ -56,6 +56,7 @@ Commands:
   unset     remove variables from one file
   list      show each file's variables: set, valid, value (secrets masked)
   validate  check the current values against the schema
+  history   list the latest changes the CLI and the portal made
   install   install the agent skill: configure-env install skill
   serve     start the local portal for the project in a browser
 
@@ -315,6 +316,40 @@ Examples:
   configure-env list
   configure-env list --file .env
   configure-env list --json
+
+${EXIT_CODES}`;
+
+export const HISTORY_HELP = `Usage: configure-env history [options]
+
+Lists the 20 latest changes recorded in the history of edits
+(.configure-env/state.db), newest first: every set, unset, apply and
+init, and every edit made in the portal (configure-env serve).
+
+  ID          the change's number; the portal undoes a change by it
+  WHEN (UTC)  when it was made
+  BY          cli or portal
+  CHANGE      set, unset, replace (a protected value replaced) or schema
+              (the schema file written); an undo names the change it undid
+  FILE        the env file, or the schema file
+  KEY         the variable; - for the schema
+  BEFORE      the value before, cut at 30 characters; masked for a
+              secret, whose value is never stored; - when it was not set;
+              for the schema, how many variables and files it had
+  AFTER       the same, after
+
+With --json it prints {"command", "ok", "total", "changes": [{"id",
+"at", "actor", "file", "key", "operation", "before", "after",
+"restorable", "undoBlocker", "undoOf"}]}; "total" counts every change
+recorded. Changes nothing; exits 0, or 1 when the history cannot be read.
+Undo stays in the portal for now: its History page undoes a change while
+the file still holds what the change wrote. A secret's change can't be
+undone.
+
+${GLOBAL}
+
+Examples:
+  configure-env history
+  configure-env history --json
 
 ${EXIT_CODES}`;
 

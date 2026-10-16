@@ -5,6 +5,7 @@ import { checkCommand } from './check.ts';
 import { CliError, usageError } from './common.ts';
 import { getCommand, setCommand, unsetCommand } from './edit.ts';
 import { MAIN_HELP, VERSION } from './help.ts';
+import { historyCommand } from './history.ts';
 import { initCommand } from './init.ts';
 import { installCommand } from './install.ts';
 import { listCommand, validateCommand } from './inspect.ts';
@@ -22,6 +23,7 @@ export const COMMANDS: Record<string, Command> = {
   unset: unsetCommand,
   list: listCommand,
   validate: validateCommand,
+  history: historyCommand,
   install: installCommand,
   serve: serveCommand,
 };
