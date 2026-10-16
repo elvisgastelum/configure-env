@@ -57,6 +57,7 @@ import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
 import { protectedState } from './state.ts';
 import { EventsController } from './events.controller.ts';
+import { HistoryController } from './history.controller.ts';
 import { ProjectEvents } from './events.ts';
 import { PlanController } from './plan.controller.ts';
 import { SchemaController } from './schema.controller.ts';
@@ -249,6 +250,7 @@ export function apiModule(project: Project, version: string) {
       PlanController,
       SchemaController,
       EventsController,
+      HistoryController,
     ],
     providers: [
       { provide: PROJECT, useValue: project },

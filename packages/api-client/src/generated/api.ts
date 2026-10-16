@@ -135,6 +135,70 @@ export interface ApplyRequest {
   fingerprint: string;
 }
 
+export type ChangeActor = (typeof ChangeActor)[keyof typeof ChangeActor];
+
+export const ChangeActor = {
+  cli: 'cli',
+  portal: 'portal',
+} as const;
+
+/**
+ * set, unset, replace (a protected value replaced), or schema (the schema file written).
+ */
+export type ChangeOperation =
+  (typeof ChangeOperation)[keyof typeof ChangeOperation];
+
+export const ChangeOperation = {
+  set: 'set',
+  unset: 'unset',
+  replace: 'replace',
+  schema: 'schema',
+} as const;
+
+export interface Change {
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  id: number;
+  actor: ChangeActor;
+  /** The env file, or the schema file for a `schema` change, relative to the root. */
+  file: string;
+  /** The variable; empty for a `schema` change. */
+  key: string;
+  /** set, unset, replace (a protected value replaced), or schema (the schema file written). */
+  operation: ChangeOperation;
+  /** When, as an ISO timestamp. */
+  at: string;
+  /** The variable is secret: its previews are masked and its values never stored. */
+  secret: boolean;
+  /**
+   * The value before, cut short or masked for a secret; for the schema, how many variables and files it had. Null when there was none.
+   * @nullable
+   */
+  beforePreview: string | null;
+  /** @nullable */
+  afterPreview: string | null;
+  /**
+   * The value before, or the schema text before; null for a secret, or when there was none.
+   * @nullable
+   */
+  beforeValue: string | null;
+  /** @nullable */
+  afterValue: string | null;
+  /** Whether POST /api/history/{id}/undo can undo it. */
+  restorable: boolean;
+  /** Why the change can't be undone, such as a secret's value never being stored; absent when it can. */
+  undoBlocker?: string;
+  /**
+   * The change this one undid; null for an edit.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   * @nullable
+   */
+  undoOf: number | null;
+}
+
 export type FileDriftPolicy =
   (typeof FileDriftPolicy)[keyof typeof FileDriftPolicy];
 
@@ -499,6 +563,27 @@ export interface Health {
   status: HealthStatus;
 }
 
+export interface History {
+  /** Newest first. */
+  changes: Change[];
+  /**
+   * How many changes match the filter.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  total: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  page: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  limit: number;
+}
+
 export interface InitSchemaRequest {
   /**
    * The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.
@@ -755,6 +840,65 @@ export interface StaleSchema {
   message: string;
   /** The schema as it is now. */
   schema: Schema;
+}
+
+export type UndoConflictStatusCode =
+  (typeof UndoConflictStatusCode)[keyof typeof UndoConflictStatusCode];
+
+export const UndoConflictStatusCode = {
+  NUMBER_409: 409,
+} as const;
+
+export interface UndoConflict {
+  statusCode: UndoConflictStatusCode;
+  /** Why it was not undone: the file no longer holds what the change wrote (its fingerprint differs). */
+  message: string;
+  change: Change;
+  /** For a change to a value: the file as it is now. */
+  file?: FileInfo;
+  /** For a schema change: the schema as it is now. */
+  schema?: Schema;
+}
+
+export interface Undone {
+  /** The change undone. */
+  undone: Change;
+  /** The change the undo recorded; absent when the history could not be written. */
+  change?: Change;
+  /** For a change to a value: the env file as it is now. */
+  file?: FileInfo;
+  /** For a schema change: the schema as it is now. */
+  schema?: Schema;
+  /** What went wrong after the file was written: the protected state or the history not recorded. */
+  warnings: string[];
+}
+
+export type UndoRefusedStatusCode =
+  (typeof UndoRefusedStatusCode)[keyof typeof UndoRefusedStatusCode];
+
+export const UndoRefusedStatusCode = {
+  NUMBER_422: 422,
+} as const;
+
+/**
+ * not-restorable: the change can't be undone (a secret's value is never stored); invalid: the previous value breaks the rules now; protected: it would change a protected value.
+ */
+export type UndoRefusedKind =
+  (typeof UndoRefusedKind)[keyof typeof UndoRefusedKind];
+
+export const UndoRefusedKind = {
+  'not-restorable': 'not-restorable',
+  invalid: 'invalid',
+  protected: 'protected',
+} as const;
+
+export interface UndoRefused {
+  statusCode: UndoRefusedStatusCode;
+  message: string;
+  /** not-restorable: the change can't be undone (a secret's value is never stored); invalid: the previous value breaks the rules now; protected: it would change a protected value. */
+  kind: UndoRefusedKind;
+  errors: EditProblem[];
+  change: Change;
 }
 
 export interface UnsetValuesRequest {
@@ -1435,6 +1579,45 @@ export type GetValidateStrict =
 export const GetValidateStrict = {
   true: 'true',
   false: 'false',
+} as const;
+
+export type GetHistoryParams = {
+  /**
+   * Only the changes to this file (or the schema file).
+   */
+  file?: string;
+  /**
+   * Only the changes to this variable; empty for the schema changes.
+   */
+  key?: string;
+  /**
+   * Only the changes made by the cli or the portal.
+   */
+  actor?: GetHistoryActor;
+  /**
+   * From this date (YYYY-MM-DD, UTC) or ISO timestamp.
+   */
+  from?: string;
+  /**
+   * Up to this date (its whole UTC day) or ISO timestamp, included.
+   */
+  to?: string;
+  /**
+   * The page, from 1.
+   */
+  page?: number;
+  /**
+   * The changes per page, 1 to 200; 50 by default.
+   */
+  limit?: number;
+};
+
+export type GetHistoryActor =
+  (typeof GetHistoryActor)[keyof typeof GetHistoryActor];
+
+export const GetHistoryActor = {
+  cli: 'cli',
+  portal: 'portal',
 } as const;
 
 const withQueryKey = <T extends object, K>(
@@ -5127,3 +5310,339 @@ export function useGetEvents<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export type getHistoryResponse200 = {
+  data: History;
+  status: 200;
+};
+
+export type getHistoryResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type getHistoryResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type getHistoryResponseSuccess = getHistoryResponse200 & {
+  headers: Headers;
+};
+export type getHistoryResponseError = (
+  getHistoryResponse400 | getHistoryResponse503
+) & {
+  headers: Headers;
+};
+
+export type getHistoryResponse =
+  getHistoryResponseSuccess | getHistoryResponseError;
+
+export const getGetHistoryUrl = (params?: GetHistoryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/history?${stringifiedParams}`
+    : `/api/history`;
+};
+
+/**
+ * @summary The history of edits, newest first, filtered and paged; secrets masked
+ */
+export const getHistory = async (
+  params?: GetHistoryParams,
+  options?: RequestInit,
+): Promise<getHistoryResponse> => {
+  const res = await fetch(getGetHistoryUrl(params), {
+    ...options,
+    method: 'GET',
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getHistoryResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as getHistoryResponse;
+};
+
+export const getGetHistoryQueryKey = (params?: GetHistoryParams) => {
+  return [`/api/history`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getHistory>>,
+  TError = ApiError,
+>(
+  params?: GetHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+) => {
+  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetHistoryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getHistory>>> = ({
+    signal,
+  }) => getHistory(params, { signal, ...fetchOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getHistory>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getHistory>>
+>;
+export type GetHistoryQueryError = ApiError;
+
+export function useGetHistory<
+  TData = Awaited<ReturnType<typeof getHistory>>,
+  TError = ApiError,
+>(
+  params: undefined | GetHistoryParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getHistory>>,
+          TError,
+          Awaited<ReturnType<typeof getHistory>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetHistory<
+  TData = Awaited<ReturnType<typeof getHistory>>,
+  TError = ApiError,
+>(
+  params?: GetHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getHistory>>,
+          TError,
+          Awaited<ReturnType<typeof getHistory>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetHistory<
+  TData = Awaited<ReturnType<typeof getHistory>>,
+  TError = ApiError,
+>(
+  params?: GetHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary The history of edits, newest first, filtered and paged; secrets masked
+ */
+
+export function useGetHistory<
+  TData = Awaited<ReturnType<typeof getHistory>>,
+  TError = ApiError,
+>(
+  params?: GetHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export type undoChangeResponse200 = {
+  data: Undone;
+  status: 200;
+};
+
+export type undoChangeResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type undoChangeResponse404 = {
+  data: ApiError;
+  status: 404;
+};
+
+export type undoChangeResponse409 = {
+  data: UndoConflict;
+  status: 409;
+};
+
+export type undoChangeResponse422 = {
+  data: UndoRefused;
+  status: 422;
+};
+
+export type undoChangeResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type undoChangeResponseSuccess = undoChangeResponse200 & {
+  headers: Headers;
+};
+export type undoChangeResponseError = (
+  | undoChangeResponse400
+  | undoChangeResponse404
+  | undoChangeResponse409
+  | undoChangeResponse422
+  | undoChangeResponse503
+) & {
+  headers: Headers;
+};
+
+export type undoChangeResponse =
+  undoChangeResponseSuccess | undoChangeResponseError;
+
+export const getUndoChangeUrl = (id: number) => {
+  return `/api/history/${id}/undo`;
+};
+
+/**
+ * @summary Undoes one change: writes its previous state, only while the file still holds what it wrote. A secret's change can't be undone
+ */
+export const undoChange = async (
+  id: number,
+  options?: RequestInit,
+): Promise<undoChangeResponse> => {
+  const res = await fetch(getUndoChangeUrl(id), {
+    ...options,
+    method: 'POST',
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: undoChangeResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as undoChangeResponse;
+};
+
+export const getUndoChangeMutationKey = () => ['undoChange'] as const;
+
+export const getUndoChangeMutationOptions = <
+  TError = ApiError | UndoConflict | UndoRefused,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof undoChange>>,
+    TError,
+    UndoChangeMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof undoChange>>,
+  TError,
+  UndoChangeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUndoChangeMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof undoChange>>,
+    UndoChangeMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return undoChange(id, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UndoChangeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof undoChange>>
+>;
+
+export type UndoChangeMutationError = ApiError | UndoConflict | UndoRefused;
+export type UndoChangeMutationVariables = { id: number };
+
+/**
+ * @summary Undoes one change: writes its previous state, only while the file still holds what it wrote. A secret's change can't be undone
+ */
+export const useUndoChange = <
+  TError = ApiError | UndoConflict | UndoRefused,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof undoChange>>,
+      TError,
+      UndoChangeMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof undoChange>>,
+  TError,
+  UndoChangeMutationVariables,
+  TContext
+> => {
+  return useMutation(getUndoChangeMutationOptions(options), queryClient);
+};

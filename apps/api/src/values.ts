@@ -68,7 +68,7 @@ async function openFile(
   return read.file;
 }
 
-async function editContext(
+export async function editContext(
   schema: EnvSchema,
   project: Project,
 ): Promise<EditContext> {
