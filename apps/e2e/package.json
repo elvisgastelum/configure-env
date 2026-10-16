@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test:e2e": "playwright test",
+    "screenshots": "SCREENSHOTS=1 playwright test tests/screenshots.spec.ts --project chromium",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

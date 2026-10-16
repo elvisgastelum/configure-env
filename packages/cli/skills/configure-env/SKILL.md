@@ -4,7 +4,7 @@ description: "Trigger: set up or configure env, .env files, add/change an env va
 license: MIT
 metadata:
   author: "elvisgastelum"
-  version: "1.1"
+  version: "1.2"
 ---
 
 ## Activation Contract
@@ -27,6 +27,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 - Ask before `init --force`, `unset` of a secret, rotating a secret (`unset`, then `--generate`), or `--allow-unknown`.
 - Never pass `--replace-protected` without asking the user; a `protected` exit 2 means restore the value from a backup, not replace it.
 - Ask before `install skill --scope user` (writes under the home folder) or `install skill --force` (replaces the installed folder or link).
+- Ask before `serve --unsafe-expose`. Treat the `serve` launch URL like a secret: it holds the session token. Give it only to the user who asked for the portal; never log, commit or post it.
 - Mark every credential `"secret": true` in the schema, and give the real env file `"mode": "600"`.
 - Type IP settings as `ipv4`, `ipv6`, `ip` or `cidr`, never a hand-written `pattern`, and tie an address to its subnet with `within` (see `references/schema.md`).
 
@@ -35,6 +36,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 | Need | Do |
 | --- | --- |
 | No `env.schema.json` | `init --ci` (infers from `.env.example`), then fix types and mark secrets |
+| The user wants the portal (browse, edit, review in a browser) | run `serve --json --no-open` in the background; read its one line `{ command, url, port, pid }`, give the user `url`, and stop it with SIGTERM to `pid` when they are done; it starts without a schema too, and the portal can init one |
 | First setup of a checkout | `apply --ci --json --generate <SECRET>... --defer <HUMAN_SECRET>...`; hand the `deferred` keys to the human |
 | New variable | add it to the schema → `apply --ci --file .env.example` → `set` it in the real file |
 | Variable removed from the schema | `apply --ci --prune` (ask first when the file holds real values) |
