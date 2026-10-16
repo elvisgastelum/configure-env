@@ -188,6 +188,19 @@ describe('createLauncher', () => {
     expect(stdout).not.toHaveBeenCalled();
   });
 
+  it('keeps opened when the editor errors after the moment, and only logs the error', async () => {
+    const { log, text } = logged();
+    const opening = createLauncher('darwin', log)(target);
+    // Past the 300 ms the launch had to fail in.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    child.emit(
+      'error',
+      Object.assign(new Error('spawn code EACCES'), { code: 'EACCES' }),
+    );
+    expect(await opening).toEqual({ opened: true });
+    expect(text()).toBe('configure-env: spawn code EACCES\n');
+  });
+
   it('leaves no listener on the log, however many editors keep running', async () => {
     const { log } = logged();
     const listeners = () =>

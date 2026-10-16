@@ -857,7 +857,8 @@ export const openInEditorResponse = named(
   'OpenInEditor',
   z.object({
     opened: z.boolean().meta({
-      description: 'Whether the editor was started.',
+      description:
+        'Whether the editor was started: true means it started and did not fail within 300 ms, not that it confirmed the file is open. A later failure is only written to the server log (stderr).',
     }),
     reason: z.enum(['no-editor', 'terminal-editor', 'failed']).optional().meta({
       description:

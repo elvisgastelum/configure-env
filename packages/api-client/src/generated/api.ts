@@ -640,7 +640,7 @@ export const OpenInEditorReason = {
 } as const;
 
 export interface OpenInEditor {
-  /** Whether the editor was started. */
+  /** Whether the editor was started: true means it started and did not fail within 300 ms, not that it confirmed the file is open. A later failure is only written to the server log (stderr). */
   opened: boolean;
   /** When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed. */
   reason?: OpenInEditorReason;
