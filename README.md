@@ -495,7 +495,7 @@ configure-env validate --json
 
 ### history
 
-`history` changes nothing. It lists the 20 latest changes recorded in the history of edits (`.configure-env/state.db`), newest first: every `set`, `unset`, `apply` and `init`, and every edit made in the portal.
+`history` changes no env file. It lists the 20 latest changes recorded in the history of edits (`.configure-env/state.db`), newest first: every `set`, `unset`, `apply` and `init`, and every edit made in the portal.
 
 | Column       | Shows                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
@@ -515,7 +515,7 @@ ID  WHEN (UTC)        BY      CHANGE  FILE             KEY        BEFORE        
 1   2026-10-16 09:02  cli     schema  env.schema.json  -          -                     2 variables, 1 file
 ```
 
-Undo stays in the portal for now: its History page undoes a change while the file still holds what the change wrote. A secret's value is never stored, so its change can't be undone. With `--json` it prints `{ "command": "history", "ok", "total", "changes" }`, `total` counting every change recorded; each change has `id`, `at`, `actor`, `file`, `key`, `operation`, `before` and `after` (the previews), `restorable`, `undoBlocker` (why it can't be undone, only when it can't) and `undoOf`. A history it cannot read exits 1.
+Undo stays in the portal for now: its History page undoes a change while the file still holds what the change wrote. A secret's value is never stored, so its change can't be undone. With `--json` it prints `{ "command": "history", "ok", "total", "changes" }`, `total` counting every change recorded; each change has `id`, `at`, `actor`, `file`, `key`, `operation`, `before` and `after` (the previews), `restorable`, `undoBlocker` (why it can't be undone, only when it can't) and `undoOf`. A history it cannot read exits 1. A state database an older version wrote is upgraded first, as by any command that reads the state, after which that older version refuses it.
 
 ```sh
 configure-env history
