@@ -1,16 +1,26 @@
 // Shared by the CLI tests: a temporary project root with a schema, and a
 // `main` runner with an injected io and a scripted prompts adapter.
 
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach } from 'vitest';
 import {
   DEFAULT_STATE_PATH,
+  SALT_BYTES,
   type State,
   emptyState,
   loadState,
+  stateMigrations,
   writeState,
 } from '@configure-env/core';
 import type { Io, Prompts } from './io.ts';
@@ -43,6 +53,57 @@ export async function stateBytes(path: string): Promise<string> {
     names.map((name) => readFile(join(dir, name), 'latin1')),
   );
   return texts.join('\n');
+}
+
+/** A row of the history as schema version 1 (PV-21) wrote it. */
+export interface V1ChangeRow {
+  actor: 'cli' | 'portal';
+  file: string;
+  key: string;
+  operation: string;
+  beforePreview?: string | null;
+  afterPreview?: string | null;
+  at: string;
+}
+
+/**
+ * Writes a state database at `path` as a version with only the first
+ * migration wrote it (schema version 1), holding `rows` in its history.
+ */
+export async function writeV1State(
+  path: string,
+  rows: readonly V1ChangeRow[],
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const sqlite = new Database(path);
+  try {
+    sqlite.pragma('journal_mode = WAL');
+    for (const statement of stateMigrations()[0]!.sql)
+      if (statement.trim()) sqlite.exec(statement);
+    const meta = sqlite.prepare('insert into meta (key, value) values (?, ?)');
+    meta.run('schema_version', '1');
+    meta.run('salt', randomBytes(SALT_BYTES).toString('base64'));
+    const insert = sqlite.prepare(
+      'insert into changes (actor, file, key, operation, before_fingerprint, after_fingerprint, before_preview, after_preview, at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const row of rows) {
+      const before = row.beforePreview ?? null;
+      const after = row.afterPreview ?? null;
+      insert.run(
+        row.actor,
+        row.file,
+        row.key,
+        row.operation,
+        before === null ? null : 'a'.repeat(64),
+        after === null ? null : 'b'.repeat(64),
+        before,
+        after,
+        row.at,
+      );
+    }
+  } finally {
+    sqlite.close();
+  }
 }
 
 /**

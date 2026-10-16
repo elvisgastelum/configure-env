@@ -5,7 +5,12 @@
   // The core's sources are listed too, so the declaration build loads them
   // into its one program up front: a module outside the listed files makes
   // it build another program, and each one costs memory.
+  //
+  // stripInternal drops the core's @internal exports (readStateDatabase) from
+  // the declarations, so they never name better-sqlite3's own types, which a
+  // consumer of the package has no declarations for.
   "extends": "./tsconfig.json",
+  "compilerOptions": { "stripInternal": true },
   "include": ["src", "../core/src"],
   "exclude": [
     "src/**/*.test.ts",

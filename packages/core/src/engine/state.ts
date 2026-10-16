@@ -330,18 +330,28 @@ function schemaVersion(sqlite: Database.Database): number {
 }
 
 /**
+ * The database's schema version, refusing one that is not valid or that is
+ * newer than this version knows.
+ */
+function knownSchemaVersion(sqlite: Database.Database): number {
+  const known = stateSchemaVersion();
+  const version = schemaVersion(sqlite);
+  if (!Number.isInteger(version) || version < 0)
+    throw new Error('has an invalid schema version');
+  if (version > known)
+    throw new Error(
+      `has schema version ${version}, newer than this configure-env knows (${known}); upgrade configure-env`,
+    );
+  return version;
+}
+
+/**
  * Applies the migrations the database lacks; the caller holds its write
  * transaction. A database of a newer version is refused, never changed.
  */
 function migrate(sqlite: Database.Database): void {
   const migrations = stateMigrations();
-  const version = schemaVersion(sqlite);
-  if (!Number.isInteger(version) || version < 0)
-    throw new Error('has an invalid schema version');
-  if (version > migrations.length)
-    throw new Error(
-      `has schema version ${version}, newer than this configure-env knows (${migrations.length}); upgrade configure-env`,
-    );
+  const version = knownSchemaVersion(sqlite);
   if (version === migrations.length) return;
   for (const migration of migrations.slice(version))
     for (const statement of migration.sql)
@@ -604,6 +614,41 @@ export async function loadState(path: string): Promise<StateResult> {
     }));
   } catch (error) {
     return { ok: false, message: stateError(path, error).message };
+  }
+}
+
+/**
+ * Runs `read` over the database at `path` opened read-only, with its schema
+ * version: it is never migrated, so a database an older version wrote stays
+ * as that version can read it. Undefined when the database does not exist.
+ * A database of a newer version, or one whose state is not valid, is an
+ * error naming the path, as `loadState` reports it.
+ *
+ * @internal For the history's reads only: its callback takes better-sqlite3's
+ * own type, which the published declarations cannot name.
+ */
+export function readStateDatabase<T>(
+  path: string,
+  read: (sqlite: Database.Database, version: number) => T,
+): T | undefined {
+  if (!databaseExists(path)) return undefined;
+  let sqlite: Database.Database;
+  try {
+    sqlite = new Database(path, { readonly: true, fileMustExist: true });
+  } catch (error) {
+    throw stateError(path, error);
+  }
+  try {
+    const version = knownSchemaVersion(sqlite);
+    if (version > 0) {
+      const current = readState(drizzle(sqlite, { schema: tables }));
+      if (!current.ok) throw new Error(current.message);
+    }
+    return read(sqlite, version);
+  } catch (error) {
+    throw stateError(path, error);
+  } finally {
+    sqlite.close();
   }
 }
 

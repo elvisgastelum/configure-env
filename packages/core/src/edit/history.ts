@@ -2,6 +2,7 @@
 // undoing one: a change is undone only while what it wrote is still there,
 // checked by fingerprint, and the undo is itself recorded as a change.
 
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { ApplyResult } from '../engine/apply.ts';
 import { getValue, keysOf, parseDotenv } from '../engine/dotenv.ts';
@@ -415,6 +416,12 @@ export async function undoChange(
   context: UndoContext,
   id: number,
 ): Promise<Undone | UndoFailure> {
+  // An undo writes the database: one an older version wrote is upgraded
+  // first, as by any write, whether or not the undo then writes.
+  if (existsSync(context.statePath)) {
+    const loaded = await loadState(context.statePath);
+    if (!loaded.ok) throw new Error(loaded.message);
+  }
   const change = await readChange(context.statePath, id);
   if (!change)
     return {

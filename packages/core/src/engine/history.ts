@@ -6,9 +6,19 @@
 // a change to a variable that is not secret keeps its values in plain text,
 // and a change to the schema its text, so they can be.
 
-import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
-import { type SQL, and, asc, count, desc, eq, gte, lte } from 'drizzle-orm';
+import {
+  type SQL,
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  lte,
+  sql,
+} from 'drizzle-orm';
 import {
   type BetterSQLite3Database,
   drizzle,
@@ -19,7 +29,7 @@ import * as tables from './db-schema.ts';
 import {
   type ChangeRow,
   fingerprint,
-  loadState,
+  readStateDatabase,
   withStateTransaction,
 } from './state.ts';
 
@@ -93,12 +103,26 @@ export const UNDECLARED_UNDO_REASON =
 export const LEGACY_UNDO_REASON =
   "this change was recorded before the history kept values, so it can't be undone";
 
+/**
+ * Whether `change` is a secret's: its previews are masked, its values never
+ * kept. A change recorded before the history said why a value was not kept
+ * (`not_kept` null, not restorable) is a secret's when a preview is the
+ * mask, as only a secret's was.
+ */
+export function isSecretChange(change: ChangeRecord): boolean {
+  if (change.notKept !== null) return change.notKept === 'secret';
+  return (
+    !change.restorable &&
+    (change.beforePreview === SECRET_PREVIEW ||
+      change.afterPreview === SECRET_PREVIEW)
+  );
+}
+
 /** Why `change` cannot be undone; undefined when it can. */
 export function undoBlocker(change: ChangeRecord): string | undefined {
   if (change.restorable) return undefined;
+  if (isSecretChange(change)) return SECRET_UNDO_REASON;
   switch (change.notKept) {
-    case 'secret':
-      return SECRET_UNDO_REASON;
     case 'undeclared':
       return UNDECLARED_UNDO_REASON;
     case 'schema-created':
@@ -230,34 +254,64 @@ export async function recordChanges(
   });
 }
 
+/** The columns of the history, as `select` takes them. */
+type ChangeColumns = ReturnType<typeof getTableColumns<typeof tables.changes>>;
+
 /**
- * Reads the history; undefined when there is none yet. A database an older
- * version wrote is migrated first, as any read of the state does.
+ * The columns of the history a database holds: one an older version wrote
+ * lacks the later ones, read as a change recorded before them (no value
+ * kept, not restorable). Undefined when it has no history.
+ */
+function historyColumns(sqlite: Database.Database): ChangeColumns | undefined {
+  const present = new Set(
+    (
+      sqlite
+        .prepare('select name from pragma_table_info(?)')
+        .all('changes') as {
+        name: string;
+      }[]
+    ).map((column) => column.name),
+  );
+  if (!present.size) return undefined;
+  const columns = getTableColumns(tables.changes);
+  return Object.fromEntries(
+    Object.entries(columns).map(([field, column]) => [
+      field,
+      present.has(column.name)
+        ? column
+        : column === columns.restorable
+          ? sql`0`.mapWith(Boolean)
+          : sql`null`,
+    ]),
+  ) as ChangeColumns;
+}
+
+/**
+ * Reads the history; undefined when there is none yet. The database is
+ * opened read-only and never migrated: one an older version wrote stays as
+ * that version can read it, its changes read as recorded before values were
+ * kept.
  */
 async function openHistory<T>(
   path: string,
-  read: (db: BetterSQLite3Database<typeof tables>) => T,
+  read: (db: BetterSQLite3Database<typeof tables>, columns: ChangeColumns) => T,
 ): Promise<T | undefined> {
-  if (!existsSync(path)) return undefined;
-  const loaded = await loadState(path);
-  if (!loaded.ok) throw new Error(loaded.message);
-  const sqlite = new Database(path, { readonly: true, fileMustExist: true });
-  try {
-    const table = sqlite
-      .prepare("select 1 from sqlite_master where type = 'table' and name = ?")
-      .get('changes');
-    if (!table) return undefined;
-    return read(drizzle(sqlite, { schema: tables }));
-  } finally {
-    sqlite.close();
-  }
+  return readStateDatabase(path, (sqlite) => {
+    const columns = historyColumns(sqlite);
+    if (!columns) return undefined;
+    return read(drizzle(sqlite, { schema: tables }), columns);
+  });
 }
 
 /** The history in the state database at `path`, oldest first; empty without one. */
 export async function readChanges(path: string): Promise<ChangeRecord[]> {
   return (
-    (await openHistory(path, (db) =>
-      db.select().from(tables.changes).orderBy(asc(tables.changes.id)).all(),
+    (await openHistory(path, (db, columns) =>
+      db
+        .select(columns)
+        .from(tables.changes)
+        .orderBy(asc(tables.changes.id))
+        .all(),
     )) ?? []
   );
 }
@@ -267,8 +321,12 @@ export async function readChange(
   path: string,
   id: number,
 ): Promise<ChangeRecord | undefined> {
-  return openHistory(path, (db) =>
-    db.select().from(tables.changes).where(eq(tables.changes.id, id)).get(),
+  return openHistory(path, (db, columns) =>
+    db
+      .select(columns)
+      .from(tables.changes)
+      .where(eq(tables.changes.id, id))
+      .get(),
   );
 }
 
@@ -332,9 +390,9 @@ export async function queryChanges(
     );
   const condition = where.length ? and(...where) : undefined;
   return (
-    (await openHistory(path, (db) => ({
+    (await openHistory(path, (db, columns) => ({
       changes: db
-        .select()
+        .select(columns)
         .from(changes)
         .where(condition)
         .orderBy(desc(changes.id))
