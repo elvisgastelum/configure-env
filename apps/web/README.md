@@ -27,7 +27,7 @@ The values are kept only in the dialog: the plan and apply requests are mutation
 | Check    | file, with its drift status | the file is missing or differs, missing keys, invalid values (shown masked), rule and protected problems, unknown keys, the mode, lines that do not parse; plan errors above | **Set KEY in FILE** edits the value in place; **Apply FILE** opens apply for that file; a bad line links to the raw view |
 | Validate | file, then variable         | value, rule and protected errors per variable (a rule under the first key it names, the others linked), lines that do not parse, warnings                                    | **Fix KEY in FILE** edits the value in place                                                                             |
 
-Every variable name links to the variables page (`/variables?focus=KEY`). **Run check** and **Run validate** ask the API again; any write in the portal refreshes both.
+Every variable name links to the variables page (`/variables?focus=KEY`). **Run check** and **Run validate** ask the API again; any write in the portal refreshes both. Set opens the editor of that one item, even when another item names the same key. When the variables cannot be read, check says values cannot be set right now and offers no Set; Apply stays available.
 
 ## Live updates
 

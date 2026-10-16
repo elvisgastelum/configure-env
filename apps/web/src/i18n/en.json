@@ -722,6 +722,7 @@
   "check": {
     "lead": "The drift report of configure-env check, by file. Each item links to its variable and fixes in place: set the value, or apply the file.",
     "error": "The check could not run: {{message}}",
+    "valuesError": "Values cannot be set right now: {{message}}",
     "loading": "Running check",
     "run": "Run check",
     "applyAll": "Apply every file",

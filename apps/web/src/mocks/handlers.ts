@@ -365,8 +365,12 @@ export const scenarios = {
     http.get('/api/validate', schemaNeeded),
   ],
   /**
-   * Check and validate report the sample project as it is now, so a fix
-   * made in the portal shows in the next report.
+   * GET /api/check and GET /api/validate computed from the in-memory sample
+   * project (`checkOf`, `validateOf`), so a fix made in the portal or outside
+   * it shows in the next report. Check reports drift, modes, invalid values
+   * and bad lines; validate reports invalid and missing required values and
+   * bad lines. Neither reports rule or protected-value problems, nor
+   * warnings.
    */
   liveReports: [
     http.get('/api/check', () => json(checkOf())),

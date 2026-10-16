@@ -129,6 +129,55 @@ describe('check page', () => {
     );
   });
 
+  it('opens only the editor of the item whose Set was pressed', async () => {
+    server.use(...scenarios.everyProblem);
+    const user = userEvent.setup();
+    await renderApp('/check');
+    const env = await group('.env');
+    // DB_PASSWORD has a rule item and a protected item.
+    const sets = within(env).getAllByRole('button', {
+      name: 'Set DB_PASSWORD in .env',
+    });
+    expect(sets).toHaveLength(2);
+
+    await user.click(sets[0]!);
+    expect(
+      within(env).getAllByLabelText('New value of DB_PASSWORD in .env'),
+    ).toHaveLength(1);
+    expect(
+      within(env).getAllByRole('button', { name: 'Set DB_PASSWORD in .env' }),
+    ).toHaveLength(1);
+  });
+
+  it('says values cannot be set when the variables cannot be read', async () => {
+    server.use(
+      ...scenarios.everyProblem,
+      http.get('/api/variables', () =>
+        HttpResponse.json(
+          { statusCode: 500, message: 'the variables could not be read' },
+          { status: 500 },
+        ),
+      ),
+    );
+    await renderApp('/check');
+    const env = await group('.env');
+
+    expect(
+      await screen.findByText(
+        'Values cannot be set right now: the variables could not be read',
+      ),
+    ).toHaveAttribute('role', 'alert');
+    expect(
+      within(env).queryByRole('button', { name: /^Set / }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(env).getByRole('button', { name: 'Apply .env' }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Apply every file' }),
+    ).toBeEnabled();
+  });
+
   it('says when every file matches the schema', async () => {
     server.use(...scenarios.passing);
     await renderApp('/check');

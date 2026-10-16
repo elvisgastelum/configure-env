@@ -32,11 +32,15 @@ const DRIFT_VARIANT = {
   refused: 'destructive',
 } as const;
 
-/** The value being set from an item: a key in a file. */
+/** The item whose value is being set: one item of one file. */
 interface Editing {
   file: string;
-  key: string;
+  /** The item's id in the file's list (`itemId`). */
+  item: string;
 }
+
+/** An item's id in its file's list; two items may name the same key. */
+const itemId = (item: DriftItem, index: number) => `${item.kind}-${index}`;
 
 /**
  * `configure-env check` in the portal: the drift report grouped by file,
@@ -97,6 +101,11 @@ function Report() {
       {check.error && (
         <p role="alert" className="text-destructive">
           {t('check.error', { message: check.error.message })}
+        </p>
+      )}
+      {variables.error && (
+        <p role="alert" className="text-destructive">
+          {t('check.valuesError', { message: variables.error.message })}
         </p>
       )}
       {!check.data && !check.error && <ReportSkeleton />}
@@ -177,9 +186,9 @@ function ReportBody({
             <FileReport
               file={file}
               variables={variables}
-              editing={editing?.file === file.path ? editing.key : undefined}
-              onEdit={(key) =>
-                onEditingChange(key ? { file: file.path, key } : undefined)
+              editing={editing?.file === file.path ? editing.item : undefined}
+              onEdit={(item) =>
+                onEditingChange(item ? { file: file.path, item } : undefined)
               }
             />
           </li>
@@ -197,9 +206,9 @@ function FileReport({
 }: {
   file: FileDrift;
   variables: readonly Variable[];
-  /** The key whose value is being set in this file. */
+  /** The item whose value is being set in this file (`itemId`). */
   editing?: string;
-  onEdit: (key?: string) => void;
+  onEdit: (item?: string) => void;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -234,10 +243,11 @@ function FileReport({
               const variable = key
                 ? variables.find((entry) => entry.name === key)
                 : undefined;
-              const open = key !== undefined && editing === key;
+              const id = itemId(item, index);
+              const open = variable !== undefined && editing === id;
               return (
                 <li
-                  key={`${item.kind}-${index}`}
+                  key={id}
                   className="flex flex-col gap-2 rounded-lg bg-muted/40 px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -249,7 +259,7 @@ function FileReport({
                         type="button"
                         size="xs"
                         variant="outline"
-                        onClick={() => onEdit(variable.name)}
+                        onClick={() => onEdit(id)}
                       >
                         <span aria-hidden="true">{t('check.set')}</span>
                         <span className="sr-only">
