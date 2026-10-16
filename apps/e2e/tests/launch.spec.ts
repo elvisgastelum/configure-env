@@ -54,10 +54,8 @@ test('a fresh tab without the session cookie asks for the launch link', async ({
   browser,
   served,
 }) => {
-  // PV-20 T3: a tab opened on the origin without the cookie gets the API's raw
-  // JSON 401 ({"statusCode":401,"message":"a valid token is required"}), not
-  // the portal's "Open the launch link again" page.
-  test.fail();
+  // The server answers a page request without the session with a 401 page
+  // of its own, never the portal or the JSON error.
   const context = await browser.newContext({ locale: 'en-US' });
   try {
     const page = await context.newPage();

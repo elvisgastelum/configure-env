@@ -220,6 +220,25 @@ describe('the static portal', () => {
     expect(response.text).toContain('portal');
   });
 
+  it('tells a tab without the session to open the launch link again', async () => {
+    const page = await request(portalServer.url)
+      .get('/variables')
+      .set('Accept', 'text/html,application/xhtml+xml');
+    expect(page.status).toBe(401);
+    expect(page.headers['content-type']).toMatch(/^text\/html/);
+    expect(page.text).toContain('Open the launch link again');
+    expect(page.text).not.toContain('<h1>portal</h1>');
+    // Anything but a page keeps the JSON answer.
+    const api = await request(portalServer.url)
+      .get('/api/project')
+      .set('Accept', 'text/html');
+    expect(api.status).toBe(401);
+    expect(api.headers['content-type']).toMatch(/^application\/json/);
+    const script = await request(portalServer.url).get('/assets/index.js');
+    expect(script.status).toBe(401);
+    expect(script.headers['content-type']).toMatch(/^application\/json/);
+  });
+
   it('answers a deep link with the portal, so the router can take it', async () => {
     expect((await request(portalServer.url).get('/files')).status).toBe(401);
     const response = await request(portalServer.url)
