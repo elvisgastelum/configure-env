@@ -23,7 +23,6 @@ const TSX = pathToFileURL(
   createRequire(join(REPO, 'packages/cli/package.json')).resolve('tsx'),
 ).href;
 /** The built portal serve hands out; without it serve runs the API only. */
-export const PORTAL_DIST = join(REPO, 'apps/web/dist');
 
 export type FixtureName = 'portfolio' | 'empty';
 

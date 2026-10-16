@@ -123,9 +123,16 @@ function parsePort(value: string | undefined): number | undefined {
   return port;
 }
 
-/** The portal's built files: dist/web in the package, apps/web/dist in the checkout. */
+/**
+ * The portal's built files: dist/web in the package, apps/web/dist in the
+ * checkout. Run from source (tsx), the checkout's build comes first: dist/web
+ * is a copy the last `pnpm build` left, older than the portal being worked on.
+ */
 function portalDir(): string | undefined {
-  for (const candidate of ['dist/web/', '../../apps/web/dist/']) {
+  const fromSource = import.meta.url.endsWith('.ts');
+  const candidates = ['dist/web/', '../../apps/web/dist/'];
+  if (fromSource) candidates.reverse();
+  for (const candidate of candidates) {
     const dir = new URL(candidate, PACKAGE_ROOT);
     if (existsSync(new URL('index.html', dir))) return fileURLToPath(dir);
   }
@@ -228,7 +235,7 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
   // invalid one still is, as for every other command.
   const hasSchema = await stat(context.schemaPath).then(
     () => true,
-    () => false,
+    (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
   );
   if (hasSchema) await loadContextSchema(context);
   const runtime: ServeRuntime = { ...defaultRuntime, ...io.serve };

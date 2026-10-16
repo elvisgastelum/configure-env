@@ -173,6 +173,19 @@ describe('serve options', () => {
     );
   });
 
+  it('only takes a missing file for no schema', async () => {
+    // A path through a file: stat fails with ENOTDIR, not ENOENT.
+    await writeFile(join(project.root, 'notes'), 'not a directory\n');
+    const runtime = fakeRuntime();
+    const result = await serve(['--schema', 'notes/env.schema.json'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).not.toMatch(/init one from the portal/);
+    expect(runtime.started).toEqual([]);
+  });
+
   it('still refuses an invalid schema', async () => {
     await writeFile(join(project.root, 'bad.json'), '{"version": 2}\n');
     const runtime = fakeRuntime();

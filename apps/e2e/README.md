@@ -10,10 +10,10 @@ project, and `@axe-core/playwright` scans every page.
 2. Chromium for Playwright, once per machine:
    `pnpm --filter @configure-env/e2e exec playwright install chromium`
    (add `--with-deps` on a fresh Linux CI runner).
-3. The built portal: `pnpm --filter @configure-env/web build`. Without
-   `apps/web/dist`, serve prints "the portal is not built" and serves the API
-   alone. The suite's global setup builds it when it is missing, but it does
-   not rebuild a stale one: rebuild after changing `apps/web`.
+3. Nothing to build by hand: the suite's global setup runs
+   `pnpm --filter @configure-env/web build` before every run, and serve, run
+   from source, serves that `apps/web/dist` ahead of the copy in
+   `packages/cli/dist/web` an earlier `pnpm build` left.
 
 ## Run
 
@@ -63,12 +63,3 @@ in CI) to `test-results/`; both are ignored by git.
   an invalid `VITE_CONTACT_WHATSAPP` (validate reports it), and its secret is
   random per run, never a committed literal.
 - `empty/`: only a `.env.example`, for the init journey.
-
-## Known failures
-
-Tests marked `test.fail()` with a `// PV-20 T3:` comment encode problems
-the suite found in the portal; they pass while the problem exists and fail
-once it is fixed, so remove the mark with the fix. One problem has no test
-because it is a race: saving a value from the Check or Validate report can
-lose its "Saved" toast, because the fixed item, and the editor that shows
-the toast, leaves the report before the save callback runs.
