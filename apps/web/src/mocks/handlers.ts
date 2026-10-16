@@ -5,22 +5,28 @@
 // schema writer, as the API does, so they refuse what the API refuses.
 
 import * as writer from '@configure-env/core/schema';
+import type { ApplyRequest, PlanRequest } from '@configure-env/api-client';
 import type {
   FileInput,
   SchemaDocument,
   SchemaEditResult,
   VariableInput,
 } from '@configure-env/core/schema';
-import { HttpResponse, delay, http } from 'msw';
+import { HttpResponse, delay, http, sse } from 'msw';
 import * as fixtures from './fixtures';
 import {
+  applyPlan,
+  checkOf,
+  eventClients,
   findFile,
   findVariable,
   mockState,
+  planOf,
   plainValue,
   problemsOf,
   protectedProblems,
   touchFile,
+  validateOf,
   writeSchema,
   writeValue,
 } from './store';
@@ -164,7 +170,22 @@ const schemaWrites = [
   ),
 ];
 
+/**
+ * GET /api/events: the stream stays open, and `emitChanged` sends on it. msw
+ * mocks Server-Sent Events only where EventSource exists (the browser, and
+ * the tests through a polyfill).
+ */
+const events =
+  typeof EventSource === 'undefined'
+    ? []
+    : [
+        sse<{ changed: { paths: string[] } }>('/api/events', ({ client }) => {
+          eventClients.add(client);
+        }),
+      ];
+
 export const handlers = [
+  ...events,
   http.get('/api/health', () => json({ status: 'ok' })),
   http.get('/api/project', () => json(fixtures.project)),
   http.get('/api/schema', () => json(mockState.schema)),
@@ -173,6 +194,20 @@ export const handlers = [
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
   http.get('/api/validate', () => json(fixtures.validate)),
+  http.post('/api/files/content', async ({ request }) => {
+    const { file } = (await request.json()) as { file: string };
+    const info = findFile(file);
+    if (!info)
+      return HttpResponse.json(
+        { statusCode: 404, message: `${file} is not a schema file` },
+        { status: 404 },
+      );
+    return json({
+      file,
+      exists: info.exists,
+      lines: info.exists ? (mockState.lines.get(file) ?? []) : [],
+    });
+  }),
   http.post('/api/reveal', async ({ request }) => {
     const { file, key } = (await request.json()) as {
       file: string;
@@ -186,20 +221,32 @@ export const handlers = [
       );
     return json({ file, key, value: plainValue(file, key) });
   }),
-  // A dry run: only the value and rule errors of the given values.
-  http.post('/api/plan', async ({ request }) => {
-    const body = (await request.json()) as {
-      values?: Record<string, string>;
-      files?: string[];
-    };
-    const errors = problemsOf(body.files?.[0] ?? '.env', body.values ?? {});
-    return json({
-      fingerprint: 'plan',
-      ok: errors.length === 0,
-      files: [],
-      errors,
-      protected: [],
-    });
+  // What applying would do; the value and rule errors of the given values.
+  http.post('/api/plan', async ({ request }) =>
+    json(planOf((await request.json()) as PlanRequest)),
+  ),
+  http.post('/api/apply', async ({ request }) => {
+    const body = (await request.json()) as ApplyRequest;
+    const plan = planOf(body);
+    if (plan.fingerprint !== body.fingerprint)
+      return HttpResponse.json(
+        {
+          statusCode: 409,
+          message: 'the plan changed since it was shown; nothing was written',
+          plan,
+        },
+        { status: 409 },
+      );
+    if (!plan.ok)
+      return HttpResponse.json(
+        {
+          statusCode: 422,
+          message: 'the plan has errors; nothing was written',
+          plan,
+        },
+        { status: 422 },
+      );
+    return json(applyPlan(body));
   }),
   http.post('/api/values/set', async ({ request }) => {
     const body = (await request.json()) as ValuesBody;
@@ -317,6 +364,25 @@ export const scenarios = {
     http.get('/api/check', schemaNeeded),
     http.get('/api/validate', schemaNeeded),
   ],
+  /**
+   * GET /api/check and GET /api/validate computed from the in-memory sample
+   * project (`checkOf`, `validateOf`), so a fix made in the portal or outside
+   * it shows in the next report. Check reports drift, modes, invalid values
+   * and bad lines; validate reports invalid and missing required values and
+   * bad lines. Neither reports rule or protected-value problems, nor
+   * warnings.
+   */
+  liveReports: [
+    http.get('/api/check', () => json(checkOf())),
+    http.get('/api/validate', () => json(validateOf())),
+  ],
+  /** Check and validate report one of every kind of problem. */
+  everyProblem: [
+    http.get('/api/check', () => json(fixtures.driftCheck)),
+    http.get('/api/validate', () => json(fixtures.validationReport)),
+  ],
+  /** The plan shows every action a file can take. */
+  everyAction: [http.post('/api/plan', () => json(fixtures.everyActionPlan))],
   /** Every env file matches its schema. */
   passing: [
     http.get('/api/check', () => json(fixtures.passingCheck)),

@@ -91,7 +91,14 @@
       "refused": "Refused: {{message}}",
       "nothing": "Nothing to report.",
       "policy": "Policy",
-      "drift": "Drift"
+      "drift": "Drift",
+      "exists": "Exists",
+      "absent": "Missing",
+      "existence": "On disk",
+      "badLines_one": "{{count}} bad line",
+      "badLines_other": "{{count}} bad lines",
+      "open": "Open",
+      "openLabel": "Open {{path}}"
     },
     "drift": {
       "current": "Current",
@@ -596,5 +603,167 @@
       "close": "Close",
       "errors": "The schema refuses this edit:"
     }
+  },
+  "files": {
+    "lead": "Each env file the schema lists: its policy, mode and drift. Open one to see its entries and its raw text.",
+    "error": "The files could not load: {{message}}",
+    "loading": "Loading the files",
+    "empty": "The schema lists no files yet.",
+    "detail": {
+      "back": "All files",
+      "description": "A {{policy}} file",
+      "descriptionTemplate": "A {{policy}} file, a template",
+      "tabs": "Views of {{path}}",
+      "entries": "Entries",
+      "raw": "Raw",
+      "caption": "The variables {{path}} lists, in order",
+      "key": "Key",
+      "status": "Status",
+      "value": "Value",
+      "actions": "Actions",
+      "noEntries": "This file lists no variables.",
+      "unknown": "Keys in the file the schema does not list",
+      "rawLabel": "The raw text of {{path}}",
+      "rawNote": "Read-only, secrets masked.",
+      "rawMissing": "{{path}} does not exist yet; apply creates it.",
+      "rawLoading": "Loading the raw text",
+      "rawError": "The raw text could not load: {{message}}",
+      "rawEmpty": "The file is empty.",
+      "badLine": "Line {{line}} is not a valid entry"
+    }
+  },
+  "events": {
+    "changed_one": "{{paths}} changed outside the portal; the views show it now.",
+    "changed_other": "{{paths}} changed outside the portal; the views show them now."
+  },
+  "apply": {
+    "open": "Apply",
+    "title": "Apply",
+    "description": "Write the env files the schema describes, as configure-env apply does.",
+    "descriptionFiles": "Write {{files}} as the schema describes it, as configure-env apply does.",
+    "close": "Close",
+    "cancel": "Cancel",
+    "planning": "Reading the plan…",
+    "failed": "Could not plan or apply: {{message}}",
+    "values": {
+      "lead": "The values the files take. Defaults are filled in; an optional value left empty takes its default.",
+      "none": "The files need no value.",
+      "label": "Value of {{name}}",
+      "required": "Required",
+      "generate": "Generate {{name}}",
+      "generateShort": "Generate",
+      "ungenerated": "No random value passes the rules of {{name}}; type one instead.",
+      "problem": "{{name}} {{message}}",
+      "preview": "Preview"
+    },
+    "plan": {
+      "changes_one": "{{count}} file changes",
+      "changes_other": "{{count}} files change",
+      "same_one": "{{count}} stays as it is",
+      "same_other": "{{count}} stay as they are",
+      "nothing": "Every file is current; there is nothing to write.",
+      "action": {
+        "create": "Create",
+        "update": "Update",
+        "mode": "Mode only",
+        "unchanged": "Unchanged",
+        "skip": "Skip"
+      },
+      "adds": "Adds {{keys}}",
+      "prunes": "Removes {{keys}}",
+      "mode": "Mode {{from}} to {{to}}",
+      "reason": {
+        "exists": "Create-only and already there: it is never overwritten.",
+        "refused": "Refused: {{error}}",
+        "loosens": "Skipped: {{error}}"
+      },
+      "diff": "Changes to {{path}}",
+      "line": {
+        "added": "added",
+        "removed": "removed",
+        "changed": "changed"
+      },
+      "unchangedLines_one": "{{count}} unchanged line",
+      "unchangedLines_other": "{{count}} unchanged lines",
+      "errors": "The plan cannot be applied:",
+      "error": "{{subject}} {{message}}",
+      "protected": "{{key}} in {{file}} {{message}}",
+      "protectedReason": "{{key}} in {{file}} {{message}} ({{reason}})",
+      "replace": "Replace the protected values",
+      "back": "Back",
+      "apply": "Apply…",
+      "stale": "The files changed since the plan was shown. This is the plan now; nothing was written.",
+      "refused": "Nothing was written: {{message}}"
+    },
+    "confirm": {
+      "title_one": "Write {{count}} file?",
+      "title_other": "Write {{count}} files?",
+      "back": "Back",
+      "write": "Write"
+    },
+    "result": {
+      "list": "Result per file",
+      "written_one": "{{count}} file written.",
+      "written_other": "{{count}} files written.",
+      "failed": "Some files were not written.",
+      "action": {
+        "create": "Created",
+        "update": "Updated",
+        "mode": "Mode set",
+        "unchanged": "Unchanged",
+        "skip": "Skipped"
+      },
+      "notWritten": "Not written",
+      "replaced": "Replaced {{key}} in {{file}}",
+      "warnings": "Warnings",
+      "done": "Done"
+    }
+  },
+  "check": {
+    "lead": "The drift report of configure-env check, by file. Each item links to its variable and fixes in place: set the value, or apply the file.",
+    "error": "The check could not run: {{message}}",
+    "valuesError": "Values cannot be set right now: {{message}}",
+    "loading": "Running check",
+    "run": "Run check",
+    "applyAll": "Apply every file",
+    "applyFile": "Apply {{path}}",
+    "passing": "Every env file matches the schema.",
+    "summary_one": "{{count}} file drifts from the schema.",
+    "summary_other": "{{count}} files drift from the schema.",
+    "summaryErrors": "Check found value errors.",
+    "valueErrors": "Value errors",
+    "nothing": "Nothing to fix.",
+    "set": "Set",
+    "setLabel": "Set {{name}} in {{file}}",
+    "openFile": "Open {{path}}",
+    "item": {
+      "absent": "The file does not exist yet",
+      "differs": "Its content differs from what apply writes",
+      "refused": "Refused: {{message}}",
+      "missing": "is missing",
+      "unknown": "is not in the schema",
+      "mode": "Mode {{actual}}, the schema wants {{expected}}",
+      "line": "Line {{line}} is not a valid entry"
+    }
+  },
+  "validate": {
+    "lead": "The value and rule errors of configure-env validate, by file and variable. Fix a value in place; the report runs again after.",
+    "error": "Validate could not run: {{message}}",
+    "loading": "Running validate",
+    "run": "Run validate",
+    "passing": "Every value follows its rules.",
+    "errorCount_one": "{{count}} error",
+    "errorCount_other": "{{count}} errors",
+    "inFiles_one": "in {{count}} file.",
+    "inFiles_other": "in {{count}} files.",
+    "noErrors": "No errors.",
+    "fix": "Fix",
+    "fixLabel": "Fix {{name}} in {{file}}",
+    "with": "With",
+    "lines": "Lines",
+    "line": "Line {{line}} {{message}}",
+    "openFile": "Open {{path}}",
+    "file": "The file",
+    "warnings": "Warnings"
   }
 }

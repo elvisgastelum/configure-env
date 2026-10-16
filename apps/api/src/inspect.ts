@@ -28,6 +28,7 @@ import {
 import type { z } from 'zod';
 import type {
   checkResponse,
+  fileContentResponse,
   fileInfo,
   fileValue,
   filesResponse,
@@ -35,6 +36,7 @@ import type {
   validateResponse,
   variablesResponse,
 } from './contracts.ts';
+import { maskedLines } from './diff.ts';
 import { contentFingerprint } from './fingerprint.ts';
 import { ApiError } from './http.ts';
 
@@ -216,6 +218,24 @@ export async function revealValue(
   const file = await readFile(root, spec);
   if (!file.ok) throw new InspectError(403, file.message);
   return { file: path, key, value: getValue(file.doc, key) ?? null };
+}
+
+/** One schema file's lines as it holds them, every secret value masked. */
+export async function fileContent(
+  schema: EnvSchema,
+  root: string,
+  path: string,
+): Promise<z.output<typeof fileContentResponse>> {
+  const spec = schema.files.find((file) => file.path === path);
+  if (!spec) throw new InspectError(404, `${path} is not a schema file`);
+  const result = await readEnvFile(root, spec);
+  if (!result.ok) throw new InspectError(403, result.message);
+  const { exists, previous } = result.file;
+  return {
+    file: path,
+    exists,
+    lines: exists ? maskedLines(schema, previous ?? '') : [],
+  };
 }
 
 /** Drift and invalid values per file, as `configure-env check` reports them. */

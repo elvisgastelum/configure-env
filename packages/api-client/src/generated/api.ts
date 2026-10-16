@@ -287,6 +287,21 @@ export interface EditRefused {
   errors: EditProblem[];
 }
 
+export interface FileContent {
+  file: string;
+  exists: boolean;
+  /** The lines as the file holds them, each secret value masked; empty when it does not exist. */
+  lines: string[];
+}
+
+export interface FileContentRequest {
+  /**
+   * A schema file path.
+   * @minLength 1
+   */
+  file: string;
+}
+
 export type FileInfoPolicy =
   (typeof FileInfoPolicy)[keyof typeof FileInfoPolicy];
 
@@ -2210,6 +2225,165 @@ export function useGetFiles<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export type readFileContentResponse200 = {
+  data: FileContent;
+  status: 200;
+};
+
+export type readFileContentResponse403 = {
+  data: ApiError;
+  status: 403;
+};
+
+export type readFileContentResponse404 = {
+  data: ApiError;
+  status: 404;
+};
+
+export type readFileContentResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type readFileContentResponseSuccess = readFileContentResponse200 & {
+  headers: Headers;
+};
+export type readFileContentResponseError = (
+  | readFileContentResponse403
+  | readFileContentResponse404
+  | readFileContentResponse422
+) & {
+  headers: Headers;
+};
+
+export type readFileContentResponse =
+  readFileContentResponseSuccess | readFileContentResponseError;
+
+export const getReadFileContentUrl = () => {
+  return `/api/files/content`;
+};
+
+/**
+ * @summary One schema file's lines as it holds them; secrets masked
+ */
+export const readFileContent = async (
+  fileContentRequest: FileContentRequest,
+  options?: RequestInit,
+): Promise<readFileContentResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getReadFileContentUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(fileContentRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: readFileContentResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as readFileContentResponse;
+};
+
+export const getReadFileContentMutationKey = () => ['readFileContent'] as const;
+
+export const getReadFileContentMutationOptions = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof readFileContent>>,
+    TError,
+    ReadFileContentMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof readFileContent>>,
+  TError,
+  ReadFileContentMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReadFileContentMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof readFileContent>>,
+    ReadFileContentMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return readFileContent(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReadFileContentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof readFileContent>>
+>;
+export type ReadFileContentMutationBody = FileContentRequest;
+export type ReadFileContentMutationError = ApiError | InvalidSchema;
+export type ReadFileContentMutationVariables = { data: FileContentRequest };
+
+/**
+ * @summary One schema file's lines as it holds them; secrets masked
+ */
+export const useReadFileContent = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof readFileContent>>,
+      TError,
+      ReadFileContentMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof readFileContent>>,
+  TError,
+  ReadFileContentMutationVariables,
+  TContext
+> => {
+  return useMutation(getReadFileContentMutationOptions(options), queryClient);
+};
 
 export type revealValueResponse200 = {
   data: Reveal;

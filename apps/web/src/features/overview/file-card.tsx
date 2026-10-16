@@ -22,9 +22,17 @@ const DRIFT_VARIANT = {
 /**
  * One env file: its policy, mode and drift, with the details (missing and
  * unknown keys, unparsable lines) in a panel that opens in place; the card
- * resizes with a layout animation.
+ * resizes with a layout animation. Given `onOpen` (the files page), it also
+ * says whether the file exists and how many lines do not parse, and opens
+ * the file's detail.
  */
-export function FileCard({ file }: { file: FileInfo }) {
+export function FileCard({
+  file,
+  onOpen,
+}: {
+  file: FileInfo;
+  onOpen?: () => void;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -78,14 +86,48 @@ export function FileCard({ file }: { file: FileInfo }) {
                   </dd>
                 </>
               )}
+              {onOpen && (
+                <>
+                  <dt className="sr-only">{t('overview.files.existence')}</dt>
+                  <dd>
+                    <Badge variant={file.exists ? 'secondary' : 'outline'}>
+                      {file.exists
+                        ? t('overview.files.exists')
+                        : t('overview.files.absent')}
+                    </Badge>
+                  </dd>
+                </>
+              )}
               <dt className="sr-only">{t('overview.files.drift')}</dt>
               <dd>
                 <Badge variant={DRIFT_VARIANT[drift.status]}>
                   {t(`overview.drift.${drift.status}`)}
                 </Badge>
               </dd>
+              {onOpen && file.parseErrors.length > 0 && (
+                <>
+                  <dt className="sr-only">{t('overview.files.parseErrors')}</dt>
+                  <dd>
+                    <Badge variant="destructive">
+                      {t('overview.files.badLines', {
+                        count: file.parseErrors.length,
+                      })}
+                    </Badge>
+                  </dd>
+                </>
+              )}
             </dl>
           </div>
+          {onOpen && (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={t('overview.files.openLabel', { path: file.path })}
+              onClick={onOpen}
+            >
+              {t('overview.files.open')}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"

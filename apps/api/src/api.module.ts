@@ -25,6 +25,8 @@ import type { z } from 'zod';
 import {
   checkResponse,
   errorResponse,
+  fileContentRequest,
+  fileContentResponse,
   filesResponse,
   healthResponse,
   projectResponse,
@@ -45,6 +47,7 @@ import {
 } from './http.ts';
 import {
   checkProject,
+  fileContent,
   listFiles,
   listVariables,
   revealValue,
@@ -144,6 +147,30 @@ export class ProjectController {
   @NeedsSchema()
   async files() {
     return listFiles(await this.schema(), this.project.root);
+  }
+
+  @Post('files/content')
+  @HttpCode(200)
+  @Read(
+    'readFileContent',
+    "One schema file's lines as it holds them; secrets masked",
+    fileContentResponse,
+  )
+  @ApiBody({ schema: ref(fileContentRequest) })
+  @NeedsSchema()
+  @ApiNotFoundResponse({
+    description: 'Not a schema file.',
+    schema: ref(errorResponse),
+  })
+  @ApiForbiddenResponse({
+    description: 'The file path is refused: it leaves the root.',
+    schema: ref(errorResponse),
+  })
+  async content(
+    @Body({ schema: fileContentRequest })
+    body: z.output<typeof fileContentRequest>,
+  ) {
+    return fileContent(await this.schema(), this.project.root, body.file);
   }
 
   @Post('reveal')

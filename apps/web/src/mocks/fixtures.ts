@@ -5,6 +5,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import type {
   Check,
   Files,
+  Plan,
   Project,
   Schema,
   Validate,
@@ -260,11 +261,170 @@ export const files: Files = {
   ],
 };
 
+/**
+ * Each existing file's lines as POST /api/files/content answers them:
+ * secret values masked, line 6 of `.env` not an entry.
+ */
+export const fileLines: Record<string, string[]> = {
+  '.env': [
+    '# The billing service',
+    'API_URL=localhost:4000',
+    'PORT=8080',
+    'DB_PASSWORD=••••••••',
+    'LOG_LEVEL=debug  # every request',
+    'this line is not an entry',
+    'export EXTRA="1"',
+  ],
+  '.env.example': [
+    '# Copy to .env and fill in the secrets.',
+    'API_URL=https://api.example.com',
+    'PORT=3000',
+  ],
+};
+
+/** A plan with every action a file can take, for the preview. */
+export const everyActionPlan: Plan = {
+  fingerprint: 'plan-every-action',
+  ok: true,
+  errors: [],
+  protected: [],
+  files: [
+    {
+      path: 'config/app.env',
+      policy: 'generate',
+      action: 'create',
+      addedKeys: ['PORT', 'LOG_LEVEL'],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: null,
+      fingerprint: null,
+      diff: [
+        { kind: 'added', line: 'PORT=3000' },
+        { kind: 'added', line: 'LOG_LEVEL=info' },
+      ],
+    },
+    {
+      path: '.env',
+      policy: 'merge',
+      action: 'update',
+      addedKeys: ['API_KEY'],
+      prunedKeys: [],
+      mode: '600',
+      currentMode: '600',
+      fingerprint: 'env-1',
+      diff: [
+        { kind: 'same', line: 'PORT=8080' },
+        { kind: 'removed', line: 'LOG_LEVEL=debug' },
+        { kind: 'added', line: 'LOG_LEVEL=info' },
+        { kind: 'added', line: 'API_KEY=••••••••' },
+      ],
+    },
+    {
+      path: '.env.local',
+      policy: 'merge',
+      action: 'mode',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '600',
+      currentMode: '644',
+      fingerprint: 'local-1',
+      diff: [{ kind: 'same', line: 'PORT=8080' }],
+    },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      action: 'unchanged',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: '644',
+      fingerprint: 'example-1',
+      diff: [{ kind: 'same', line: 'PORT=3000' }],
+    },
+    {
+      path: '.env.seed',
+      policy: 'create-only',
+      action: 'skip',
+      reason: 'exists',
+      addedKeys: [],
+      prunedKeys: [],
+      mode: '644',
+      currentMode: '644',
+      fingerprint: 'seed-1',
+      diff: [],
+    },
+  ],
+};
+
 export const check: Check = {
   ok: false,
   drift: true,
   files: [],
   errors: [{ kind: 'value', key: 'API_URL', message: 'is not a URL' }],
+};
+
+/** A drift report with every kind of item check gives, for the check page. */
+export const driftCheck: Check = {
+  ok: false,
+  drift: true,
+  errors: [
+    { kind: 'value', key: 'LOG_LEVEL', message: 'must be one of debug, info' },
+  ],
+  files: [
+    {
+      path: '.env',
+      policy: 'merge',
+      status: 'missing-keys',
+      drift: true,
+      missingKeys: ['API_KEY'],
+      unknownKeys: ['EXTRA'],
+      invalid: [
+        { key: 'API_URL', message: 'is not a URL', shown: 'localhost:4000' },
+      ],
+      rules: [
+        {
+          rule: 'distinctFrom',
+          key: 'DB_PASSWORD',
+          others: ['API_KEY'],
+          message: 'must differ from API_KEY',
+        },
+      ],
+      invalidLines: [6],
+      protected: [
+        {
+          kind: 'protected',
+          key: 'DB_PASSWORD',
+          message: 'no longer matches the value the state recorded',
+          reason: 'The database was created with it.',
+        },
+      ],
+      mode: { actual: '644', expected: '600' },
+    },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      status: 'current',
+      drift: false,
+      missingKeys: [],
+      unknownKeys: [],
+      invalid: [],
+      rules: [],
+      invalidLines: [],
+      protected: [],
+    },
+    {
+      path: 'config/app.env',
+      policy: 'generate',
+      status: 'missing',
+      drift: true,
+      missingKeys: [],
+      unknownKeys: [],
+      invalid: [],
+      rules: [],
+      invalidLines: [],
+      protected: [],
+    },
+  ],
 };
 
 export const validate: Validate = {
@@ -276,6 +436,51 @@ export const validate: Validate = {
       exists: true,
       ok: false,
       errors: [{ key: 'API_URL', message: 'is not a URL' }],
+      warnings: [],
+    },
+  ],
+};
+
+/** A validate report with value, rule, protected and line errors. */
+export const validationReport: Validate = {
+  ok: false,
+  files: [
+    {
+      path: '.env',
+      template: false,
+      exists: true,
+      ok: false,
+      errors: [
+        { key: 'API_URL', message: 'is not a URL' },
+        {
+          key: 'DB_PASSWORD',
+          keys: ['DB_PASSWORD', 'API_KEY'],
+          message: 'must differ from API_KEY',
+        },
+        {
+          kind: 'protected',
+          key: 'DB_PASSWORD',
+          message: 'no longer matches the value the state recorded',
+          reason: 'The database was created with it.',
+        },
+        { line: 6, message: 'is not a valid entry' },
+      ],
+      warnings: [{ key: 'EXTRA', message: 'is not in the schema' }],
+    },
+    {
+      path: '.env.example',
+      template: true,
+      exists: true,
+      ok: true,
+      errors: [],
+      warnings: [],
+    },
+    {
+      path: 'config/app.env',
+      template: false,
+      exists: true,
+      ok: false,
+      errors: [{ key: 'PORT', message: 'must be a port between 1 and 65535' }],
       warnings: [],
     },
   ],

@@ -11,6 +11,7 @@ import { KeyRound } from 'lucide-react';
 import { type ReactNode, Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isUnauthorized, projectQuery } from '../lib/api';
+import { useProjectEvents } from '../lib/use-project-events';
 import { AppHeader } from './app-header';
 import { AppSidebar } from './app-sidebar';
 
@@ -30,6 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const [navUsed, setNavUsed] = useState(false);
   const project = useQuery(projectQuery);
+  useProjectEvents();
 
   if (isUnauthorized(project.error)) return <Unauthorized />;
 

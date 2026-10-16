@@ -42,6 +42,39 @@ describe('maskedLines', () => {
     expect(lines).toEqual(['KEY=••••wo', 'NAME=x']);
     expect(lines.join('\n')).not.toContain('line one');
   });
+
+  it('masks everything after the = of a secret on a line that does not parse or is commented out', () => {
+    const value = ['s3cr3t', 'value', 'zz'].join('-');
+    const lines = maskedLines(
+      schema,
+      [
+        `KEY="${value}`,
+        `KEY="${value}" trailing`,
+        `  export KEY = '${value}' more`,
+        `NAME="${value}" trailing`,
+        `# KEY=${value}`,
+        `# NAME=${value}`,
+        `## \t# KEY=${value}`,
+        '# a comment',
+      ].join('\n') + '\n',
+    );
+    expect(lines).toEqual([
+      'KEY=••••',
+      'KEY=••••',
+      '  export KEY =••••',
+      `NAME="${value}" trailing`,
+      '# KEY=••••',
+      `# NAME=${value}`,
+      '## \t# KEY=••••',
+      '# a comment',
+    ]);
+  });
+
+  it('masks a secret on a line that does not parse in a plan diff too', () => {
+    const value = ['s3cr3t', 'value', 'zz'].join('-');
+    const diff = fileDiff(schema, `KEY="${value}\n`, 'KEY=other\n');
+    expect(JSON.stringify(diff)).not.toContain(value);
+  });
 });
 
 describe('fileDiff', () => {

@@ -168,6 +168,53 @@ describe('POST /api/reveal', () => {
   });
 });
 
+describe('POST /api/files/content', () => {
+  const content = (body: object) =>
+    request(server.url)
+      .post('/api/files/content')
+      .set('Authorization', bearer)
+      .send(body);
+
+  it("gives a file's lines as it holds them, secrets masked", async () => {
+    const response = await content({ file: '.env' });
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain(DB_PASSWORD);
+    expect(response.body).toEqual({
+      file: '.env',
+      exists: true,
+      lines: [
+        'API_URL=not-a-url',
+        'PORT=8080',
+        'DB_PASSWORD=••••le',
+        'LOG_LEVEL=debug',
+        'EXTRA=1',
+        'this is not an entry',
+      ],
+    });
+  });
+
+  it('gives no lines for a file that does not exist', async () => {
+    const response = await content({ file: 'config/app.env' });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      file: 'config/app.env',
+      exists: false,
+      lines: [],
+    });
+  });
+
+  it('refuses a path that is not a schema file', async () => {
+    const response = await content({ file: '../etc/passwd' });
+    expect(response.status).toBe(404);
+    expect(response.text).not.toContain('root:');
+  });
+
+  it('validates the body', async () => {
+    expect((await content({})).status).toBe(400);
+    expect((await content({ file: '.env', extra: true })).status).toBe(400);
+  });
+});
+
 describe('GET /api/check', () => {
   it('reports drift with secrets masked', async () => {
     const response = await get('/api/check');

@@ -121,6 +121,66 @@
         "tags": ["project"]
       }
     },
+    "/api/files/content": {
+      "post": {
+        "operationId": "readFileContent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileContentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileContent"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The file path is refused: it leaves the root.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a schema file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "One schema file's lines as it holds them; secrets masked",
+        "tags": ["project"]
+      }
+    },
     "/api/reveal": {
       "post": {
         "operationId": "revealValue",
@@ -1327,6 +1387,38 @@
           }
         },
         "required": ["statusCode", "message", "kind", "errors"],
+        "additionalProperties": false
+      },
+      "FileContent": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lines as the file holds them, each secret value masked; empty when it does not exist."
+          }
+        },
+        "required": ["file", "exists", "lines"],
+        "additionalProperties": false
+      },
+      "FileContentRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schema file path."
+          }
+        },
+        "required": ["file"],
         "additionalProperties": false
       },
       "FileDrift": {
