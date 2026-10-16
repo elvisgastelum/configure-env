@@ -6,9 +6,10 @@ import {
 } from '@configure-env/design-system/components/atoms/sheet';
 import { useTranslation } from 'react-i18next';
 import { SidebarNav } from './sidebar-nav';
+import { LanguageToggle } from './language-toggle';
 import { ThemeToggle } from './theme-toggle';
 
-/** The sidebar's links and the theme in a sheet, for small screens. */
+/** The sidebar's links, the language and the theme in a sheet, for small screens. */
 export default function MobileNav({
   open,
   onOpenChange,
@@ -27,7 +28,10 @@ export default function MobileNav({
           indicatorId="sheet-nav"
           onNavigate={() => onOpenChange(false)}
         />
-        <ThemeToggle className="mt-auto self-start" />
+        <div className="mt-auto flex flex-wrap items-center gap-2">
+          <LanguageToggle />
+          <ThemeToggle />
+        </div>
       </SheetContent>
     </Sheet>
   );

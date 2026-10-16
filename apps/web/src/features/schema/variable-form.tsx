@@ -71,8 +71,8 @@ export function VariableFormBody({
 }) {
   const { t } = useTranslation();
   const schema = useMemo(
-    () => variableFormSchema(document, original),
-    [document, original],
+    () => variableFormSchema(document, original, t),
+    [document, original, t],
   );
   const form: VariableForm = useForm<VariableFormValues, unknown, SchemaEdit>({
     resolver: zodResolver(schema),

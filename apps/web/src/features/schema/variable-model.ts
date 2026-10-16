@@ -20,6 +20,7 @@ import {
   variableSpec,
 } from '@configure-env/core/schema';
 import type { SchemaError } from '@configure-env/api-client';
+import type { TFunction } from 'i18next';
 import type { UseFormReturn } from 'react-hook-form';
 import { z } from 'zod';
 import { type SchemaEdit, previewEdit } from './edits';
@@ -334,7 +335,7 @@ export function fieldForPath(
 }
 
 /** A field's text that should be a number, or an integer, and is not. */
-function numberProblems(values: VariableFormValues) {
+function numberProblems(t: TFunction, values: VariableFormValues) {
   const problems: [VariableField, string][] = [];
   const takes = new Set(typeFields(values.type));
   // Lengths and byte counts are counts; an integer's bounds may be signed.
@@ -351,7 +352,7 @@ function numberProblems(values: VariableFormValues) {
       values[field] !== '' &&
       !pattern.test(String(values[field]).trim())
     )
-      problems.push([field, 'must be a whole number']);
+      problems.push([field, t('schemaEditor.variableForm.wholeNumber')]);
   for (const field of ['min', 'max'] as const)
     if (
       takes.has(field) &&
@@ -359,17 +360,19 @@ function numberProblems(values: VariableFormValues) {
       values[field] !== '' &&
       !NUMBER.test(values[field].trim())
     )
-      problems.push([field, 'must be a number']);
+      problems.push([field, t('schemaEditor.variableForm.number')]);
   return problems;
 }
 
 /**
  * The form's schema: the name, the numbers, then the edit itself against
  * the document, with each core error on its field. Its output is the edit.
+ * The form's own messages are in `t`'s language; the core's are as it says them.
  */
 export function variableFormSchema(
   document: SchemaDocument,
   original: string | undefined,
+  t: TFunction,
 ) {
   return z
     .custom<VariableFormValues>()
@@ -380,11 +383,8 @@ export function variableFormSchema(
         ctx.addIssue({ code: 'custom', path: [field], message });
       };
       if (!VARIABLE_NAME.test(values.name))
-        fail(
-          'name',
-          'must start with a letter or underscore and hold only letters, digits and underscores',
-        );
-      for (const [field, message] of numberProblems(values))
+        fail('name', t('schemaEditor.variableForm.nameInvalid'));
+      for (const [field, message] of numberProblems(t, values))
         fail(field, message);
       // A name or number the form already refuses would only add noise.
       if (failed) return;

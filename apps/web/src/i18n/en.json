@@ -42,7 +42,8 @@
     "actions": "Actions",
     "runCheck": "Run check",
     "runValidate": "Run validate",
-    "theme": "Switch to the {{theme}} theme"
+    "theme": "Switch to the {{theme}} theme",
+    "language": "Switch to {{language}}"
   },
   "placeholder": {
     "soon": "Coming soon",
@@ -60,6 +61,11 @@
     "system": "System",
     "light": "Light",
     "dark": "Dark"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "es": "Español"
   },
   "launch": {
     "unauthorized": {
@@ -482,7 +488,10 @@
       "errors": "The schema refuses this edit:",
       "cancel": "Cancel",
       "review": "Review changes",
-      "close": "Close"
+      "close": "Close",
+      "nameInvalid": "must start with a letter or underscore and hold only letters, digits and underscores",
+      "wholeNumber": "must be a whole number",
+      "number": "must be a number"
     },
     "typeOptions": {
       "legend": "{{type}} options",

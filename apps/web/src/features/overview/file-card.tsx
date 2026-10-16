@@ -49,11 +49,14 @@ export function FileCard({
     >
       <Card className={cn('relative isolate h-full px-4', INTERACTIVE_CARD)}>
         <CardSpotlight />
-        <motion.div layout="position" className="flex items-start gap-3">
+        <motion.div
+          layout="position"
+          className="flex flex-wrap items-start gap-3"
+        >
           <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
             <FileText aria-hidden="true" className="size-4" />
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-40">
             <h3 id={titleId} className="truncate font-mono text-sm font-medium">
               {file.path}
             </h3>
@@ -118,33 +121,37 @@ export function FileCard({
               )}
             </dl>
           </div>
-          {onOpen && (
+          {/* Wrapped below the name when the card is too narrow for both,
+              so neither a long label nor a narrow card hides the name. */}
+          <div className="ml-auto flex shrink-0 items-start gap-1">
+            {onOpen && (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={t('overview.files.openLabel', { path: file.path })}
+                onClick={onOpen}
+              >
+                {t('overview.files.open')}
+              </Button>
+            )}
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              aria-label={t('overview.files.openLabel', { path: file.path })}
-              onClick={onOpen}
+              aria-expanded={open}
+              aria-controls={panelId}
+              onClick={() => setOpen((value) => !value)}
             >
-              {t('overview.files.open')}
+              {t('overview.files.details')}
+              <ChevronDown
+                aria-hidden="true"
+                data-icon="inline-end"
+                className={cn(
+                  'transition-transform duration-200',
+                  open && 'rotate-180',
+                )}
+              />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-expanded={open}
-            aria-controls={panelId}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {t('overview.files.details')}
-            <ChevronDown
-              aria-hidden="true"
-              data-icon="inline-end"
-              className={cn(
-                'transition-transform duration-200',
-                open && 'rotate-180',
-              )}
-            />
-          </Button>
+          </div>
         </motion.div>
 
         <AnimatePresence initial={false}>

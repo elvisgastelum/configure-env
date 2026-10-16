@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
   FileText,
+  Languages,
   Palette,
   ScanSearch,
   ShieldCheck,
@@ -26,12 +27,14 @@ import {
   validateQuery,
   variablesQuery,
 } from '../lib/api';
+import { LANGUAGES, currentLanguage, setLanguage } from '../i18n';
 import { NAV_ITEMS } from '../lib/nav';
 
 /**
  * The ⌘K palette: every page, every variable and env file of the schema,
- * and the actions (run check or validate, switch the theme). The shell
- * owns its open state, so the header's search button opens it too.
+ * and the actions (run check or validate, switch the theme or the
+ * language). The shell owns its open state, so the header's search button
+ * opens it too.
  */
 export default function CommandMenu({
   open,
@@ -40,7 +43,7 @@ export default function CommandMenu({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: schema } = useQuery(schemaQuery);
@@ -148,6 +151,23 @@ export default function CommandMenu({
                 onSelect={run(() => setThemePreference(preference))}
               >
                 <Palette aria-hidden="true" />
+                {label}
+              </CommandItem>
+            );
+          })}
+          {LANGUAGES.filter(
+            (language) => language !== currentLanguage(i18n),
+          ).map((language) => {
+            const label = t('palette.language', {
+              language: t(`language.${language}`),
+            });
+            return (
+              <CommandItem
+                key={language}
+                value={`action ${label}`}
+                onSelect={run(() => void setLanguage(i18n, language))}
+              >
+                <Languages aria-hidden="true" />
                 {label}
               </CommandItem>
             );
