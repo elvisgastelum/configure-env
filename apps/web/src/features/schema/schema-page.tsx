@@ -19,6 +19,7 @@ import { FileList } from './file-list';
 import { type Removal, RemoveDialog } from './remove-dialog';
 import { type ReviewRequest, ReviewDialog } from './review-dialog';
 import { VariableList } from './variable-list';
+import { type VariableTarget, VariableSheet } from './variable-sheet';
 
 /** env.schema.json: its variables and files, to add, change and remove. */
 export function SchemaPage() {
@@ -65,6 +66,7 @@ function SchemaEditor({ schema }: { schema: Schema }) {
   const { t } = useTranslation();
   const document = validDocument(schema) as SchemaDocument;
   const [removal, setRemoval] = useState<Removal>();
+  const [variable, setVariable] = useState<VariableTarget>();
   const [review, setReview] = useState<ReviewRequest>();
   const reviews = useRef(0);
   const requestReview = (
@@ -89,6 +91,8 @@ function SchemaEditor({ schema }: { schema: Schema }) {
         <TabsContent value="variables">
           <VariableList
             document={document}
+            onAdd={() => setVariable({})}
+            onEdit={(name) => setVariable({ name })}
             onRemove={(name) => setRemoval({ kind: 'variable', name })}
             onReorder={(order) =>
               requestReview({ kind: 'reorderVariables', order })
@@ -102,6 +106,12 @@ function SchemaEditor({ schema }: { schema: Schema }) {
           />
         </TabsContent>
       </Tabs>
+      <VariableSheet
+        target={variable}
+        document={document}
+        onClose={() => setVariable(undefined)}
+        onReview={requestReview}
+      />
       <RemoveDialog
         removal={removal}
         document={document}
