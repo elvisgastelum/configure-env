@@ -4,10 +4,10 @@
 // The private workspace packages are inlined: @configure-env/core, and
 // @configure-env/api, which `serve` imports dynamically, so it lands in its
 // own chunk that no other command loads. The published dependencies (zod,
-// @clack/prompts, better-sqlite3 with its native binding, drizzle-orm, and
-// the API's NestJS runtime) stay imports. The core's migrations are copied
-// to dist/migrations by scripts/copy-migrations.mjs, the portal to dist/web
-// by scripts/copy-web.mjs.
+// @clack/prompts, better-sqlite3 with its native binding, drizzle-orm, the
+// API's NestJS runtime and launch-editor) stay imports. The core's migrations
+// are copied to dist/migrations by scripts/copy-migrations.mjs, the portal to
+// dist/web by scripts/copy-web.mjs.
 //
 // The API's Nest decorators are TypeScript's legacy ones:
 // tsconfig.json's experimentalDecorators turns them on for the bundle.
@@ -38,6 +38,7 @@ export default defineConfig({
       '@nestjs/swagger',
       'reflect-metadata',
       'rxjs',
+      'launch-editor',
     ],
   },
 });
