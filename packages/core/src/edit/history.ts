@@ -217,13 +217,21 @@ export interface Undone {
 }
 
 /** The salt the history's fingerprints were made with. */
-async function saltOf(statePath: string): Promise<string> {
-  const loaded = await loadState(statePath);
-  if (!loaded.ok) throw new Error(loaded.message);
-  return loaded.state.salt;
+async function saltOf(
+  statePath: string,
+): Promise<{ ok: true; salt: string } | { ok: false; message: string }> {
+  try {
+    const loaded = await loadState(statePath);
+    return loaded.ok ? { ok: true, salt: loaded.state.salt } : loaded;
+  } catch (error) {
+    return { ok: false, message: (error as Error).message };
+  }
 }
 
-/** Records the undo and reads its row back. */
+/**
+ * Records the undo and reads its row back. The file is written by then: a
+ * history that fails now is a warning, never a failure of the undo.
+ */
 async function finish(
   context: UndoContext,
   undone: ChangeRecord,
@@ -236,13 +244,21 @@ async function finish(
     changes,
   );
   const [id] = recorded.ids;
-  const change =
-    id === undefined ? undefined : await readChange(context.statePath, id);
+  const warnings = [...recorded.warnings];
+  let change: ChangeRecord | undefined;
+  if (id !== undefined)
+    try {
+      change = await readChange(context.statePath, id);
+    } catch (error) {
+      warnings.push(
+        `the undo was written, but its change could not be read back: ${(error as Error).message}`,
+      );
+    }
   return {
     ok: true,
     undone,
     ...(change ? { change } : {}),
-    warnings: recorded.warnings,
+    warnings,
     ...(stateError ? { stateError } : {}),
   };
 }
@@ -283,7 +299,17 @@ async function undoValue(
     return { ok: false, kind: 'write', message: read.message, change };
   const { file } = read;
   const current = getValue(file.doc, change.key);
-  const salt = await saltOf(context.statePath);
+  // Read before anything is written: a state that fails refuses the undo.
+  const salted = await saltOf(context.statePath);
+  if (!salted.ok)
+    return {
+      ok: false,
+      kind: 'state',
+      path: context.statePath,
+      lines: [salted.message],
+      change,
+    };
+  const { salt } = salted;
   const still =
     change.afterFingerprint === null
       ? current === undefined
