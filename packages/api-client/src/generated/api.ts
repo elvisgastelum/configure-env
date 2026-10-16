@@ -627,6 +627,67 @@ export interface InvalidSchema {
   errors: SchemaError[];
 }
 
+/**
+ * When not opened: no-editor: none is set or running; failed: the editor command failed.
+ */
+export type OpenInEditorReason =
+  (typeof OpenInEditorReason)[keyof typeof OpenInEditorReason];
+
+export const OpenInEditorReason = {
+  'no-editor': 'no-editor',
+  failed: 'failed',
+} as const;
+
+export interface OpenInEditor {
+  /** Whether the editor was started. */
+  opened: boolean;
+  /** When not opened: no-editor: none is set or running; failed: the editor command failed. */
+  reason?: OpenInEditorReason;
+  /** When not opened: what to tell the user. */
+  message?: string;
+  file: string;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  line: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  column: number;
+}
+
+export interface OpenInEditorRequest {
+  /**
+   * The schema file or one of its env files, relative to the root.
+   * @minLength 1
+   */
+  file: string;
+  /**
+   * The 1-based line; it wins over `key` and `path`.
+   * @minimum 1
+   * @maximum 9007199254740991
+   */
+  line?: number;
+  /**
+   * The 1-based column; 1 by default.
+   * @minimum 1
+   * @maximum 9007199254740991
+   */
+  column?: number;
+  /**
+   * A variable: its entry in an env file (the last one when it repeats), its definition in the schema file. The top of the file when it is not there.
+   * @minLength 1
+   */
+  key?: string;
+  /**
+   * The schema file only: a JSON path as the schema errors give it, like `files[1].variables[0]`; the deepest part the file holds.
+   * @minLength 1
+   */
+  path?: string;
+}
+
 export interface ProtectedRefusal {
   file: string;
   key: string;
@@ -5645,4 +5706,158 @@ export const useUndoChange = <
   TContext
 > => {
   return useMutation(getUndoChangeMutationOptions(options), queryClient);
+};
+
+export type openInEditorResponse200 = {
+  data: OpenInEditor;
+  status: 200;
+};
+
+export type openInEditorResponse403 = {
+  data: ApiError;
+  status: 403;
+};
+
+export type openInEditorResponse404 = {
+  data: ApiError;
+  status: 404;
+};
+
+export type openInEditorResponse422 = {
+  data: ApiError;
+  status: 422;
+};
+
+export type openInEditorResponseSuccess = openInEditorResponse200 & {
+  headers: Headers;
+};
+export type openInEditorResponseError = (
+  openInEditorResponse403 | openInEditorResponse404 | openInEditorResponse422
+) & {
+  headers: Headers;
+};
+
+export type openInEditorResponse =
+  openInEditorResponseSuccess | openInEditorResponseError;
+
+export const getOpenInEditorUrl = () => {
+  return `/api/open-in-editor`;
+};
+
+/**
+ * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, $VISUAL, $EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE). Only from this machine
+ */
+export const openInEditor = async (
+  openInEditorRequest: OpenInEditorRequest,
+  options?: RequestInit,
+): Promise<openInEditorResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getOpenInEditorUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(openInEditorRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: openInEditorResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as openInEditorResponse;
+};
+
+export const getOpenInEditorMutationKey = () => ['openInEditor'] as const;
+
+export const getOpenInEditorMutationOptions = <
+  TError = ApiError,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openInEditor>>,
+    TError,
+    OpenInEditorMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof openInEditor>>,
+  TError,
+  OpenInEditorMutationVariables,
+  TContext
+> => {
+  const mutationKey = getOpenInEditorMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openInEditor>>,
+    OpenInEditorMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return openInEditor(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpenInEditorMutationResult = NonNullable<
+  Awaited<ReturnType<typeof openInEditor>>
+>;
+export type OpenInEditorMutationBody = OpenInEditorRequest;
+export type OpenInEditorMutationError = ApiError;
+export type OpenInEditorMutationVariables = { data: OpenInEditorRequest };
+
+/**
+ * @summary Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, $VISUAL, $EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE). Only from this machine
+ */
+export const useOpenInEditor = <TError = ApiError, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof openInEditor>>,
+      TError,
+      OpenInEditorMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof openInEditor>>,
+  TError,
+  OpenInEditorMutationVariables,
+  TContext
+> => {
+  return useMutation(getOpenInEditorMutationOptions(options), queryClient);
 };

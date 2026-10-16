@@ -222,6 +222,35 @@ export function getValue(doc: DotenvDocument, key: string): string | undefined {
   return entriesOf(doc, key).at(-1)?.value;
 }
 
+/** A 1-based line and column in a file. */
+export interface TextPosition {
+  line: number;
+  column: number;
+}
+
+const ENTRY_PREFIX = /^\s*(?:export[ \t]+)?/;
+
+/**
+ * Where `key` is set: the 1-based physical line and column of the key in its
+ * last entry, the one getValue reads; undefined when the file does not set it.
+ */
+export function entryPosition(
+  doc: DotenvDocument,
+  key: string,
+): TextPosition | undefined {
+  let found: TextPosition | undefined;
+  let number = 1;
+  for (const line of doc.lines) {
+    if (line.kind === 'entry' && line.key === key)
+      found = {
+        line: number,
+        column: ENTRY_PREFIX.exec(line.raw)![0].length + 1,
+      };
+    number += line.raw.split('\n').length;
+  }
+  return found;
+}
+
 /** The keys of the document's entries, each once, in first-seen order. */
 export function keysOf(doc: DotenvDocument): string[] {
   return [

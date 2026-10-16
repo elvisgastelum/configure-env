@@ -76,6 +76,7 @@
     "@nestjs/swagger": "12.0.2",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.4",
+    "launch-editor": "2.14.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "^4.6.5"
