@@ -212,8 +212,8 @@ importers:
         specifier: 12.0.2
         version: 12.0.2(@nestjs/common@12.1.2(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.1.2)(reflect-metadata@0.2.2)(typescript@6.0.3)
       launch-editor:
-        specifier: 2.14.1
-        version: 2.14.1
+        specifier: 2.14.2
+        version: 2.14.2
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
@@ -427,8 +427,8 @@ importers:
         specifier: ^0.45.4
         version: 0.45.4(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
       launch-editor:
-        specifier: 2.14.1
-        version: 2.14.1
+        specifier: 2.14.2
+        version: 2.14.2
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
@@ -4258,9 +4258,6 @@ packages:
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
-
-  launch-editor@2.14.1:
-    resolution: {integrity: sha512-QWBrQsMpH7gPr965dsKD/3cKWiNoTjpATQf++Xq63N6sKRGMwlVXz41O1IZTMfZQgBctD/K5Zt06+/I6pP6+HA==}
 
   launch-editor@2.14.2:
     resolution: {integrity: sha512-NHJEb30MGBCkmZXLZwz25t37QR4aY03ZzPYUJXOJaOa92uWwExI9SBQUuIznBYc1xkD7cJNGX7oc3Nl3sq2kQQ==}
@@ -9098,11 +9095,6 @@ snapshots:
   kleur@3.0.3: {}
 
   kleur@4.1.5: {}
-
-  launch-editor@2.14.1:
-    dependencies:
-      picocolors: 1.1.1
-      shell-quote: 1.12.0
 
   launch-editor@2.14.2:
     dependencies:
