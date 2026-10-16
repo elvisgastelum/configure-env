@@ -1,6 +1,6 @@
 // The refusals the writer's edits share; internal to the writer.
 
-import { formatIssuePath } from '../schema/load.ts';
+import { formatIssuePath } from '../schema/parse.ts';
 import type { SchemaEditResult } from './document.ts';
 
 /** An edit refused with one error at `path`. */

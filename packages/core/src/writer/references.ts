@@ -3,7 +3,7 @@
 // these first; renaming one rewrites them.
 
 import { RULE_FIELDS, type RuleField } from '../schema/definition.ts';
-import { formatIssuePath } from '../schema/load.ts';
+import { formatIssuePath } from '../schema/parse.ts';
 import type { SchemaDocument } from './document.ts';
 
 /** One place that names a variable. */
