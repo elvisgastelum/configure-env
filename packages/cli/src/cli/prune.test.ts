@@ -3,6 +3,7 @@
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readChanges } from '@configure-env/core';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import {
   STATE,
@@ -227,6 +228,8 @@ describe('apply --prune', () => {
 
 describe('apply --prune and an unusable state', () => {
   const KEPT = 'fingerprints of pruned keys were kept';
+  const NOT_RECORDED = (reason: string) =>
+    `the history was not recorded: ${STATE}: ${reason}`;
   const UNREAD = `${STATE}: cannot be read (is not a valid state database); fingerprints of pruned keys, if any, were kept`;
   const CORRUPT = 'not a SQLite database, but long enough to be read as one';
   const corrupt = async () => {
@@ -240,10 +243,14 @@ describe('apply --prune and an unusable state', () => {
     await useSchema(without('API_TOKEN', 'DEBUG'));
     const warning = UNREAD;
     const r = await cli(['apply', '--ci', '--prune', '--file', '.env']);
+    const history = NOT_RECORDED('is not a valid state database');
     expect(r).toMatchObject({
       code: 0,
       out: ['.env: pruned keys: API_TOKEN, DEBUG'],
-      err: [`configure-env: warning: ${warning}`],
+      err: [
+        `configure-env: warning: ${warning}`,
+        `configure-env: warning: ${history}`,
+      ],
     });
     expect(await read('.env')).toBe('# HTTP port\nPORT=3000\nLEVEL=info\n');
     const document = json(
@@ -256,7 +263,7 @@ describe('apply --prune and an unusable state', () => {
         '.env.example',
       ]),
     );
-    expect(document).toMatchObject({ ok: true, warnings: [warning] });
+    expect(document).toMatchObject({ ok: true, warnings: [warning, history] });
     expect(await read(STATE)).toBe(CORRUPT);
   });
 
@@ -349,13 +356,18 @@ describe('apply --prune and an unusable state', () => {
     expect(await read('.env')).toBe(before);
   });
 
-  it('creates no state when there is none to forget', async () => {
+  it('records no fingerprint when there is none to forget, only the history', async () => {
     await useSchema(without('API_TOKEN'));
     await cli(['apply', '--ci']);
     await useSchema(without('API_TOKEN', 'DEBUG'));
     const r = await cli(['apply', '--ci', '--prune']);
     expect(r).toMatchObject({ code: 0, err: [] });
-    await expect(stat(path('.configure-env'))).rejects.toThrow();
+    expect(await fingerprints()).toEqual({});
+    expect((await readChanges(path(STATE))).at(-1)).toMatchObject({
+      actor: 'cli',
+      key: 'DEBUG',
+      operation: 'unset',
+    });
     // A run without a warning has no warnings field.
     expect(
       json(await cli(['apply', '--ci', '--json', '--prune'])),
@@ -372,6 +384,7 @@ describe('apply --prune and an unusable state', () => {
       out: ['.env: pruned keys: API_TOKEN'],
       err: [
         `configure-env: warning: ${STATE}: not written (in use by another run; try again); ${KEPT}`,
+        `configure-env: warning: ${NOT_RECORDED('in use by another run; try again')}`,
       ],
     });
     expect(await read('.env')).not.toContain('API_TOKEN');

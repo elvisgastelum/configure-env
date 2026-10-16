@@ -22,6 +22,7 @@ export * from './edit/file.ts';
 export * from './edit/protect.ts';
 export * from './edit/edit.ts';
 export * from './edit/generate.ts';
+export * from './edit/history.ts';
 export * from './writer/document.ts';
 export * from './writer/format.ts';
 export * from './writer/store.ts';

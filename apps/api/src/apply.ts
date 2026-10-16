@@ -7,26 +7,22 @@
 
 import { createHash } from 'node:crypto';
 import {
-  type ApplyResult,
-  type ChangeInput,
   type EnvSchema,
   type FilePlan,
   type Plan,
   type ProtectedCheck,
-  type Replaced,
   type RunFile,
   type RunState,
-  UNKNOWN_SPEC,
+  appliedChanges,
   applyPlan,
   checksOf,
   formatMode,
   getValue,
-  keysOf,
   loadState,
   parseDotenv,
   planChanges,
   protectsAny,
-  recordChanges,
+  recordHistory,
   verdictsOf,
   writeProtected,
 } from '@configure-env/core';
@@ -199,43 +195,6 @@ export async function planProject(
   return (await plan(read, project, inputs)).view;
 }
 
-/** The keys a written file changed, for the history. */
-function changesOf(
-  schema: EnvSchema,
-  plan: Plan,
-  results: readonly ApplyResult[],
-  replaced: readonly Replaced[],
-): ChangeInput[] {
-  const changes: ChangeInput[] = [];
-  plan.files.forEach((file, index) => {
-    if (!results[index]?.written) return;
-    const before = parseDotenv(file.previous ?? '');
-    const after = parseDotenv(file.content ?? '');
-    const keys = new Set([...keysOf(before), ...keysOf(after)]);
-    for (const key of keys) {
-      const was = getValue(before, key);
-      const now = getValue(after, key);
-      if (was === now) continue;
-      const replacedKey = replaced.some(
-        (entry) => entry.file === file.path && entry.key === key,
-      );
-      changes.push({
-        file: file.path,
-        key,
-        operation: replacedKey
-          ? 'replace'
-          : now === undefined
-            ? 'unset'
-            : 'set',
-        spec: schema.variables[key] ?? UNKNOWN_SPEC,
-        before: was,
-        after: now,
-      });
-    }
-  });
-  return changes;
-}
-
 /** POST /api/apply: the plan shown, written, or why not. */
 export async function applyProject(
   read: ReadSchema,
@@ -310,15 +269,12 @@ export async function applyProject(
     ...(guarded.warning ? [guarded.warning] : []),
     ...(guarded.stateError ?? []),
   ];
-  try {
-    await recordChanges(
-      project.statePath,
-      'portal',
-      changesOf(schema, toWrite, results, guarded.replaced),
-    );
-  } catch (error) {
-    warnings.push(`the history was not recorded: ${(error as Error).message}`);
-  }
+  const history = await recordHistory(
+    project.statePath,
+    'portal',
+    appliedChanges(schema, toWrite, results, guarded.replaced),
+  );
+  warnings.push(...history.warnings);
   return {
     ok: results.every((result) => result.ok),
     files: results.map(({ path, action, ok, written, error }) => ({

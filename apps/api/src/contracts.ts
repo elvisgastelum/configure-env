@@ -72,6 +72,14 @@ export const schemaResponse = named(
       description:
         'Identifies the bytes read; a schema edit names it. Absent when the file cannot be read.',
     }),
+    change: z.int().optional().meta({
+      description:
+        'After a write: the id of the change it recorded in the history, which POST /api/history/{id}/undo takes.',
+    }),
+    warnings: z.array(z.string()).optional().meta({
+      description:
+        'After a write: what went wrong once the file was written, such as the history not recorded.',
+    }),
   }),
 );
 
@@ -389,6 +397,10 @@ export const valuesResponse = named(
     generated: z
       .array(z.string())
       .meta({ description: 'The keys set to a generated value.' }),
+    changes: z.array(z.int()).meta({
+      description:
+        'The ids of the changes recorded in the history, one per changed key, which POST /api/history/{id}/undo takes; empty when the history was not recorded.',
+    }),
     warnings: z.array(z.string()).meta({
       description:
         'What went wrong after the file was written: the protected state or the history not recorded.',
@@ -674,5 +686,139 @@ export const staleSchemaResponse = named(
     statusCode: z.literal(409),
     message: z.string(),
     schema: schemaResponse.meta({ description: 'The schema as it is now.' }),
+  }),
+);
+
+const CHANGE_ACTORS = ['cli', 'portal'] as const;
+const CHANGE_OPERATIONS = ['set', 'unset', 'replace', 'schema'] as const;
+
+export const historyChange = named(
+  'Change',
+  z.object({
+    id: z.int(),
+    actor: z.enum(CHANGE_ACTORS),
+    file: z.string().meta({
+      description:
+        'The env file, or the schema file for a `schema` change, relative to the root.',
+    }),
+    key: z
+      .string()
+      .meta({ description: 'The variable; empty for a `schema` change.' }),
+    operation: z.enum(CHANGE_OPERATIONS).meta({
+      description:
+        'set, unset, replace (a protected value replaced), or schema (the schema file written).',
+    }),
+    at: z.string().meta({ description: 'When, as an ISO timestamp.' }),
+    secret: z.boolean().meta({
+      description:
+        'The variable is secret: its previews are masked and its values never stored.',
+    }),
+    beforePreview: z.string().nullable().meta({
+      description:
+        'The value before, cut short or masked for a secret; for the schema, how many variables and files it had. Null when there was none.',
+    }),
+    afterPreview: z.string().nullable(),
+    beforeValue: z.string().nullable().meta({
+      description:
+        'The value before, or the schema text before; null for a secret, or when there was none.',
+    }),
+    afterValue: z.string().nullable(),
+    restorable: z.boolean().meta({
+      description: 'Whether POST /api/history/{id}/undo can undo it.',
+    }),
+    undoBlocker: z.string().optional().meta({
+      description:
+        "Why the change can't be undone, such as a secret's value never being stored; absent when it can.",
+    }),
+    undoOf: z
+      .int()
+      .nullable()
+      .meta({ description: 'The change this one undid; null for an edit.' }),
+  }),
+);
+
+export const historyQuery = z.object({
+  file: z.string().min(1).optional(),
+  key: z.string().optional().meta({
+    description: 'A variable; empty for the schema changes.',
+  }),
+  actor: z.enum(CHANGE_ACTORS).optional(),
+  from: z.iso
+    .date()
+    .or(z.iso.datetime({ offset: true }))
+    .optional()
+    .meta({ description: 'From this date (YYYY-MM-DD, UTC) or timestamp.' }),
+  to: z.iso
+    .date()
+    .or(z.iso.datetime({ offset: true }))
+    .optional()
+    .meta({
+      description:
+        'Up to this date (its whole UTC day) or timestamp, included.',
+    }),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+export const historyResponse = named(
+  'History',
+  z.object({
+    changes: z.array(historyChange).meta({ description: 'Newest first.' }),
+    total: z.int().meta({ description: 'How many changes match the filter.' }),
+    page: z.int(),
+    limit: z.int(),
+  }),
+);
+
+export const undoResponse = named(
+  'Undone',
+  z.object({
+    undone: historyChange.meta({ description: 'The change undone.' }),
+    change: historyChange.optional().meta({
+      description:
+        'The change the undo recorded; absent when the history could not be written.',
+    }),
+    file: fileInfo.optional().meta({
+      description: 'For a change to a value: the env file as it is now.',
+    }),
+    schema: schemaResponse.optional().meta({
+      description: 'For a schema change: the schema as it is now.',
+    }),
+    warnings: z.array(z.string()).meta({
+      description:
+        'What went wrong after the file was written: the protected state or the history not recorded.',
+    }),
+  }),
+);
+
+export const undoConflictResponse = named(
+  'UndoConflict',
+  z.object({
+    statusCode: z.literal(409),
+    message: z.string().meta({
+      description:
+        'Why it was not undone: the file no longer holds what the change wrote (its fingerprint differs).',
+    }),
+    change: historyChange,
+    file: fileInfo
+      .optional()
+      .meta({ description: 'For a change to a value: the file as it is now.' }),
+    schema: schemaResponse
+      .optional()
+      .meta({ description: 'For a schema change: the schema as it is now.' }),
+  }),
+);
+
+export const undoRefusedResponse = named(
+  'UndoRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    kind: z.enum(['not-restorable', 'invalid', 'protected']).meta({
+      description:
+        "not-restorable: the change can't be undone (a secret's value is never stored); invalid: the previous value breaks the rules now; protected: it would change a protected value.",
+    }),
+    errors: z.array(editProblem),
+    change: historyChange,
   }),
 );

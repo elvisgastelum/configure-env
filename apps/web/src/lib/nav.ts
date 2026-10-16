@@ -1,6 +1,7 @@
 import {
   Braces,
   FileText,
+  History,
   Layers,
   LayoutDashboard,
   type LucideIcon,
@@ -16,7 +17,8 @@ export type PageKey =
   | 'files'
   | 'schema'
   | 'check'
-  | 'validate';
+  | 'validate'
+  | 'history';
 
 export interface NavItem {
   key: PageKey;
@@ -27,7 +29,8 @@ export interface NavItem {
     | '/files'
     | '/schema'
     | '/check'
-    | '/validate';
+    | '/validate'
+    | '/history';
   icon: LucideIcon;
 }
 
@@ -40,4 +43,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'schema', to: '/schema', icon: Braces },
   { key: 'check', to: '/check', icon: ScanSearch },
   { key: 'validate', to: '/validate', icon: ShieldCheck },
+  { key: 'history', to: '/history', icon: History },
 ];

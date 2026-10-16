@@ -4,6 +4,7 @@
 
 import type {
   Applied,
+  Change,
   Check,
   EditProblem,
   FileDrift,
@@ -34,6 +35,8 @@ export interface MockState {
   secrets: Map<string, string>;
   /** How many writes changed a file, for its next fingerprint. */
   writes: number;
+  /** The history of edits, newest first. */
+  history: Change[];
 }
 
 const fresh = (): MockState => ({
@@ -44,6 +47,7 @@ const fresh = (): MockState => ({
   lines: new Map(Object.entries(structuredClone(fixtures.fileLines))),
   secrets: new Map(),
   writes: 0,
+  history: structuredClone(fixtures.history),
 });
 
 export const mockState: MockState = fresh();
@@ -502,4 +506,195 @@ export function validateOf(): Validate {
     };
   });
   return { ok: files.every((file) => file.ok), files };
+}
+
+// ---------------------------------------------------------------- history
+
+/** Records a change as the API does, newest first; its id. */
+function recordChange(change: Omit<Change, 'id' | 'at'>): number {
+  const id = Math.max(0, ...mockState.history.map((entry) => entry.id)) + 1;
+  mockState.history.unshift({ ...change, id, at: new Date().toISOString() });
+  return id;
+}
+
+const MASKED_PREVIEW = '••••';
+
+/**
+ * Records a value write of `key` in `file`: the value before and after
+ * (undefined when unset), never a secret's.
+ */
+export function recordValueChange(
+  file: string,
+  key: string,
+  before: string | null,
+  after: string | null,
+  {
+    replaced = false,
+    undoOf = null,
+  }: { replaced?: boolean; undoOf?: number | null } = {},
+): number | undefined {
+  if (before === after) return undefined;
+  const secret = findVariable(key)?.spec.secret ?? false;
+  const preview = (value: string | null) =>
+    value === null ? null : secret ? MASKED_PREVIEW : value;
+  return recordChange({
+    actor: 'portal',
+    file,
+    key,
+    operation: replaced ? 'replace' : after === null ? 'unset' : 'set',
+    secret,
+    beforePreview: preview(before),
+    afterPreview: preview(after),
+    beforeValue: secret ? null : before,
+    afterValue: secret ? null : after,
+    restorable: !secret,
+    ...(secret ? { undoBlocker: fixtures.SECRET_UNDO_REASON } : {}),
+    undoOf,
+  });
+}
+
+/** How the history previews a schema: its variable and file counts. */
+function schemaPreview(text: string): string {
+  const document = JSON.parse(text) as {
+    variables?: Record<string, unknown>;
+    files?: unknown[];
+  };
+  const count = (n: number, word: string) =>
+    `${n} ${word}${n === 1 ? '' : 's'}`;
+  return `${count(Object.keys(document.variables ?? {}).length, 'variable')}, ${count(document.files?.length ?? 0, 'file')}`;
+}
+
+/** Records a schema write with its text before and after. */
+export function recordSchemaChange(
+  before: string,
+  after: string,
+  undoOf: number | null = null,
+): number | undefined {
+  if (before === after) return undefined;
+  return recordChange({
+    actor: 'portal',
+    file: mockState.schema.path,
+    key: '',
+    operation: 'schema',
+    secret: false,
+    beforePreview: schemaPreview(before),
+    afterPreview: schemaPreview(after),
+    beforeValue: before,
+    afterValue: after,
+    restorable: true,
+    undoOf,
+  });
+}
+
+export interface HistoryFilter {
+  file?: string | null;
+  key?: string | null;
+  actor?: string | null;
+  from?: string | null;
+  to?: string | null;
+  page?: number;
+  limit?: number;
+}
+
+/** A page of the history, as GET /api/history answers it. */
+export function queryHistory(filter: HistoryFilter) {
+  const page = filter.page ?? 1;
+  const limit = filter.limit ?? 50;
+  const bound = (value: string, end: boolean) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? `${value}T${end ? '23:59:59.999' : '00:00:00.000'}Z`
+      : new Date(value).toISOString();
+  const matching = mockState.history.filter(
+    (change) =>
+      (filter.file == null || change.file === filter.file) &&
+      (filter.key == null || change.key === filter.key) &&
+      (filter.actor == null || change.actor === filter.actor) &&
+      (filter.from == null || change.at >= bound(filter.from, false)) &&
+      (filter.to == null || change.at <= bound(filter.to, true)),
+  );
+  return {
+    changes: matching.slice((page - 1) * limit, page * limit),
+    total: matching.length,
+    page,
+    limit,
+  };
+}
+
+/** An undo as POST /api/history/{id}/undo answers it: a status and a body. */
+export function undoMockChange(id: number): { status: number; body: object } {
+  const change = mockState.history.find((entry) => entry.id === id);
+  if (!change)
+    return {
+      status: 404,
+      body: { statusCode: 404, message: `no change ${id} in the history` },
+    };
+  if (!change.restorable) {
+    const message = change.undoBlocker ?? "this change can't be undone";
+    return {
+      status: 422,
+      body: {
+        statusCode: 422,
+        message,
+        kind: 'not-restorable',
+        errors: [{ message }],
+        change,
+      },
+    };
+  }
+  if (change.operation === 'schema') {
+    const current = fixtures.schemaText(mockState.schema.document);
+    if (current !== change.afterValue)
+      return {
+        status: 409,
+        body: {
+          statusCode: 409,
+          message: `${change.file} changed after this change was made, so it was not undone`,
+          change,
+          schema: mockState.schema,
+        },
+      };
+    const schema = writeSchema(JSON.parse(change.beforeValue!));
+    const newId = recordSchemaChange(current, change.beforeValue!, id);
+    return {
+      status: 200,
+      body: {
+        undone: change,
+        change: mockState.history.find((entry) => entry.id === newId),
+        schema,
+        warnings: [],
+      },
+    };
+  }
+  const current = plainValue(change.file, change.key);
+  if (current !== change.afterValue)
+    return {
+      status: 409,
+      body: {
+        statusCode: 409,
+        message:
+          current === null
+            ? `${change.key} is no longer set in ${change.file}, so this change was not undone; it changed after this change was made`
+            : `${change.key} in ${change.file} no longer holds the value this change wrote, so it was not undone; it changed after this change was made`,
+        change,
+        file: findFile(change.file),
+      },
+    };
+  writeValue(change.file, change.key, change.beforeValue ?? undefined);
+  touchFile(change.file);
+  const newId = recordValueChange(
+    change.file,
+    change.key,
+    current,
+    change.beforeValue,
+    { undoOf: id },
+  );
+  return {
+    status: 200,
+    body: {
+      undone: change,
+      change: mockState.history.find((entry) => entry.id === newId),
+      file: findFile(change.file),
+      warnings: [],
+    },
+  };
 }

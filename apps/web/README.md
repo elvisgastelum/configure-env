@@ -1,6 +1,6 @@
 # @configure-env/web
 
-The configure-env portal: a static single-page app the local API serves behind its token. The repository README describes the shell, the overview, the variables browser and the session; this file describes the env files workspace, apply, check, validate, live updates and the schema editor.
+The configure-env portal: a static single-page app the local API serves behind its token. The repository README describes the shell, the overview, the variables browser and the session; this file describes the env files workspace, apply, check, validate, live updates, the schema editor and the history of edits.
 
 ## Env files (`/files`)
 
@@ -79,8 +79,19 @@ Switching a variable's type clears the options the new type does not take, and a
 
 `@configure-env/core/schema` is the browser-safe part of the core: the schema definitions and checks, the value checks, and the pure schema edits. The core's package index needs Node, so the portal imports only this entry. A core test keeps it free of Node built-ins.
 
+## History (`/history`)
+
+Every change to the env files or the schema, from the portal or the CLI (`set`, `unset`, `apply`, `init`), from `GET /api/history`, newest first.
+
+- **Timeline:** each change enters after the one above it (all at once with reduced motion) and shows who made it (Portal or CLI), when, the variable and file (or the schema file), and a diff: the value before and after, or for a schema edit the variable and file counts with the side-by-side diff of its text behind **Show the diff**. A secret's values are masked (`••••`) and never stored.
+- **Filters:** file, variable, made in (Portal or CLI), and a from and to date (each a whole UTC day). They live in the address (`/history?key=PORT&actor=cli`), so a link opens the page filtered; 20 changes a page, with **Newer** and **Older**.
+- **Undo:** asks first, then `POST /api/history/{id}/undo`. The API writes the change's previous state only while the file still holds what the change wrote; otherwise the dialog keeps the API's explanation (409) and nothing is written. The undo is a change of its own (**Undid change #N**). A change that can't be undone (a secret's, whose value is never stored, or the schema's creation) shows why instead of the button.
+- **Toast:** the toast after saving a value, generating or unsetting one, or saving a schema edit has an **Undo** action. It undoes the changes that edit recorded, by the ids the write answered with (`changes` of a value write, `change` of each schema write; a change and a rename undo together, the latest first).
+- **Variable drawer:** a **History** tab next to **Details** lists that variable's changes in every file, with the same diffs and undo, and links to the page filtered to it.
+
 ## Tests and stories
 
 - The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes check and validate from it, so a fix shows in the next report.
 - `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens, and `dropEvents()` (`src/mocks/store.ts`) ends the streams so the portal reconnects.
-- The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate` and `Portal/Schema`. Run them with `pnpm storybook:web`.
+- The history lives in the mock store too: value and schema writes record their changes (a secret's without its values), and an undo checks that the value or the schema text is still what the change wrote, as the API checks its fingerprint.
+- The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate`, `Portal/Schema` and `Portal/History`. Run them with `pnpm storybook:web`.

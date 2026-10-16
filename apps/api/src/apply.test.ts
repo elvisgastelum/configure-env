@@ -136,6 +136,8 @@ describe('POST /api/apply', () => {
         key: 'TOKEN',
         operation: 'set',
         afterPreview: '••••',
+        afterValue: null,
+        restorable: false,
       }),
     );
     expect(JSON.stringify(rows)).not.toContain(SECRET_TOKEN);

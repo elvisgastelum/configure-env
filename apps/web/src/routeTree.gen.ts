@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CheckRouteImport } from './routes/check'
 import { Route as FilesRouteImport } from './routes/files'
 import { Route as GroupsRouteImport } from './routes/groups'
+import { Route as HistoryRouteImport } from './routes/history'
 import { Route as SchemaRouteImport } from './routes/schema'
 import { Route as ValidateRouteImport } from './routes/validate'
 import { Route as VariablesRouteImport } from './routes/variables'
@@ -37,6 +38,11 @@ const GroupsRoute = GroupsRouteImport.update({
   path: '/groups',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HistoryRoute = HistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SchemaRoute = SchemaRouteImport.update({
   id: '/schema',
   path: '/schema',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/check': typeof CheckRoute
   '/files': typeof FilesRoute
   '/groups': typeof GroupsRoute
+  '/history': typeof HistoryRoute
   '/schema': typeof SchemaRoute
   '/validate': typeof ValidateRoute
   '/variables': typeof VariablesRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/check': typeof CheckRoute
   '/files': typeof FilesRoute
   '/groups': typeof GroupsRoute
+  '/history': typeof HistoryRoute
   '/schema': typeof SchemaRoute
   '/validate': typeof ValidateRoute
   '/variables': typeof VariablesRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/check': typeof CheckRoute
   '/files': typeof FilesRoute
   '/groups': typeof GroupsRoute
+  '/history': typeof HistoryRoute
   '/schema': typeof SchemaRoute
   '/validate': typeof ValidateRoute
   '/variables': typeof VariablesRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/check'
     | '/files'
     | '/groups'
+    | '/history'
     | '/schema'
     | '/validate'
     | '/variables'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/check'
     | '/files'
     | '/groups'
+    | '/history'
     | '/schema'
     | '/validate'
     | '/variables'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/check'
     | '/files'
     | '/groups'
+    | '/history'
     | '/schema'
     | '/validate'
     | '/variables'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   CheckRoute: typeof CheckRoute
   FilesRoute: typeof FilesRoute
   GroupsRoute: typeof GroupsRoute
+  HistoryRoute: typeof HistoryRoute
   SchemaRoute: typeof SchemaRoute
   ValidateRoute: typeof ValidateRoute
   VariablesRoute: typeof VariablesRoute
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GroupsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/history': {
+      id: '/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof HistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/schema': {
       id: '/schema'
       path: '/schema'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckRoute: CheckRoute,
   FilesRoute: FilesRoute,
   GroupsRoute: GroupsRoute,
+  HistoryRoute: HistoryRoute,
   SchemaRoute: SchemaRoute,
   ValidateRoute: ValidateRoute,
   VariablesRoute: VariablesRoute,

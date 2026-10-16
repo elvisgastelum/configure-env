@@ -13,7 +13,9 @@ import {
   isTemplate,
   maskValue,
   parsePairs,
+  setChanges,
   setValues,
+  unsetChanges,
   unsetValues,
 } from '@configure-env/core';
 import { ask } from './apply.ts';
@@ -26,6 +28,8 @@ import {
   givenTwice,
   loadContextSchema,
   parseCommandArgs,
+  printWarnings,
+  recordRun,
   usageError,
 } from './common.ts';
 import { checkConflict, generateKeys, generateValue } from './generate.ts';
@@ -115,15 +119,18 @@ function failed(
 /**
  * The end of a set or unset run: with --json, its document, `ok` false and
  * the state failure as a `file` error when the state was not written (exit
- * 1); else the lines, or the state failure (exit 1).
+ * 1); else the lines, or the state failure (exit 1). `warnings` (a history
+ * not recorded) go to stderr either way.
  */
 function finish(
   context: Context,
   document: { command: string; file: string; keys: unknown[] },
   lines: string[],
   stateError: string[] | undefined,
+  warnings: readonly string[],
 ): number {
   const { io } = context;
+  printWarnings(io, warnings);
   if (context.json) {
     io.stdout(
       JSON.stringify(
@@ -354,6 +361,13 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     { replace, kept, confirm: confirmOf(context) },
   );
   if (!result.ok) return failed(context, 'set', spec.path, result);
+  // A piped value is recorded as a secret: never kept, as it is never shown.
+  const recorded = await recordRun(
+    context,
+    setChanges(schema, file, result, {
+      masked: new Set(stdinKey === undefined ? [] : [stdinKey]),
+    }),
+  );
   const replaced = new Set(result.replaced);
   // A piped value is masked even for a key not marked secret: it came
   // from a secret manager, and the output may land in an agent's log.
@@ -383,6 +397,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ...replacedLines(replaced),
     ],
     result.stateError,
+    recorded,
   );
 }
 
@@ -463,6 +478,7 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
     { replace, confirm: confirmOf(context) },
   );
   if (!result.ok) return failed(context, 'unset', spec.path, result);
+  const recorded = await recordRun(context, unsetChanges(schema, file, result));
   const replaced = new Set(result.replaced);
 
   return finish(
@@ -479,5 +495,6 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
       ...replacedLines(replaced),
     ],
     result.stateError,
+    recorded,
   );
 }

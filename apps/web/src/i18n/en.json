@@ -12,6 +12,7 @@
     "schema": "Schema",
     "check": "Check",
     "validate": "Validate",
+    "history": "History",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "open": "Open navigation",
@@ -51,7 +52,8 @@
     "files": "Each env file with its policy, mode, drift and parse errors.",
     "schema": "The schema document and its errors.",
     "check": "The drift report of configure-env check.",
-    "validate": "The rule and value errors of configure-env validate."
+    "validate": "The rule and value errors of configure-env validate.",
+    "history": "Every change to the env files and the schema, with undo."
   },
   "theme": {
     "label": "Theme",
@@ -765,5 +767,74 @@
     "openFile": "Open {{path}}",
     "file": "The file",
     "warnings": "Warnings"
+  },
+  "history": {
+    "lead": "Every change to the env files and the schema, from the portal or the CLI. Undo puts a change back only while the file still holds what it wrote.",
+    "error": "The history could not be loaded: {{message}}",
+    "list": "Changes, newest first",
+    "empty": {
+      "title": "No changes yet",
+      "description": "Edits made in the portal, or with configure-env set, unset, apply and init, show up here.",
+      "filtered": "No change matches these filters."
+    },
+    "filters": {
+      "label": "Filter the history",
+      "file": "File",
+      "anyFile": "Every file",
+      "key": "Variable",
+      "keyPlaceholder": "Any variable",
+      "actor": "Made in",
+      "anyActor": "Portal or CLI",
+      "from": "From",
+      "to": "To",
+      "clear": "Clear filters"
+    },
+    "actors": {
+      "cli": "CLI",
+      "portal": "Portal"
+    },
+    "operations": {
+      "set": "Set",
+      "unset": "Unset",
+      "replace": "Replaced",
+      "schema": "Schema edit"
+    },
+    "entry": {
+      "label": "Change #{{id}}",
+      "value": "{{key}} in {{file}}",
+      "undoOf": "Undid change #{{id}}",
+      "before": "Before",
+      "after": "After",
+      "notSet": "not set",
+      "secret": "Secret: values are masked and never stored.",
+      "diff": "Changes to {{file}}",
+      "showDiff": "Show the diff"
+    },
+    "pages": {
+      "label": "Pages of the history",
+      "status": "{{from}}–{{to}} of {{total}}",
+      "newer": "Newer",
+      "older": "Older"
+    },
+    "undo": {
+      "button": "Undo",
+      "label": "Undo change #{{id}}",
+      "blocked": "Can't be undone: {{reason}}",
+      "title": "Undo this change?",
+      "valueBody": "{{key}} in {{file}} goes back to its value before this change. Nothing is written if the file no longer holds what the change wrote.",
+      "schemaBody": "{{file}} goes back to its text before this change. Nothing is written if it changed since.",
+      "confirm": "Undo change",
+      "cancel": "Keep it",
+      "done": "Change undone",
+      "failed": "Not undone: {{message}}",
+      "action": "Undo"
+    },
+    "drawer": {
+      "tabs": "Variable sections",
+      "details": "Details",
+      "tab": "History",
+      "empty": "No change to {{name}} yet.",
+      "all": "Open the full history of {{name}}"
+    }
   }
 }

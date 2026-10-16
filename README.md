@@ -18,6 +18,7 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | `unset`    | remove one variable                                |
 | `list`     | list the variables and where they are set          |
 | `validate` | validate the values against the schema             |
+| `history`  | list the latest changes to env files and the schema |
 | `install`  | install the agent skill for Claude Code and others |
 
 Each command runs as an interactive TUI for people, or with `--ci` for unattended runs.
@@ -220,13 +221,13 @@ The state is `.configure-env/state.db` under the root, a SQLite database, or the
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each value, never the value. Its tables are:
+`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each protected value, never the value. Every write command (`set`, `unset`, `apply`, `init`, and the portal's writes) records what it changed in the history of edits, which `configure-env history` lists; a history it cannot write is a warning, never a failure. Its tables are:
 
 | Table                    | What it holds                                                                                                                                                                                          |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `meta`                   | `schema_version` (the migrations applied) and `salt` (the base64 of 32 random bytes)                                                                                                                    |
 | `protected_fingerprints` | per schema file and key, the hex HMAC-SHA-256(salt, value) and when it was recorded (`2026-10-10T12:00:00.000Z`)                                                                                         |
-| `changes`                | the history of edits: `actor` (`cli` or `portal`), `file`, `key`, `operation`, the fingerprints and masked previews of the value before and after, and `at`; never a value                            |
+| `changes`                | the history of edits: `actor` (`cli` or `portal`), `file`, `key` (empty for the schema), `operation` (`set`, `unset`, `replace` or `schema`), the fingerprints and previews of the value before and after, `at`, the values before and after of a variable the schema declares and does not mark secret (or the schema's text) so the change can be undone (`restorable`), `undo_of`, and `not_kept` (`secret`, `undeclared` or `schema-created`: why no value was kept); never a secret's value, in any file, nor that of a key the schema does not declare |
 
 The schema ships with the package as drizzle-kit migrations, applied when a run opens the database; a database written by a newer version is refused, never changed. A `.configure-env/state.json` written by an earlier version (the `state.json` next to the database) is read as it is until the first run that writes the state, which imports it in its transaction, checks every fingerprint arrived, and removes the file once the transaction commits. An import interrupted before the removal is finished by the next run; a `state.json` whose salt differs from the database's is refused (exit 1) until you remove one of them.
 
@@ -304,6 +305,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `unset` | removes variables from one file                                        |
 | `list`  | shows each file's variables: set, valid, value (secrets masked)        |
 | `validate` | checks the current values against the schema; exits 1 on errors     |
+| `history` | lists the latest changes the CLI and the portal made (see "history") |
 | `install` | `install skill` installs the agent skill (see "AI agents")           |
 | `serve` | starts the local portal for the project in a browser (see "Portal (serve)") |
 
@@ -489,6 +491,35 @@ configure-env list --file .env --json
 configure-env validate
 configure-env validate --file .env --strict
 configure-env validate --json
+```
+
+### history
+
+`history` changes no env file. It lists the 20 latest changes recorded in the history of edits (`.configure-env/state.db`), newest first: every `set`, `unset`, `apply` and `init`, and every edit made in the portal.
+
+| Column       | Shows                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| `ID`         | the change's number                                                                                     |
+| `WHEN (UTC)` | when it was made                                                                                        |
+| `BY`         | `cli` or `portal`                                                                                       |
+| `CHANGE`     | `set`, `unset`, `replace` (a protected value replaced) or `schema`; an undo adds `(undid N)`             |
+| `FILE`       | the env file, or the schema file                                                                        |
+| `KEY`        | the variable; `-` for the schema                                                                        |
+| `BEFORE`     | the value before, cut at 30 characters, masked for a secret (`-` when it was not set; for the schema, its variable and file counts) |
+| `AFTER`      | the same, after                                                                                         |
+
+```text
+ID  WHEN (UTC)        BY      CHANGE  FILE             KEY        BEFORE                AFTER
+3   2026-10-16 09:12  portal  set     .env             WEB_PORT   8080                  8081
+2   2026-10-16 09:10  cli     set     .env             API_TOKEN  -                     ••••
+1   2026-10-16 09:02  cli     schema  env.schema.json  -          -                     2 variables, 1 file
+```
+
+Undo stays in the portal for now: its History page undoes a change while the file still holds what the change wrote. A secret's value is never stored, so its change can't be undone. With `--json` it prints `{ "command": "history", "ok", "total", "changes" }`, `total` counting every change recorded; each change has `id`, `at`, `actor`, `file`, `key`, `operation`, `before` and `after` (the previews), `restorable`, `undoBlocker` (why it can't be undone, only when it can't) and `undoOf`. A history it cannot read exits 1. A state database an older version wrote is upgraded first, as by any command that reads the state, after which that older version refuses it.
+
+```sh
+configure-env history
+configure-env history --json
 ```
 
 ### JSON output
@@ -680,6 +711,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `POST /api/files/content` | one schema file's lines as it holds them, secrets masked: `{ "file": ".env" }`                |
 | `GET /api/check`     | the drift report of `configure-env check` (`?strict=true` reports unknown keys)                 |
 | `GET /api/validate`  | the rule and value errors of `configure-env validate` (`?strict=true` makes unknown keys errors) |
+| `GET /api/history`   | the history of edits, newest first: `file`, `key`, `actor` (`cli` or `portal`), `from` and `to` (a date, its whole UTC day, or a timestamp) filter it; `page` and `limit` (50 by default, at most 200) page it; secrets masked |
 | `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
 
@@ -699,20 +731,23 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `PUT /api/schema/variable-order`          | puts the variables in a new order                                                             |
 | `POST` / `PUT` / `DELETE /api/schema/files` | adds, changes or removes a file the schema manages                                          |
 | `POST /api/schema/init`                   | writes a starting schema inferred from `.env.example` (or `from`)                             |
+| `POST /api/history/{id}/undo`             | undoes one change of the history: writes the value or the schema text before it              |
 
 - **Validated and atomic.** A value is checked against its variable and the rules between variables, and a schema edit against every check the schema loader makes, before anything is written; one bad value or field writes nothing (422, with JSON paths for the schema). Files are written through a temporary file and renamed into place.
 - **Based on a fingerprint.** Every write names the fingerprint of what it was based on: an env file's from `GET /api/files` (`null` for a file that does not exist yet), the schema's from `GET /api/schema`, a plan's from `POST /api/plan`. When the file changed on disk since, nothing is written, and the answer is 409 with the file, schema or plan as it is now. A schema write answers with the new schema and its fingerprint.
 - **Protected values.** A protected value is never changed or removed unless the request names it in `replaceProtected`; otherwise the write answers 422 (`kind: "protected"`) with the schema's reason. A plan lists the protected values it would change, and apply refuses it the same way.
-- **Recorded.** Each key a value write or an apply changes is recorded in the history of edits (the `changes` table of the state database): actor `portal`, file, key, operation (`set`, `unset` or `replace`), and salted HMAC fingerprints and masked previews of the values before and after, never the values; a secret's preview is `••••`.
+- **Recorded.** Each key a value write or an apply changes, and each schema write, is recorded in the history of edits (the `changes` table of the state database), as the CLI's `set`, `unset`, `apply` and `init` record theirs (actor `cli`): actor `portal`, file, key, operation (`set`, `unset`, `replace`, or `schema` for the schema file), salted HMAC fingerprints and previews of the values before and after, and the values themselves for a variable the schema declares and does not mark secret (the schema's text for a schema write), so the change can be undone. A secret's value is never stored, even in a file whose variable list leaves the secret out, nor is the value of a key the schema does not declare: their previews are `••••`, and their changes can't be undone, which the history says. A value write answers with the ids of the changes it recorded (`changes`), a schema write with its id (`change`).
+- **Undo.** `POST /api/history/{id}/undo` writes the change's previous state (the value before, or no value, or the schema text before) only while the file still holds what the change wrote, compared by fingerprint; otherwise nothing is written, and the answer is 409 with why and the file or schema as it is now. A change that can't be undone (a secret's, the schema's creation) answers 422 (`kind: "not-restorable"`) with the reason. The undo is checked and written like any other edit, and recorded as a change naming the one it undid (`undoOf`).
 
 `apps/web` (`@configure-env/web`) is the portal: a static single-page app (Vite, React 19, TanStack Router file routes and TanStack Query over `@configure-env/api-client`, Tailwind with the design system's theme, motion, i18next) that the API serves from `staticDir`. `pnpm build` writes it to `apps/web/dist/`; a test builds it and serves it from the real API.
 
-- **Shell.** A sidebar with the overview, the variables and the pages the next tickets fill (groups, files, schema, check, validate), a sticky header with the project, its root and the schema's state, a system / light / dark theme toggle, and a ⌘K / Ctrl+K palette that jumps to any page, variable or file and runs check, validate or a theme switch.
+- **Shell.** A sidebar with the overview, the variables and the pages the next tickets fill (groups, files, schema, check, validate, history), a sticky header with the project, its root and the schema's state, a system / light / dark theme toggle, and a ⌘K / Ctrl+K palette that jumps to any page, variable or file and runs check, validate or a theme switch.
 - **Overview.** The counts of variables, secrets, required variables and groups, a card per env file with its policy, mode and drift, check and validate with a button to run them again, and an empty state pointing at `configure-env init` when the project has no schema yet.
 - **Variables.** Every variable in a table grouped by `group` under sticky headings, rendering only the rows in view from 200 rows on (TanStack Virtual). Search matches the name, description and comment; filters pick a type, a group, a file (the value column then shows that file), a status (missing, invalid, drift, or none) and required, secret or protected variables; the sort is schema order, name, type or issues first. The palette's `?focus=` selects the variable and opens its drawer: its description, comment, type and options, its rules (`requiredUnless`, `conflictsWith`, `distinctFrom`, `within`) as links to the variables they name, its default and example, and its value in every file that lists it. A protected variable shows a lock and its reason.
 - **Values.** Secrets stay masked; a reveal asks `POST /api/reveal` for one value at a time, masks it again after 15 seconds, and keeps it only on screen, never in the query cache. Copy takes the value, `KEY=VALUE` or `export KEY=VALUE` (quoted as the core writes it), or a whole group or file as dotenv, revealing secrets through the API for the copy alone, and says so in a toast. Edit opens a control that fits the type (a select for an enum, a switch for a boolean, a number field for a number, an integer or a port, a URL, email or password field), checked as you type by a dry run of `POST /api/plan` that returns the core's `validateValue` and `checkRules` messages (the API runs them against the rest of the file). Saving (`POST /api/values/set`, or with `generate` for a secret string) and unsetting (`POST /api/values/unset`) show the new value at once and put the old one back if the write fails; a protected value is replaced only once the person says so; a file that changed since it was read (409) shows its value now beside the typed one, to keep it or save on top. Keys: `/` searches, `j` and `k` move between rows, `c` copies the value, `e` edits it, Enter opens the drawer.
 - **Schema.** Adds, edits, reorders and removes the variables and files of `env.schema.json`, with every option the schema supports, and shows a side-by-side diff before it saves against the schema's fingerprint. The browser checks each edit with the core's browser-safe entry (`@configure-env/core/schema`: the schema definitions, value checks and writer edits, with no Node built-ins), and the API checks it again before it writes, so an invalid schema is never written; see [the web README](apps/web/README.md).
 - **Files, apply, check and validate.** The files page shows a card per schema file (policy, mode, template, exists or missing, drift, lines that do not parse) and opens a file's entries in order, edited in place like the variables, and its raw text with secrets masked (`POST /api/files/content`). Apply prompts for the values the chosen files need, as the TUI does (defaults, and a generated value for a secret string), previews the plan with each file's action and a masked unified diff, applies it against the plan's fingerprint after a confirmation, and shows the result per file. Check lists the drift by file and validate the value and rule errors by file and variable; each item links to its variable and fixes it in place (set the value) or applies the file.
+- **History.** A History page lists every change to the env files and the schema, from the portal or the CLI, as a timeline with a diff each (secrets masked), filtered by file, variable, actor and date. Undo asks first and writes the previous state only while the file still holds what the change wrote; a secret's change says it can't be undone. The toast after each value or schema edit has an Undo action, and the variable drawer has a History tab. See [apps/web/README.md](apps/web/README.md#history-history).
 - **Live.** The portal listens to `GET /api/events`: a change on disk refreshes every view, with a toast noting the external change unless the portal itself wrote in the last 2 seconds.
 - **Session.** The launch URL sets the session cookie and redirects to `/`, so the token never reaches the portal. Opened as `/?token=…` instead (as under `pnpm --filter @configure-env/web dev`, which proxies `/api` and `/launch` to `CONFIGURE_ENV_API`), the portal removes the token from the address bar with `history.replaceState` and trades it at `/launch` for the same cookie. A page request no static file matches (a deep link such as `/variables`) gets the portal's `index.html`.
 - **Copy and motion.** Every string lives in `apps/web/src/i18n/en.json`. Page entrances, staggered reveals, card spotlights and the expanding file details follow `prefers-reduced-motion` through the design system's `SiteMotionConfig`.

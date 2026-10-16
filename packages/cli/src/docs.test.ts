@@ -12,6 +12,7 @@ import {
 import { STDIN_IDLE_MS, STDIN_MAX_BYTES } from './cli/stdin.ts';
 import { STATE_IGNORE } from './cli/init.ts';
 import { DEFAULT_PORT } from './cli/serve.ts';
+import { HISTORY_LIMIT } from './cli/history.ts';
 import {
   DEFAULT_STATE_PATH,
   LOCK_WAIT_MS,
@@ -75,6 +76,15 @@ describe('the docs', () => {
     expect(commands).toContain(`${SECONDS} s with no new input`);
     expect(commands).toContain(`waits ${LOCK_WAIT_MS / 1000} s`);
     expect(doc('README.md')).toContain(`wait ${LOCK_WAIT_MS / 1000} seconds`);
+  });
+
+  it('the docs state how many changes history lists', () => {
+    expect(doc('README.md')).toContain(
+      `It lists the ${HISTORY_LIMIT} latest changes`,
+    );
+    expect(doc('skills/configure-env/references/commands.md')).toContain(
+      `the ${HISTORY_LIMIT} latest changes in the history of edits`,
+    );
   });
 
   it('the docs state the port serve starts from', () => {

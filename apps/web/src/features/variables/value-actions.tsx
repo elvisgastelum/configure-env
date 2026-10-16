@@ -16,8 +16,10 @@ import {
 } from '@configure-env/design-system/components/atoms/dropdown-menu';
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { Eraser, MoreHorizontal, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { undoToast } from '../history/undo-toast';
 import { isProtected, protectedReason } from './model';
 import { type ValueEdit, useValueEdit } from './use-value-edits';
 
@@ -38,6 +40,7 @@ export function ValueActions({
 }) {
   const { t } = useTranslation();
   const edit = useValueEdit();
+  const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState<Action>();
   const { name, spec } = variable;
   const isSet = variable.files.some(
@@ -52,8 +55,11 @@ export function ValueActions({
     edit.mutate(
       { ...request, ...(locked ? { replaceProtected: true } : {}) },
       {
-        onSuccess: () =>
-          toast.success(t(`variables.actions.${action}.done`, { name, file })),
+        onSuccess: (written) =>
+          toast.success(
+            t(`variables.actions.${action}.done`, { name, file }),
+            undoToast(queryClient, t, written.changes),
+          ),
         onError: (error) =>
           toast.error(
             t(`variables.actions.${action}.failed`, {

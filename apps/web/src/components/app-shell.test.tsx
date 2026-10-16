@@ -37,6 +37,7 @@ describe('the shell', () => {
       'Schema',
       'Check',
       'Validate',
+      'History',
     ]);
     expect(within(nav).getByRole('link', { name: 'Overview' })).toHaveAttribute(
       'aria-current',

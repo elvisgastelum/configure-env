@@ -25,7 +25,11 @@ import {
   plainValue,
   problemsOf,
   protectedProblems,
+  queryHistory,
+  recordSchemaChange,
+  recordValueChange,
   touchFile,
+  undoMockChange,
   validateOf,
   writeSchema,
   writeValue,
@@ -109,7 +113,13 @@ async function schemaWrite(
       },
       { status: 422 },
     );
-  return json(writeSchema(result.document));
+  const before = fixtures.schemaText(schema.document);
+  const written = writeSchema(result.document);
+  const change = recordSchemaChange(
+    before,
+    fixtures.schemaText(written.document),
+  );
+  return json({ ...written, ...(change ? { change } : {}) });
 }
 
 const schemaWrites = [
@@ -271,7 +281,15 @@ export const handlers = [
       body.replaceProtected ?? [],
     );
     if (locked.length) return editRefused('protected', locked);
-    for (const key of keys) writeValue(body.file, key, values[key]);
+    const changes: number[] = [];
+    for (const key of keys) {
+      const before = plainValue(body.file, key);
+      writeValue(body.file, key, values[key]);
+      const change = recordValueChange(body.file, key, before, values[key]!, {
+        replaced: Boolean(body.replaceProtected?.includes(key)),
+      });
+      if (change) changes.push(change);
+    }
     return json({
       file: body.file,
       fingerprint: touchFile(body.file),
@@ -280,6 +298,7 @@ export const handlers = [
         keys.includes(key),
       ),
       generated: body.generate ?? [],
+      changes,
       warnings: [],
     });
   }),
@@ -294,7 +313,15 @@ export const handlers = [
       body.replaceProtected ?? [],
     );
     if (locked.length) return editRefused('protected', locked);
-    for (const key of keys) writeValue(body.file, key);
+    const changes: number[] = [];
+    for (const key of keys) {
+      const before = plainValue(body.file, key);
+      writeValue(body.file, key);
+      const change = recordValueChange(body.file, key, before, null, {
+        replaced: Boolean(body.replaceProtected?.includes(key)),
+      });
+      if (change) changes.push(change);
+    }
     return json({
       file: body.file,
       fingerprint: touchFile(body.file),
@@ -303,8 +330,31 @@ export const handlers = [
         keys.includes(key),
       ),
       generated: [],
+      changes,
       warnings: [],
     });
+  }),
+  http.get('/api/history', ({ request }) => {
+    const params = new URL(request.url).searchParams;
+    const number = (name: string) => {
+      const value = params.get(name);
+      return value === null ? undefined : Number(value);
+    };
+    return json(
+      queryHistory({
+        file: params.get('file'),
+        key: params.get('key'),
+        actor: params.get('actor'),
+        from: params.get('from'),
+        to: params.get('to'),
+        page: number('page'),
+        limit: number('limit'),
+      }),
+    );
+  }),
+  http.post('/api/history/:id/undo', ({ params }) => {
+    const { status, body } = undoMockChange(Number(params.id));
+    return HttpResponse.json(body, { status });
   }),
 ];
 
@@ -320,6 +370,12 @@ const schemaNeeded = () =>
 
 /** Overrides for named situations; put them before `handlers`. */
 export const scenarios = {
+  /** Nothing was changed yet: the history is empty. */
+  noHistory: [
+    http.get('/api/history', () =>
+      json({ changes: [], total: 0, page: 1, limit: 20 }),
+    ),
+  ],
   /** One more variable per editable type, in `.env`. */
   allTypes: [
     http.get('/api/variables', () => {

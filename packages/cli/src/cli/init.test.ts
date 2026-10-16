@@ -145,6 +145,7 @@ describe('init', () => {
     const r = await cli(['init', '--ci', '--schema', 'config.schema.json']);
     expect(r.code).toBe(0);
     expect((await readdir(root())).sort()).toEqual([
+      '.configure-env',
       '.gitignore',
       'config.schema.json',
     ]);

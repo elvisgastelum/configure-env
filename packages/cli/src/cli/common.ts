@@ -7,6 +7,7 @@ import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import {
   DEFAULT_SCHEMA_PATH,
   DEFAULT_STATE_PATH,
+  displayPath,
   type EnvSchema,
   type FilePlan,
   type FileSpec,
@@ -18,6 +19,7 @@ import {
   isTemplate,
   loadSchema,
   parseDotenv,
+  recordHistory,
   ruleKeys,
   validateValue,
 } from '@configure-env/core';
@@ -151,6 +153,24 @@ export interface Context {
 }
 
 export { displayPath } from '@configure-env/core';
+
+/**
+ * Records a run's changes in the history of edits, as the CLI's; a history
+ * it cannot write is a warning on stderr, never a failure: the files were
+ * written.
+ */
+export async function recordRun(
+  context: Context,
+  changes: Parameters<typeof recordHistory>[2],
+): Promise<string[]> {
+  const { warnings } = await recordHistory(context.statePath, 'cli', changes);
+  const shown = displayPath(context.io.cwd, context.statePath);
+  return warnings.map((line) => line.replaceAll(context.statePath, shown));
+}
+
+/** Prints warnings on stderr, as every command does. */
+export const printWarnings = (io: Io, warnings: readonly string[]) =>
+  warnings.forEach((line) => io.stderr(`configure-env: warning: ${line}`));
 
 /** Whether CI is set to anything but empty, `false` or `0`. */
 export const isCiEnv = (env: Io['env']) =>

@@ -3,6 +3,8 @@
 // read, so an edit is validated as a whole, written atomically, and never
 // made over a change it did not see. Each answer is the schema as it is
 // then: the new one, or (with the errors, as JSON paths) the current one.
+// A write is recorded in the history with the schema's text before and
+// after, so it can be undone.
 
 import { readFile } from 'node:fs/promises';
 import {
@@ -14,7 +16,9 @@ import {
   editSchemaFile,
   filePathProblem,
   inferSchema,
+  recordHistory,
   resolveTarget,
+  schemaChanges,
   writeSchemaFile,
 } from '@configure-env/core';
 import type { z } from 'zod';
@@ -36,19 +40,32 @@ export async function currentSchema(project: Project): Promise<SchemaView> {
   };
 }
 
-/** A write's outcome: the schema written, or the error it answers with. */
+/**
+ * A write's outcome: the schema written, recorded in the history with the
+ * change's id, or the error it answers with.
+ */
 async function answer(
   project: Project,
   result: SchemaWriteResult,
 ): Promise<SchemaView> {
-  if (result.ok)
+  if (result.ok) {
+    const history = await recordHistory(
+      project.statePath,
+      'portal',
+      result.written
+        ? schemaChanges(project.schemaPath, result.previous, result.file.text)
+        : [],
+    );
     return {
       path: project.schemaPath,
       valid: true,
       document: JSON.parse(result.file.text.replace(/^\uFEFF/, '')),
       errors: [],
       fingerprint: result.file.fingerprint,
+      ...(history.ids.length ? { change: history.ids[0] } : {}),
+      ...(history.warnings.length ? { warnings: history.warnings } : {}),
     };
+  }
   const schema = await currentSchema(project);
   if (result.kind === 'stale')
     throw new ApiError(

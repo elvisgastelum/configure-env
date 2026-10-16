@@ -103,7 +103,23 @@ export const writtenBeforeFailure = (error: unknown) =>
   error instanceof PartialWriteError ? error.written : undefined;
 
 /**
- * Sends the edit against `fingerprint` and resolves to the schema written.
+ * A schema the API wrote, with the ids of the history changes the edit
+ * recorded: two for a change and a rename, which an undo takes back whole.
+ */
+export interface SavedSchema extends Schema {
+  changes: number[];
+}
+
+const saved = (schema: Schema, earlier?: Schema): SavedSchema => ({
+  ...schema,
+  changes: [earlier, schema].flatMap((written) =>
+    written?.change === undefined ? [] : [written.change],
+  ),
+});
+
+/**
+ * Sends the edit against `fingerprint` and resolves to the schema written,
+ * with the history changes it recorded.
  * A change and a rename are two writes, the rename against the fingerprint
  * the change returned; the API has no single write for both. The preview
  * checked a snapshot, so the rename can still fail after the change was
@@ -114,16 +130,18 @@ export const writtenBeforeFailure = (error: unknown) =>
 export async function sendEdit(
   edit: SchemaEdit,
   fingerprint: string,
-): Promise<Schema> {
+): Promise<SavedSchema> {
   switch (edit.kind) {
     case 'addVariable':
-      return unwrap(
-        addVariable({
-          fingerprint,
-          name: edit.name,
-          spec: edit.spec as Record<string, unknown>,
-          ...(edit.files?.length ? { files: edit.files } : {}),
-        }),
+      return saved(
+        await unwrap(
+          addVariable({
+            fingerprint,
+            name: edit.name,
+            spec: edit.spec as Record<string, unknown>,
+            ...(edit.files?.length ? { files: edit.files } : {}),
+          }),
+        ),
       );
     case 'updateVariable': {
       const renames = Boolean(edit.rename) && edit.rename !== edit.name;
@@ -132,13 +150,16 @@ export async function sendEdit(
         schema = await unwrap(
           updateVariable(edit.name, { fingerprint, changes: edit.changes }),
         );
-      if (!renames) return schema!;
+      if (!renames) return saved(schema!);
       try {
-        return await unwrap(
-          renameVariable(edit.name, {
-            fingerprint: schema?.fingerprint ?? fingerprint,
-            to: edit.rename!,
-          }),
+        return saved(
+          await unwrap(
+            renameVariable(edit.name, {
+              fingerprint: schema?.fingerprint ?? fingerprint,
+              to: edit.rename!,
+            }),
+          ),
+          schema,
         );
       } catch (error) {
         if (schema) throw new PartialWriteError(schema, error);
@@ -146,24 +167,32 @@ export async function sendEdit(
       }
     }
     case 'removeVariable':
-      return unwrap(
-        removeVariable(edit.name, {
-          fingerprint,
-          ...(edit.cleanup ? { cleanup: true } : {}),
-        }),
+      return saved(
+        await unwrap(
+          removeVariable(edit.name, {
+            fingerprint,
+            ...(edit.cleanup ? { cleanup: true } : {}),
+          }),
+        ),
       );
     case 'reorderVariables':
-      return unwrap(reorderVariables({ fingerprint, order: edit.order }));
+      return saved(
+        await unwrap(reorderVariables({ fingerprint, order: edit.order })),
+      );
     case 'addFile':
-      return unwrap(
-        addFile({ fingerprint, spec: edit.spec as Record<string, unknown> }),
+      return saved(
+        await unwrap(
+          addFile({ fingerprint, spec: edit.spec as Record<string, unknown> }),
+        ),
       );
     case 'updateFile':
-      return unwrap(
-        updateFile({ fingerprint, path: edit.path, changes: edit.changes }),
+      return saved(
+        await unwrap(
+          updateFile({ fingerprint, path: edit.path, changes: edit.changes }),
+        ),
       );
     case 'removeFile':
-      return unwrap(removeFile({ fingerprint, path: edit.path }));
+      return saved(await unwrap(removeFile({ fingerprint, path: edit.path })));
   }
 }
 

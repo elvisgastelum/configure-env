@@ -3,6 +3,7 @@
 
 import type { SchemaDocument } from '@configure-env/core/schema';
 import type {
+  Change,
   Check,
   Files,
   Plan,
@@ -558,5 +559,92 @@ export const typedVariables: Variables['variables'] = [
     name: 'SESSION_KEY',
     spec: { type: 'string', required: false, secret: true, group: 'App' },
     files: [{ file: '.env', status: 'masked', value: '••••••••' }],
+  },
+];
+
+/** Why a secret's change can't be undone, as the API says it. */
+export const SECRET_UNDO_REASON =
+  "the value is secret and is never stored, so this change can't be undone";
+
+/** A schema document as the history keeps it: its text. */
+export const schemaText = (document: unknown) =>
+  `${JSON.stringify(document, null, 2)}\n`;
+
+/** The sample schema before LOG_LEVEL was declared. */
+const schemaBefore = {
+  ...schemaDocument,
+  variables: Object.fromEntries(
+    Object.entries(schemaDocument.variables).filter(
+      ([name]) => name !== 'LOG_LEVEL',
+    ),
+  ),
+};
+
+/**
+ * The sample project's history, newest first: a schema edit, a portal
+ * edit, a secret set from the CLI (which can't be undone) and a CLI edit.
+ * Each change that can be undone matches the sample's values now.
+ */
+export const history: Change[] = [
+  {
+    id: 4,
+    actor: 'portal',
+    file: 'env.schema.json',
+    key: '',
+    operation: 'schema',
+    at: '2026-10-15T14:30:00.000Z',
+    secret: false,
+    beforePreview: '4 variables, 3 files',
+    afterPreview: '5 variables, 3 files',
+    beforeValue: schemaText(schemaBefore),
+    afterValue: schemaText(schemaDocument),
+    restorable: true,
+    undoOf: null,
+  },
+  {
+    id: 3,
+    actor: 'portal',
+    file: '.env',
+    key: 'LOG_LEVEL',
+    operation: 'set',
+    at: '2026-10-15T10:00:00.000Z',
+    secret: false,
+    beforePreview: 'info',
+    afterPreview: 'debug',
+    beforeValue: 'info',
+    afterValue: 'debug',
+    restorable: true,
+    undoOf: null,
+  },
+  {
+    id: 2,
+    actor: 'cli',
+    file: '.env',
+    key: 'DB_PASSWORD',
+    operation: 'set',
+    at: '2026-10-14T09:05:00.000Z',
+    secret: true,
+    beforePreview: null,
+    afterPreview: '••••',
+    beforeValue: null,
+    afterValue: null,
+    restorable: false,
+    undoBlocker: SECRET_UNDO_REASON,
+    undoOf: null,
+  },
+  {
+    id: 1,
+    actor: 'cli',
+    file: '.env',
+    key: 'PORT',
+    operation: 'set',
+    at: '2026-10-14T09:00:00.000Z',
+    secret: false,
+    beforePreview: '3000',
+    afterPreview: '8080',
+    beforeValue: '3000',
+    afterValue: '8080',
+    restorable: true,
+    undoOf: null,
   },
 ];
