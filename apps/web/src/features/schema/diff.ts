@@ -1,5 +1,5 @@
-// A line diff of two texts for a side-by-side view: Myers' algorithm over
-// the lines between the common head and tail, with each removed run paired
+// A line diff of two texts for a side-by-side view: Myers' algorithm, in
+// linear space, over the lines between the common head and tail, with each removed run paired
 // with the added run that replaces it, and long unchanged stretches folded.
 
 export interface DiffLine {
@@ -16,62 +16,133 @@ export interface DiffRow {
 
 type Op = 'same' | 'removed' | 'added';
 
-/** The edit script turning `a` into `b`, shortest first (Myers, 1986). */
+/**
+ * The edit script turning `a` into `b`, shortest first (Myers, 1986), in
+ * linear space: each step finds the middle of a shortest path and diffs the
+ * two halves on their own, so memory stays O(n + m) however scattered the
+ * edits are, and time O((n + m) D).
+ */
 function myers(a: readonly string[], b: readonly string[]): Op[] {
-  const n = a.length;
-  const m = b.length;
-  const max = n + m;
-  const offset = max + 1;
-  const v = new Array<number>(2 * max + 3).fill(0);
-  const trace: number[][] = [];
-  for (let d = 0; d <= max; d++) {
-    trace.push(v.slice());
-    for (let k = -d; k <= d; k += 2) {
-      let x =
-        k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)
-          ? v[offset + k + 1]!
-          : v[offset + k - 1]! + 1;
-      let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) {
-        x++;
-        y++;
-      }
-      v[offset + k] = x;
-      if (x >= n && y >= m) return backtrack(trace, n, m, offset);
-    }
-  }
-  return [];
+  const ops: Op[] = [];
+  diffRange(a, 0, a.length, b, 0, b.length, ops);
+  return ops;
 }
 
-function backtrack(
-  trace: number[][],
-  n: number,
-  m: number,
-  offset: number,
-): Op[] {
-  const ops: Op[] = [];
-  let x = n;
-  let y = m;
-  for (let d = trace.length - 1; d >= 0; d--) {
-    const v = trace[d]!;
-    const k = x - y;
-    const previousK =
-      k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)
-        ? k + 1
-        : k - 1;
-    const previousX = v[offset + previousK]!;
-    const previousY = previousX - previousK;
-    while (x > previousX && y > previousY) {
-      ops.push('same');
-      x--;
-      y--;
-    }
-    if (d === 0) break;
-    ops.push(x === previousX ? 'added' : 'removed');
-    x = previousX;
-    y = previousY;
+/** Appends the script turning `a[aLo..aHi)` into `b[bLo..bHi)` to `ops`. */
+function diffRange(
+  a: readonly string[],
+  aLo: number,
+  aHi: number,
+  b: readonly string[],
+  bLo: number,
+  bHi: number,
+  ops: Op[],
+): void {
+  while (aLo < aHi && bLo < bHi && a[aLo] === b[bLo]) {
+    ops.push('same');
+    aLo++;
+    bLo++;
   }
-  return ops.reverse();
+  let tail = 0;
+  while (aLo < aHi && bLo < bHi && a[aHi - 1] === b[bHi - 1]) {
+    aHi--;
+    bHi--;
+    tail++;
+  }
+  if (aLo === aHi) for (let y = bLo; y < bHi; y++) ops.push('added');
+  else if (bLo === bHi) for (let x = aLo; x < aHi; x++) ops.push('removed');
+  else {
+    const split = middle(a, aLo, aHi, b, bLo, bHi);
+    if (split) {
+      diffRange(a, aLo, split.x, b, bLo, split.y, ops);
+      diffRange(a, split.x, aHi, b, split.y, bHi, ops);
+    } else {
+      // Nothing in common: every line is replaced.
+      for (let x = aLo; x < aHi; x++) ops.push('removed');
+      for (let y = bLo; y < bHi; y++) ops.push('added');
+    }
+  }
+  for (let index = 0; index < tail; index++) ops.push('same');
+}
+
+/**
+ * A point on a shortest path through the two ranges, found by searching
+ * from both ends at once until the paths meet; undefined when the ranges
+ * share no line. Both ranges are non-empty.
+ */
+function middle(
+  a: readonly string[],
+  aLo: number,
+  aHi: number,
+  b: readonly string[],
+  bLo: number,
+  bHi: number,
+): { x: number; y: number } | undefined {
+  const n = aHi - aLo;
+  const m = bHi - bLo;
+  const maxD = Math.ceil((n + m) / 2);
+  const offset = maxD;
+  const size = 2 * maxD + 2;
+  // The furthest x reached on each diagonal, forward and backward.
+  const forward = new Int32Array(size).fill(-1);
+  const backward = new Int32Array(size).fill(-1);
+  forward[offset + 1] = 0;
+  backward[offset + 1] = 0;
+  const delta = n - m;
+  // With an odd delta the forward search meets the backward one first.
+  const front = delta % 2 !== 0;
+  // Diagonals that ran off the edge are skipped from then on.
+  let k1Start = 0;
+  let k1End = 0;
+  let k2Start = 0;
+  let k2End = 0;
+  for (let d = 0; d < maxD; d++) {
+    for (let k1 = -d + k1Start; k1 <= d - k1End; k1 += 2) {
+      const at = offset + k1;
+      let x1 =
+        k1 === -d || (k1 !== d && forward[at - 1]! < forward[at + 1]!)
+          ? forward[at + 1]!
+          : forward[at - 1]! + 1;
+      let y1 = x1 - k1;
+      while (x1 < n && y1 < m && a[aLo + x1] === b[bLo + y1]) {
+        x1++;
+        y1++;
+      }
+      forward[at] = x1;
+      if (x1 > n) k1End += 2;
+      else if (y1 > m) k1Start += 2;
+      else if (front) {
+        const other = offset + delta - k1;
+        if (other >= 0 && other < size && backward[other] !== -1) {
+          if (x1 >= n - backward[other]!) return { x: aLo + x1, y: bLo + y1 };
+        }
+      }
+    }
+    for (let k2 = -d + k2Start; k2 <= d - k2End; k2 += 2) {
+      const at = offset + k2;
+      let x2 =
+        k2 === -d || (k2 !== d && backward[at - 1]! < backward[at + 1]!)
+          ? backward[at + 1]!
+          : backward[at - 1]! + 1;
+      let y2 = x2 - k2;
+      while (x2 < n && y2 < m && a[aHi - 1 - x2] === b[bHi - 1 - y2]) {
+        x2++;
+        y2++;
+      }
+      backward[at] = x2;
+      if (x2 > n) k2End += 2;
+      else if (y2 > m) k2Start += 2;
+      else if (!front) {
+        const other = offset + delta - k2;
+        if (other >= 0 && other < size && forward[other] !== -1) {
+          const x1 = forward[other]!;
+          const y1 = offset + x1 - other;
+          if (x1 >= n - x2) return { x: aLo + x1, y: bLo + y1 };
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /** The rows of a side-by-side diff of `before` and `after`, line by line. */
@@ -108,13 +179,11 @@ export function diffLines(before: string, after: string): DiffRow[] {
     }
     const removed: DiffLine[] = [];
     const added: DiffLine[] = [];
-    while (ops[index] === 'removed') {
-      removed.push(at(a, left++));
-      index++;
-    }
-    while (ops[index] === 'added') {
-      added.push(at(b, right++));
-      index++;
+    // The halves of the linear-space search may leave an added line before
+    // a removed one in the same run; the run is paired as a whole.
+    for (; index < ops.length && ops[index] !== 'same'; index++) {
+      if (ops[index] === 'removed') removed.push(at(a, left++));
+      else added.push(at(b, right++));
     }
     for (let pair = 0; pair < Math.max(removed.length, added.length); pair++) {
       const old = removed[pair];
@@ -137,8 +206,9 @@ export interface FoldedRows {
 }
 
 /**
- * The rows with each unchanged stretch longer than twice `context` folded,
- * keeping `context` rows next to every change.
+ * The rows with every unchanged row more than `context` rows from a change
+ * folded, a run of them at a time; a run of one row is kept, since folding
+ * it would hide nothing.
  */
 export function foldRows(
   rows: readonly DiffRow[],
