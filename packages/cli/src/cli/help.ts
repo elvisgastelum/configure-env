@@ -340,10 +340,7 @@ init, and every edit made in the portal (configure-env serve).
 With --json it prints {"command", "ok", "total", "changes": [{"id",
 "at", "actor", "file", "key", "operation", "before", "after",
 "restorable", "undoBlocker", "undoOf"}]}; "total" counts every change
-recorded. Changes no env file; a state database an older version wrote
-is upgraded first, as by any command that reads the state, after which
-that older version refuses it. Exits 0, or 1 when the history cannot be
-read.
+recorded. Changes nothing; exits 0, or 1 when the history cannot be read.
 Undo stays in the portal for now: its History page undoes a change while
 the file still holds what the change wrote. A secret's change can't be
 undone.

@@ -2,6 +2,7 @@
 // apply, init) records what it changed, a secret's value never; and
 // `configure-env history`, which lists it.
 
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -11,6 +12,7 @@ import {
   SECRET_PREVIEW,
   SECRET_UNDO_REASON,
   readChanges,
+  stateSchemaVersion,
 } from '@configure-env/core';
 import { describe, expect, it } from 'vitest';
 import { HISTORY_LIMIT } from './history.ts';
@@ -34,6 +36,36 @@ const cli = (
 const path = (name: string) => join(dirs.root, name);
 const history = () => readChanges(path(DEFAULT_STATE_PATH));
 const json = (r: { out: string[] }) => JSON.parse(r.out.join('\n'));
+
+/**
+ * The database's bytes, as a hash, and how many its WAL holds: SQLite may
+ * leave an empty WAL next to a database it opened read-only.
+ */
+const snapshot = async (state: string) => ({
+  db: createHash('sha256')
+    .update(await readFile(state))
+    .digest('hex'),
+  wal: (await readFile(`${state}-wal`).catch(() => Buffer.alloc(0))).length,
+});
+
+/** The schema version, read as a version-1 reader would: its columns only. */
+function v1SchemaVersion(state: string): string | undefined {
+  const sqlite = new Database(state, { readonly: true, fileMustExist: true });
+  try {
+    sqlite
+      .prepare(
+        'select id, actor, file, key, operation, before_fingerprint, after_fingerprint, before_preview, after_preview, at from changes',
+      )
+      .all();
+    return (
+      sqlite
+        .prepare("select value from meta where key = 'schema_version'")
+        .get() as { value: string } | undefined
+    )?.value;
+  } finally {
+    sqlite.close();
+  }
+}
 // Built at run time: no secret-looking literal in the sources.
 const fakeSecret = (tag: string) => ['tok', tag, 'y'.repeat(12)].join('-');
 
@@ -359,6 +391,59 @@ describe('configure-env history', () => {
         undoOf: null,
       },
     ]);
+  });
+
+  it('reads a database an older version wrote without upgrading it', async () => {
+    const state = path(DEFAULT_STATE_PATH);
+    await writeV1State(state, [
+      {
+        actor: 'cli',
+        file: 'app.env',
+        key: 'NAME',
+        operation: 'set',
+        beforePreview: 'old',
+        afterPreview: 'new',
+        at: '2026-01-02T03:04:05.000Z',
+      },
+    ]);
+    const before = await snapshot(state);
+    const r = await cli(['history']);
+    expect(r).toMatchObject({ code: 0, err: [] });
+    expect(r.out[1]!.split(/\s{2,}/)).toEqual([
+      '1',
+      '2026-01-02 03:04',
+      'cli',
+      'set',
+      'app.env',
+      'NAME',
+      'old',
+      'new',
+    ]);
+    expect(json(await cli(['history', '--json'])).changes).toMatchObject([
+      { id: 1, restorable: false, undoBlocker: LEGACY_UNDO_REASON },
+    ]);
+    expect(await snapshot(state)).toEqual(before);
+    expect(v1SchemaVersion(state)).toBe('1');
+  });
+
+  it('refuses a database of a newer version, changing nothing', async () => {
+    await writeFile(path('app.env'), '');
+    await cli(['set', '--ci', 'PORT=1000']);
+    const state = path(DEFAULT_STATE_PATH);
+    const sqlite = new Database(state);
+    sqlite
+      .prepare("update meta set value = ? where key = 'schema_version'")
+      .run(String(stateSchemaVersion() + 1));
+    sqlite.close();
+    const before = await snapshot(state);
+    expect(await cli(['history'])).toEqual({
+      code: 1,
+      out: [],
+      err: [
+        `configure-env: .configure-env/state.db: has schema version ${stateSchemaVersion() + 1}, newer than this configure-env knows (${stateSchemaVersion()}); upgrade configure-env`,
+      ],
+    });
+    expect(await snapshot(state)).toEqual(before);
   });
 
   it('prints its help', async () => {

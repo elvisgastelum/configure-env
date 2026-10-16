@@ -2,9 +2,17 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { readChanges, SECRET_UNDO_REASON } from '../engine/history.ts';
-import { DEFAULT_STATE_PATH, loadState } from '../engine/state.ts';
-import { schemaOf, useTempRoot } from '../engine/test-helpers.ts';
+import {
+  LEGACY_UNDO_REASON,
+  readChanges,
+  SECRET_UNDO_REASON,
+} from '../engine/history.ts';
+import {
+  DEFAULT_STATE_PATH,
+  loadState,
+  stateSchemaVersion,
+} from '../engine/state.ts';
+import { schemaOf, useTempRoot, writeV1State } from '../engine/test-helpers.ts';
 import type { FileSpec } from '../schema/definition.ts';
 import type { SchemaDocument } from '../writer/document.ts';
 import { schemaFingerprint, writeSchemaFile } from '../writer/store.ts';
@@ -179,6 +187,41 @@ describe('undoChange', () => {
     sqlite.close();
     expect(dump).not.toContain(before);
     expect(dump).not.toContain(after);
+  });
+
+  it('upgrades a database an older version wrote, as any write does', async () => {
+    await writeV1State(statePath(), [
+      {
+        actor: 'cli',
+        file: 'app.env',
+        key: 'NAME',
+        operation: 'set',
+        afterPreview: 'new',
+        at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    const context: UndoContext = {
+      statePath: statePath(),
+      actor: 'portal',
+      root: temp.dirs.root,
+      schemaPath: SCHEMA_PATH,
+      schemaFile: schemaFile(),
+    };
+    expect(await undoChange(context, 1)).toMatchObject({
+      ok: false,
+      kind: 'not-restorable',
+      message: LEGACY_UNDO_REASON,
+    });
+    const sqlite = new Database(statePath(), { readonly: true });
+    try {
+      expect(
+        sqlite
+          .prepare("select value from meta where key = 'schema_version'")
+          .get(),
+      ).toEqual({ value: String(stateSchemaVersion()) });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it('answers not-found for an unknown id', async () => {
