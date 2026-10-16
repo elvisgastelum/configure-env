@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { createServer as createNetServer, isIP } from 'node:net';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -223,7 +224,13 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     );
 
   const context = await contextOf(io, options);
-  await loadContextSchema(context);
+  // A missing schema is no error here: the portal offers to init one. An
+  // invalid one still is, as for every other command.
+  const hasSchema = await stat(context.schemaPath).then(
+    () => true,
+    () => false,
+  );
+  if (hasSchema) await loadContextSchema(context);
   const runtime: ServeRuntime = { ...defaultRuntime, ...io.serve };
   if (exposed)
     io.stderr(
@@ -266,6 +273,10 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     );
     io.stdout(`Open ${server.launchUrl}`);
   }
+  if (!hasSchema)
+    io.stderr(
+      `configure-env: no schema at ${displayPath(io.cwd, context.schemaPath)} yet: init one from the portal, or run configure-env init`,
+    );
   if (!staticDir)
     io.stderr(
       'configure-env: the portal is not built; serving the API only (run pnpm build)',

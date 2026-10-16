@@ -12,6 +12,9 @@ import {
 } from '../schema/definition.ts';
 import type { SchemaDocument } from './document.ts';
 
+/** The example env file init reads when none is named, if it exists. */
+export const DEFAULT_EXAMPLE = '.env.example';
+
 /** A variable as init writes it into the schema. */
 export interface InferredVariable {
   type: VariableType;

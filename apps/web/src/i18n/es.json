@@ -141,7 +141,13 @@
       "command": "Terminal",
       "copy": "Copiar el comando",
       "copied": "Copiado",
-      "docs": "Cómo funciona init"
+      "docs": "Cómo funciona init",
+      "init": "Iniciar desde {{file}}",
+      "initHint": "Escribe {{path}} como lo hace configure-env init: las variables de {{file}}; si no existe, empieza con un esquema vacío.",
+      "initDone_one": "Se escribió {{path}}: {{count}} variable",
+      "initDone_many": "Se escribió {{path}}: {{count}} variables",
+      "initDone_other": "Se escribió {{path}}: {{count}} variables",
+      "initFailed": "No se pudo iniciar el esquema: {{message}}"
     },
     "invalidSchema": {
       "title": "El esquema tiene errores",

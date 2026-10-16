@@ -204,7 +204,7 @@ export class SchemaController {
   @Post('init')
   @Write(
     'initSchema',
-    'Writes a starting schema, inferred from an example env file',
+    'Writes a starting schema, inferred from an example env file, as configure-env init does',
     initSchemaRequest,
   )
   init(

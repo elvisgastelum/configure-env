@@ -2,7 +2,10 @@
 // non-loopback host, and the shutdown on a signal. The server and the
 // browser are stubbed, except in the last test, which starts the real API.
 
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { type Server, createServer as createNetServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Io } from './io.ts';
 import { main } from './main.ts';
@@ -154,14 +157,31 @@ describe('serve options', () => {
     expect(runtime.started).toEqual([]);
   });
 
-  it('refuses a missing schema with the init hint', async () => {
+  it('starts without a schema, so the portal can init one', async () => {
     const runtime = fakeRuntime();
     const result = await serve(['--schema', 'missing.json'], {
       cwd: project.root,
       runtime,
     });
-    expect(result.code).toBe(2);
-    expect(result.err.join('\n')).toMatch(/no schema at .*missing\.json/);
+    expect(result.code).toBe(0);
+    expect(runtime.started[0]).toMatchObject({
+      root: project.root,
+      schemaPath: 'missing.json',
+    });
+    expect(result.err.join('\n')).toMatch(
+      /no schema at missing\.json yet: init one from the portal/,
+    );
+  });
+
+  it('still refuses an invalid schema', async () => {
+    await writeFile(join(project.root, 'bad.json'), '{"version": 2}\n');
+    const runtime = fakeRuntime();
+    const result = await serve(['--schema', 'bad.json'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(1);
+    expect(result.err.join('\n')).toMatch(/invalid schema .*bad\.json/);
     expect(runtime.started).toEqual([]);
   });
 
@@ -414,5 +434,84 @@ describe('the real server', () => {
     expect(denied.status).toBe(401);
     stop('SIGTERM');
     await expect(running).resolves.toBe(0);
+  }, 30_000);
+
+  it('starts without a schema and writes the one init writes on POST /api/schema/init', async () => {
+    const example = '# Where to listen.\nPORT=8080\nDEBUG=true\n';
+    const [served, inited] = await Promise.all([
+      mkdtemp(join(tmpdir(), 'configure-env-serve-init-')),
+      mkdtemp(join(tmpdir(), 'configure-env-cli-init-')),
+    ]);
+    try {
+      await writeFile(join(served, '.env.example'), example);
+      await writeFile(join(inited, '.env.example'), example);
+      let stop: (signal: NodeJS.Signals) => void = () => {};
+      const signal = new Promise<NodeJS.Signals>((resolve) => {
+        stop = resolve;
+      });
+      const out: string[] = [];
+      let printed: () => void = () => {};
+      const ready = new Promise<void>((resolve) => {
+        printed = resolve;
+      });
+      const running = main(['serve', '--json', '--port', '0'], {
+        stdout: (line) => {
+          out.push(line);
+          printed();
+        },
+        stderr: () => {},
+        env: {},
+        isTTY: false,
+        cwd: served,
+        serve: { waitForSignal: () => signal, openBrowser: () => {} },
+      });
+      await Promise.race([ready, running]);
+      const launch = new URL((JSON.parse(out[0]!) as { url: string }).url);
+      const headers = {
+        authorization: `Bearer ${launch.searchParams.get('token')!}`,
+        'content-type': 'application/json',
+      };
+      const before = await fetch(new URL('/api/schema', launch), { headers });
+      expect(await before.json()).toMatchObject({ valid: false });
+      const denied = await fetch(new URL('/api/schema/init', launch), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(denied.status).toBe(401);
+      const written = await fetch(new URL('/api/schema/init', launch), {
+        method: 'POST',
+        headers,
+        body: '{}',
+      });
+      expect(written.status).toBe(200);
+      const again = await fetch(new URL('/api/schema/init', launch), {
+        method: 'POST',
+        headers,
+        body: '{}',
+      });
+      expect(again.status).toBe(409);
+      stop('SIGTERM');
+      await expect(running).resolves.toBe(0);
+
+      const code = await main(['init', '--ci'], {
+        stdout: () => {},
+        stderr: () => {},
+        env: {},
+        isTTY: false,
+        cwd: inited,
+      });
+      expect(code).toBe(0);
+      for (const file of ['env.schema.json', '.gitignore'])
+        expect(await readFile(join(served, file), 'utf8')).toBe(
+          await readFile(join(inited, file), 'utf8'),
+        );
+    } finally {
+      await Promise.all(
+        [served, inited].map((dir) =>
+          rm(dir, { recursive: true, force: true }),
+        ),
+      );
+    }
   }, 30_000);
 });

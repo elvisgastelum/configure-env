@@ -380,6 +380,44 @@ describe('POST /api/schema/init', () => {
     expect(Object.keys((await onDisk()).variables)).toEqual(['PORT', 'DEBUG']);
   });
 
+  it('adds the state directory to .gitignore, as configure-env init does', async () => {
+    await start({ '.env.example': EXAMPLE, '.gitignore': 'node_modules' });
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
+      'node_modules\n.configure-env/\n',
+    );
+  });
+
+  it('creates .gitignore when there is none', async () => {
+    await start({});
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
+      '.configure-env/\n',
+    );
+  });
+
+  it('touches nothing when it refuses', async () => {
+    await start({ 'env.schema.json': TEXT, '.env.example': EXAMPLE });
+    expect((await send('post', '/api/schema/init', {})).status).toBe(409);
+    await expect(readFile(join(root, '.gitignore'), 'utf8')).rejects.toThrow(
+      /ENOENT/,
+    );
+  });
+
+  it('needs the token and this server as the origin', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const anonymous = await request(server.url)
+      .post('/api/schema/init')
+      .send({});
+    expect(anonymous.status).toBe(401);
+    const foreign = await send('post', '/api/schema/init', {}).set(
+      'Origin',
+      'https://evil.example',
+    );
+    expect(foreign.status).toBe(403);
+    await expect(diskText()).rejects.toThrow(/ENOENT/);
+  });
+
   it('reads another example inside the root', async () => {
     await start({ 'config/sample.env': 'NAME=app\n' });
     const response = await send('post', '/api/schema/init', {

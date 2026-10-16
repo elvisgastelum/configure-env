@@ -5099,7 +5099,7 @@ export const getInitSchemaUrl = () => {
 };
 
 /**
- * @summary Writes a starting schema, inferred from an example env file
+ * @summary Writes a starting schema, inferred from an example env file, as configure-env init does
  */
 export const initSchema = async (
   initSchemaRequest: InitSchemaRequest,
@@ -5194,7 +5194,7 @@ export type InitSchemaMutationError = StaleSchema | SchemaEditRefused;
 export type InitSchemaMutationVariables = { data: InitSchemaRequest };
 
 /**
- * @summary Writes a starting schema, inferred from an example env file
+ * @summary Writes a starting schema, inferred from an example env file, as configure-env init does
  */
 export const useInitSchema = <
   TError = StaleSchema | SchemaEditRefused,

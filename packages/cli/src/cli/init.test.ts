@@ -1,8 +1,11 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_ID, parseSchemaText } from '@configure-env/core';
-import { inferVariables } from './infer.ts';
+import {
+  SCHEMA_ID,
+  inferVariables,
+  parseSchemaText,
+} from '@configure-env/core';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
 
 const dirs = useProject(null);

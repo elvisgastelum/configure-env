@@ -2,13 +2,18 @@
 // example env file when there is one.
 
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import {
-  SCHEMA_ID,
-  SCHEMA_VERSION,
+  DEFAULT_EXAMPLE,
+  type IgnoreStatus,
+  type InferredVariable,
+  STATE_IGNORE,
   VARIABLE_TYPES,
   type VariableSpec,
   filePathProblem,
+  ignoreState,
+  inferSchema,
+  inferVariables,
   parseSchema,
   schemaChanges,
   validateValue,
@@ -25,7 +30,6 @@ import {
   usageError,
 } from './common.ts';
 import { INIT_HELP } from './help.ts';
-import { type InferredVariable, inferVariables } from './infer.ts';
 import type { Io } from './io.ts';
 
 const OPTIONS = {
@@ -33,39 +37,7 @@ const OPTIONS = {
   force: { type: 'boolean' },
 } as const;
 
-/** The .gitignore line that keeps the protected variables' state out of git. */
-export const STATE_IGNORE = '.configure-env/';
-
-/** Lines that already ignore the state directory. */
-const IGNORES_STATE = new Set([
-  '.configure-env',
-  '.configure-env/',
-  '/.configure-env',
-  '/.configure-env/',
-]);
-
-type IgnoreStatus = 'created' | 'added' | 'present';
-
-/**
- * Adds STATE_IGNORE to the root's .gitignore unless a line already ignores
- * the directory; creates the file when it is missing.
- */
-async function ignoreState(root: string): Promise<IgnoreStatus> {
-  const path = join(root, '.gitignore');
-  let text: string;
-  try {
-    text = await readFile(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    await writeFile(path, `${STATE_IGNORE}\n`, { flag: 'wx' });
-    return 'created';
-  }
-  if (text.split(/\r?\n/).some((line) => IGNORES_STATE.has(line.trim())))
-    return 'present';
-  const separator = text && !text.endsWith('\n') ? '\n' : '';
-  await writeFile(path, `${text}${separator}${STATE_IGNORE}\n`);
-  return 'added';
-}
+export { STATE_IGNORE } from '@configure-env/core';
 
 const IGNORE_LINES: Record<IgnoreStatus, string[]> = {
   created: [`Created .gitignore with ${STATE_IGNORE}`],
@@ -74,7 +46,7 @@ const IGNORE_LINES: Record<IgnoreStatus, string[]> = {
 };
 
 /** The example file `init` reads when --from is not given and it exists. */
-export const DEFAULT_FROM = '.env.example';
+export const DEFAULT_FROM = DEFAULT_EXAMPLE;
 
 // An enum needs its values listed, which a single value cannot tell.
 const TYPES = VARIABLE_TYPES.filter((type) => type !== 'enum');
@@ -179,12 +151,8 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     } else prompts.log.info(`No ${DEFAULT_FROM}; starting an empty schema.`);
   }
 
-  const schema = {
-    $schema: SCHEMA_ID,
-    version: SCHEMA_VERSION,
-    variables,
-    files: from ? [{ path: from, policy: 'merge', variables: '*' }] : [],
-  };
+  // The schema init infers, with the variables as the person reviewed them.
+  const schema = { ...inferSchema(from, ''), variables };
   const checked = parseSchema(schema);
   if (!checked.ok)
     throw new CliError(1, [

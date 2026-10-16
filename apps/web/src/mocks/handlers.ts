@@ -128,6 +128,17 @@ async function schemaWrite(
 }
 
 const schemaWrites = [
+  // The sample project has a schema: init keeps it (see scenarios.noSchema).
+  http.post('/api/schema/init', () =>
+    HttpResponse.json(
+      {
+        statusCode: 409,
+        message: `${mockState.schema.path} exists; edit it instead`,
+        schema: mockState.schema,
+      },
+      { status: 409 },
+    ),
+  ),
   http.post('/api/schema/variables', ({ request }) =>
     schemaWrite(request, (document, body) =>
       writer.addVariable(
@@ -393,6 +404,9 @@ const schemaNeeded = () =>
     { status: 422 },
   );
 
+/** In scenarios.noSchema: whether init has not written the schema yet. */
+const missing = () => mockState.schemaWrites === 0;
+
 /** Overrides for named situations; put them before `handlers`. */
 export const scenarios = {
   /** Nothing was changed yet: the history is empty. */
@@ -431,11 +445,34 @@ export const scenarios = {
   ],
   /** The project has no schema file yet. */
   noSchema: [
-    http.get('/api/schema', () => json(fixtures.missingSchema)),
-    http.get('/api/variables', schemaNeeded),
-    http.get('/api/files', schemaNeeded),
-    http.get('/api/check', schemaNeeded),
-    http.get('/api/validate', schemaNeeded),
+    http.get('/api/schema', () =>
+      json(missing() ? fixtures.missingSchema : mockState.schema),
+    ),
+    http.get('/api/variables', () =>
+      missing() ? schemaNeeded() : json(mockState.variables),
+    ),
+    http.get('/api/files', () =>
+      missing() ? schemaNeeded() : json(mockState.files),
+    ),
+    http.get('/api/check', () =>
+      missing() ? schemaNeeded() : json(fixtures.check),
+    ),
+    http.get('/api/validate', () =>
+      missing() ? schemaNeeded() : json(fixtures.validate),
+    ),
+    // Init writes the sample schema, as if inferred from its .env.example.
+    http.post('/api/schema/init', () => {
+      if (!missing())
+        return HttpResponse.json(
+          {
+            statusCode: 409,
+            message: `${mockState.schema.path} exists; edit it instead`,
+            schema: mockState.schema,
+          },
+          { status: 409 },
+        );
+      return json(writeSchema(fixtures.schema.document));
+    }),
   ],
   /** The schema exists but breaks the format. */
   invalidSchema: [

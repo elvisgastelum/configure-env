@@ -8,6 +8,8 @@
 
 import { readFile } from 'node:fs/promises';
 import {
+  DEFAULT_EXAMPLE,
+  STATE_IGNORE,
   type SchemaDocument,
   type SchemaEditResult,
   type SchemaWriteResult,
@@ -15,6 +17,7 @@ import {
   createSchemaFile,
   editSchemaFile,
   filePathProblem,
+  ignoreState,
   inferSchema,
   recordHistory,
   resolveTarget,
@@ -103,15 +106,12 @@ export function variableName(name: string): string {
   return name;
 }
 
-/** The example `init` reads when none is named, if it exists. */
-export const DEFAULT_FROM = '.env.example';
-
 /** The source file's text, read inside the root; undefined for none. */
 async function sourceText(
   project: Project,
   from: string | undefined,
 ): Promise<{ from?: string; text: string }> {
-  const path = from ?? DEFAULT_FROM;
+  const path = from ?? DEFAULT_EXAMPLE;
   if (filePathProblem(path))
     throw new ApiError(403, `${path}: must name a file inside the root`);
   const target = await resolveTarget(project.root, path);
@@ -125,7 +125,9 @@ async function sourceText(
 
 /**
  * Writes a starting schema inferred from an example env file: a new file, or
- * over the existing one when the request names its fingerprint.
+ * over the existing one when the request names its fingerprint. Once it is
+ * written, the state directory is added to .gitignore, as `configure-env
+ * init` does; a .gitignore it cannot update is a warning.
  */
 export async function initSchema(
   project: Project,
@@ -138,5 +140,15 @@ export async function initSchema(
         fingerprint: body.fingerprint,
       })
     : await createSchemaFile(project.schemaFile, document);
-  return answer(project, result);
+  const view = await answer(project, result);
+  try {
+    await ignoreState(project.root);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? String(error);
+    view.warnings = [
+      ...(view.warnings ?? []),
+      `cannot update .gitignore: ${code}; add ${STATE_IGNORE} to it yourself`,
+    ];
+  }
+  return view;
 }

@@ -113,6 +113,53 @@ describe('the overview', () => {
     expect(screen.queryByRole('group', { name: 'Variables' })).toBeNull();
   });
 
+  it('inits the schema from .env.example in one click', async () => {
+    const user = userEvent.setup();
+    server.use(...scenarios.noSchema);
+    await renderApp();
+
+    const init = await screen.findByRole('button', {
+      name: 'Init from .env.example',
+    });
+    expect(
+      screen.getByText(/without one, it starts an empty schema/),
+    ).toBeInTheDocument();
+    await user.click(init);
+
+    expect(
+      await screen.findByText('Wrote env.schema.json: 5 variables'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(stat('Variables')).toHaveTextContent('5'));
+    expect(screen.queryByRole('heading', { name: 'No schema yet' })).toBeNull();
+  });
+
+  it('says why init failed and keeps the card', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post('/api/schema/init', () =>
+        HttpResponse.json(
+          { statusCode: 403, message: '.env.example: is a symlink' },
+          { status: 403 },
+        ),
+      ),
+      ...scenarios.noSchema,
+    );
+    await renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Init from .env.example' }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Could not init the schema: .env.example: is a symlink',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'No schema yet' }),
+    ).toBeInTheDocument();
+  });
+
   it('lists the errors of an invalid schema', async () => {
     server.use(...scenarios.invalidSchema);
     await renderApp();
