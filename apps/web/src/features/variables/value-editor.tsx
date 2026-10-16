@@ -13,8 +13,10 @@ import {
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { Spinner } from '@configure-env/design-system/components/atoms/spinner';
 import { Switch } from '@configure-env/design-system/components/atoms/switch';
+import { useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { undoToast } from '../history/undo-toast';
 import { isProtected } from './model';
 import { ConflictDialog } from './conflict-dialog';
 import {
@@ -143,6 +145,7 @@ export function ValueEditor({
   const [draft, setDraft] = useState(initial);
   const [replace, setReplace] = useState(false);
   const edit = useValueEdit();
+  const queryClient = useQueryClient();
   const problemsId = useId();
   const replaceId = useId();
 
@@ -184,8 +187,11 @@ export function ValueEditor({
       ...(fingerprint !== undefined ? { fingerprint } : {}),
     };
     edit.mutate(request, {
-      onSuccess: () => {
-        toast.success(t('variables.edit.saved', { name, file }));
+      onSuccess: (written) => {
+        toast.success(
+          t('variables.edit.saved', { name, file }),
+          undoToast(queryClient, t, written.changes),
+        );
         onDone();
       },
     });

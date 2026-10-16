@@ -27,6 +27,7 @@ import {
   validateQuery,
   variablesQuery,
 } from '../../lib/api';
+import { undoToast } from '../history/undo-toast';
 import { DiffView } from './diff-view';
 import {
   type SchemaEdit,
@@ -128,7 +129,10 @@ function ReviewBody({
     onMutate: () => setRefused(undefined),
     onSuccess: async (written) => {
       queryClient.setQueryData(schemaQuery.queryKey, written);
-      toast.success(t('schemaEditor.review.saved', { path }));
+      toast.success(
+        t('schemaEditor.review.saved', { path }),
+        undoToast(queryClient, t, written.changes),
+      );
       request.onSaved?.(written);
       onClose();
       await refreshDerived();

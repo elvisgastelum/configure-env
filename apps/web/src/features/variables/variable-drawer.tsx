@@ -8,9 +8,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@configure-env/design-system/components/atoms/sheet';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@configure-env/design-system/components/atoms/tabs';
 import { Lock } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { useTranslation } from 'react-i18next';
+import { VariableHistory } from '../history/variable-history';
 import { isProtected, protectedReason } from './model';
 import { optionsOf, rulesOf } from './spec';
 import { ValueMatrix } from './value-matrix';
@@ -127,82 +134,95 @@ function DrawerBody({
         </SheetDescription>
       </SheetHeader>
 
-      <div className="flex flex-col gap-6 px-4 pb-6">
-        {isProtected(spec) && <ProtectedNote reason={protectedReason(spec)} />}
-        <dl
-          aria-label={t('variables.drawer.details')}
-          className="divide-y text-sm"
-        >
-          {spec.comment && (
-            <Term label={t('variables.drawer.comment')}>{spec.comment}</Term>
+      <Tabs defaultValue="details" className="px-4 pb-6">
+        <TabsList aria-label={t('history.drawer.tabs')}>
+          <TabsTrigger value="details">
+            {t('history.drawer.details')}
+          </TabsTrigger>
+          <TabsTrigger value="history">{t('history.drawer.tab')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="details" className="flex flex-col gap-6 pt-2">
+          {isProtected(spec) && (
+            <ProtectedNote reason={protectedReason(spec)} />
           )}
-          {options.map(({ option, value }) => (
-            <Term
-              key={option}
-              label={t(`variables.drawer.optionLabels.${option}`)}
-            >
-              {Array.isArray(value) ? (
-                <span className="flex flex-wrap gap-1">
-                  {value.map((item) => (
-                    <Badge key={item} variant="outline" className="font-mono">
-                      {item}
-                    </Badge>
-                  ))}
-                </span>
-              ) : typeof value === 'boolean' ? (
-                value ? (
-                  t('variables.drawer.yes')
-                ) : (
-                  t('variables.drawer.no')
-                )
-              ) : (
-                <code className="font-mono">{show(value)}</code>
-              )}
-            </Term>
-          ))}
-          {rules.map(({ rule, names }) => (
-            <Term key={rule} label={t(`variables.drawer.ruleLabels.${rule}`)}>
-              <span className="flex flex-wrap gap-1">
-                {names.map((other) =>
-                  known.has(other) ? (
-                    <Button
-                      key={other}
-                      variant="link"
-                      size="xs"
-                      className="h-auto px-0 font-mono"
-                      onClick={() => onNavigate(other)}
-                    >
-                      {other}
-                    </Button>
+          <dl
+            aria-label={t('variables.drawer.details')}
+            className="divide-y text-sm"
+          >
+            {spec.comment && (
+              <Term label={t('variables.drawer.comment')}>{spec.comment}</Term>
+            )}
+            {options.map(({ option, value }) => (
+              <Term
+                key={option}
+                label={t(`variables.drawer.optionLabels.${option}`)}
+              >
+                {Array.isArray(value) ? (
+                  <span className="flex flex-wrap gap-1">
+                    {value.map((item) => (
+                      <Badge key={item} variant="outline" className="font-mono">
+                        {item}
+                      </Badge>
+                    ))}
+                  </span>
+                ) : typeof value === 'boolean' ? (
+                  value ? (
+                    t('variables.drawer.yes')
                   ) : (
-                    <code key={other} className="font-mono">
-                      {other}
-                    </code>
-                  ),
+                    t('variables.drawer.no')
+                  )
+                ) : (
+                  <code className="font-mono">{show(value)}</code>
                 )}
-              </span>
-            </Term>
-          ))}
-          {spec.default !== undefined && (
-            <Term label={t('variables.drawer.default')}>
-              <code className="font-mono">{show(spec.default)}</code>
-            </Term>
-          )}
-          {spec.example !== undefined && (
-            <Term label={t('variables.drawer.example')}>
-              <code className="font-mono">{show(spec.example)}</code>
-            </Term>
-          )}
-        </dl>
+              </Term>
+            ))}
+            {rules.map(({ rule, names }) => (
+              <Term key={rule} label={t(`variables.drawer.ruleLabels.${rule}`)}>
+                <span className="flex flex-wrap gap-1">
+                  {names.map((other) =>
+                    known.has(other) ? (
+                      <Button
+                        key={other}
+                        variant="link"
+                        size="xs"
+                        className="h-auto px-0 font-mono"
+                        onClick={() => onNavigate(other)}
+                      >
+                        {other}
+                      </Button>
+                    ) : (
+                      <code key={other} className="font-mono">
+                        {other}
+                      </code>
+                    ),
+                  )}
+                </span>
+              </Term>
+            ))}
+            {spec.default !== undefined && (
+              <Term label={t('variables.drawer.default')}>
+                <code className="font-mono">{show(spec.default)}</code>
+              </Term>
+            )}
+            {spec.example !== undefined && (
+              <Term label={t('variables.drawer.example')}>
+                <code className="font-mono">{show(spec.example)}</code>
+              </Term>
+            )}
+          </dl>
 
-        <ValueMatrix
-          variable={variable}
-          files={files}
-          all={all}
-          editing={editing}
-          onEditingChange={onEditingChange}
-        />
-      </div>
+          <ValueMatrix
+            variable={variable}
+            files={files}
+            all={all}
+            editing={editing}
+            onEditingChange={onEditingChange}
+          />
+        </TabsContent>
+        <TabsContent value="history" className="pt-2">
+          <VariableHistory name={name} />
+        </TabsContent>
+      </Tabs>
     </>
   );
 }
