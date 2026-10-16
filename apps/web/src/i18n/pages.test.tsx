@@ -1,7 +1,7 @@
 // Every page in every language, with no fallback: a key the page asks for
 // and the language lacks, including one built at run time, fails the test.
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
@@ -40,7 +40,7 @@ describe.each(LANGUAGES)('the portal in %s', (language) => {
     'renders %s with every string it needs',
     async (path, key) => {
       const { instance, missing } = strictI18n(language);
-      await renderApp(path, instance);
+      const { queryClient } = await renderApp(path, instance);
 
       const nav = within(screen.getByTestId('app-sidebar')).getByRole(
         'navigation',
@@ -49,9 +49,9 @@ describe.each(LANGUAGES)('the portal in %s', (language) => {
       expect(
         within(nav).getByRole('link', { name: copy.nav[key] }),
       ).toHaveAttribute('aria-current', 'page');
-      // Let the page's data arrive, so its loaded states render too.
+      // Once every query has settled, the loaded states have rendered too.
       await screen.findAllByRole('heading', { level: 1 });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor(() => expect(queryClient.isFetching()).toBe(0));
       expect(missing).toEqual([]);
     },
   );

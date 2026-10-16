@@ -16,6 +16,7 @@ import { Lock, Undo2 } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fullDate, relativeDate } from '../../lib/dates';
+import { useNow } from '../../lib/use-now';
 import { DiffView } from '../schema/diff-view';
 import { undoChanges, undoFailure } from './history-api';
 
@@ -30,6 +31,7 @@ const shown = (value: string | null, preview: string | null) =>
 export function HistoryEntry({ change }: { change: Change }) {
   const { t, i18n } = useTranslation();
   const at = new Date(change.at);
+  const now = useNow();
   const titleId = useId();
   const schema = change.operation === 'schema';
   return (
@@ -67,7 +69,7 @@ export function HistoryEntry({ change }: { change: Change }) {
               </Badge>
             )}
             <time dateTime={change.at} title={fullDate(at, i18n.language)}>
-              {relativeDate(at, new Date(), i18n.language)}
+              {relativeDate(at, now, i18n.language)}
             </time>
             {change.undoOf !== null && (
               <span>{t('history.entry.undoOf', { id: change.undoOf })}</span>

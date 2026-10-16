@@ -8,7 +8,10 @@ import type { ReactNode } from 'react';
 import { AppProviders } from '../app-providers';
 import { createAppRouter, createQueryClient } from '../router';
 
-/** `ui` in the portal's providers, in English or in `i18n`'s language. */
+/**
+ * `ui` in the portal's providers, in `i18n`'s language, else in the one
+ * `createI18n` detects: the stored pick, then the browser's (English in jsdom).
+ */
 export function renderWithProviders(ui: ReactNode, i18n?: i18n) {
   const queryClient = createQueryClient();
   return {

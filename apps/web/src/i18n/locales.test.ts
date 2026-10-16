@@ -67,6 +67,14 @@ describe('the locale files', () => {
     },
   );
 
+  it('names each language in its own language, in every locale', () => {
+    for (const language of LANGUAGES)
+      for (const other of LANGUAGES)
+        expect(resources[language].translation.language[other]).toBe(
+          resources[other].translation.language[other],
+        );
+  });
+
   it.each(LANGUAGES)('%s uses the placeholders English uses', (language) => {
     for (const [key, forms] of messages(language)) {
       const english = new Set(

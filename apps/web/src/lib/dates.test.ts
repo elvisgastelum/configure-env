@@ -28,7 +28,8 @@ describe('relativeDate', () => {
 
 describe('fullDate', () => {
   it('gives the date and time in the language', () => {
-    const at = new Date('2026-10-15T14:30:00.000Z');
+    // Built from local parts, so the day is the 15th in any timezone.
+    const at = new Date(2026, 9, 15, 14, 30);
     expect(fullDate(at, 'en')).toMatch(/Oct 15, 2026/);
     expect(fullDate(at, 'es')).toMatch(/15 oct 2026/);
   });

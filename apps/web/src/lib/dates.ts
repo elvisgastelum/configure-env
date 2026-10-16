@@ -1,6 +1,8 @@
 // Dates as the portal says them, in its language: "5 minutes ago" or
 // "hace 5 minutos", with the full date and time for a title.
 
+// In seconds. A month of 30 days and a year of 365 are approximations on
+// purpose: a relative date is a rough age, and the full date is in the title.
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ['year', 365 * 24 * 60 * 60],
   ['month', 30 * 24 * 60 * 60],

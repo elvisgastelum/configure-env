@@ -9,7 +9,7 @@ import { SidebarNav } from './sidebar-nav';
 import { LanguageToggle } from './language-toggle';
 import { ThemeToggle } from './theme-toggle';
 
-/** The sidebar's links and the theme in a sheet, for small screens. */
+/** The sidebar's links, the language and the theme in a sheet, for small screens. */
 export default function MobileNav({
   open,
   onOpenChange,
