@@ -8,11 +8,13 @@ import type {
   EditProblem,
   FileDrift,
   FilePlan,
+  FileValidation,
   Files,
   Plan,
   PlanError,
   PlanRequest,
   Schema,
+  Validate,
   Variable,
   VariableSpec,
   Variables,
@@ -447,4 +449,38 @@ export function checkOf(): Check {
     files,
     errors: [],
   };
+}
+
+/**
+ * The value and rule errors as GET /api/validate answers it for the sample
+ * project as it is now: invalid values, required values a file lacks, and
+ * lines that do not parse. A template holds placeholders and passes.
+ */
+export function validateOf(): Validate {
+  const files = mockState.files.files.map((info): FileValidation => {
+    const errors: FileValidation['errors'] = [];
+    if (!info.template && info.exists) {
+      for (const variable of variablesIn(info.path)) {
+        const entry = variable.files.find((value) => value.file === info.path)!;
+        if (entry.status === 'invalid')
+          errors.push({
+            key: variable.name,
+            message: entry.error ?? 'is invalid',
+          });
+        else if (entry.status === 'missing' && variable.spec.required)
+          errors.push({ key: variable.name, message: 'is required' });
+      }
+      for (const { line } of info.parseErrors)
+        errors.push({ line, message: 'is not a valid entry' });
+    }
+    return {
+      path: info.path,
+      template: info.template,
+      exists: info.exists,
+      ok: errors.length === 0,
+      errors,
+      warnings: [],
+    };
+  });
+  return { ok: files.every((file) => file.ok), files };
 }

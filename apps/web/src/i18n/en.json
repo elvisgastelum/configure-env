@@ -743,5 +743,25 @@
       "mode": "Mode {{actual}}, the schema wants {{expected}}",
       "line": "Line {{line}} is not a valid entry"
     }
+  },
+  "validate": {
+    "lead": "The value and rule errors of configure-env validate, by file and variable. Fix a value in place; the report runs again after.",
+    "error": "Validate could not run: {{message}}",
+    "loading": "Running validate",
+    "run": "Run validate",
+    "passing": "Every value follows its rules.",
+    "errorCount_one": "{{count}} error",
+    "errorCount_other": "{{count}} errors",
+    "inFiles_one": "in {{count}} file.",
+    "inFiles_other": "in {{count}} files.",
+    "noErrors": "No errors.",
+    "fix": "Fix",
+    "fixLabel": "Fix {{name}} in {{file}}",
+    "with": "With",
+    "lines": "Lines",
+    "line": "Line {{line}} {{message}}",
+    "openFile": "Open {{path}}",
+    "file": "The file",
+    "warnings": "Warnings"
   }
 }

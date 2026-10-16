@@ -26,6 +26,7 @@ import {
   problemsOf,
   protectedProblems,
   touchFile,
+  validateOf,
   writeSchema,
   writeValue,
 } from './store';
@@ -367,7 +368,10 @@ export const scenarios = {
    * Check and validate report the sample project as it is now, so a fix
    * made in the portal shows in the next report.
    */
-  liveReports: [http.get('/api/check', () => json(checkOf()))],
+  liveReports: [
+    http.get('/api/check', () => json(checkOf())),
+    http.get('/api/validate', () => json(validateOf())),
+  ],
   /** Every env file matches its schema. */
   passing: [
     http.get('/api/check', () => json(fixtures.passingCheck)),

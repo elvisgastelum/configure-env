@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { PlaceholderPage } from '../components/placeholder-page';
+import { ValidatePage } from '../features/validate/validate-page';
 
 export const Route = createFileRoute('/validate')({
-  component: () => <PlaceholderPage page="validate" />,
+  component: ValidatePage,
 });

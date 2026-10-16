@@ -441,6 +441,51 @@ export const validate: Validate = {
   ],
 };
 
+/** A validate report with value, rule, protected and line errors. */
+export const validationReport: Validate = {
+  ok: false,
+  files: [
+    {
+      path: '.env',
+      template: false,
+      exists: true,
+      ok: false,
+      errors: [
+        { key: 'API_URL', message: 'is not a URL' },
+        {
+          key: 'DB_PASSWORD',
+          keys: ['DB_PASSWORD', 'API_KEY'],
+          message: 'must differ from API_KEY',
+        },
+        {
+          kind: 'protected',
+          key: 'DB_PASSWORD',
+          message: 'no longer matches the value the state recorded',
+          reason: 'The database was created with it.',
+        },
+        { line: 6, message: 'is not a valid entry' },
+      ],
+      warnings: [{ key: 'EXTRA', message: 'is not in the schema' }],
+    },
+    {
+      path: '.env.example',
+      template: true,
+      exists: true,
+      ok: true,
+      errors: [],
+      warnings: [],
+    },
+    {
+      path: 'config/app.env',
+      template: false,
+      exists: true,
+      ok: false,
+      errors: [{ key: 'PORT', message: 'must be a port between 1 and 65535' }],
+      warnings: [],
+    },
+  ],
+};
+
 export const passingCheck: Check = {
   ok: true,
   drift: false,
