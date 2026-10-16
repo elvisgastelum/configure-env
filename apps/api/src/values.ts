@@ -158,7 +158,7 @@ export async function setFileValues(
   const history = await recordHistory(
     project.statePath,
     'portal',
-    setChanges(file, result),
+    setChanges(schema, file, result),
   );
   const warnings = [...(result.stateError ?? []), ...history.warnings];
   return {

@@ -75,7 +75,7 @@ async function set(pairs: Record<string, string>) {
     new Map(Object.entries(pairs)),
   );
   if (!result.ok) throw new Error(JSON.stringify(result));
-  return (await recordHistory(statePath(), 'cli', setChanges(file, result)))
+  return (await recordHistory(statePath(), 'cli', setChanges(schema, file, result)))
     .ids;
 }
 

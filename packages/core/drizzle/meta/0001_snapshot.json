@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d0c21bb2-af70-4bef-9812-aee44d65e3a1",
+  "id": "1d2f78de-6c20-45a3-94fa-e145d5cbb061",
   "prevId": "0d6dbb13-9534-4233-ac5d-db83601bbfbc",
   "tables": {
     "changes": {
@@ -102,6 +102,13 @@
         "undo_of": {
           "name": "undo_of",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "not_kept": {
+          "name": "not_kept",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

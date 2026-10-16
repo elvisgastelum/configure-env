@@ -27,19 +27,22 @@ import {
   setValues,
   unsetValues,
 } from './edit.ts';
-import {
-  type EnvFile,
-  UNKNOWN_SPEC,
-  readEnvFile,
-  variablesOf,
-} from './file.ts';
+import { type EnvFile, UNKNOWN_SPEC, readEnvFile } from './file.ts';
 import type { Replaced } from './protect.ts';
 
-/** A key's spec in `file`: a key it does not list is a plain string. */
-const specOf = (schema: EnvSchema, file: EnvFile, key: string): VariableSpec =>
-  variablesOf(schema, file.spec).has(key)
-    ? schema.variables[key]!
-    : UNKNOWN_SPEC;
+/**
+ * How the history records `key`: by the spec the schema declares for it,
+ * whether or not the file lists it, so a secret stays secret in every file;
+ * a key the schema does not declare is `undeclared`, its values never kept.
+ */
+function declared(
+  schema: EnvSchema,
+  key: string,
+): { spec: VariableSpec; undeclared?: true } {
+  return Object.hasOwn(schema.variables, key)
+    ? { spec: schema.variables[key]! }
+    : { spec: UNKNOWN_SPEC, undeclared: true };
+}
 
 /**
  * The keys a `setValues` on `file` changed. `masked` keys are recorded as
@@ -47,6 +50,7 @@ const specOf = (schema: EnvSchema, file: EnvFile, key: string): VariableSpec =>
  * never kept.
  */
 export function setChanges(
+  schema: EnvSchema,
   file: EnvFile,
   result: Edited<SetEntry>,
   { masked, undoOf }: { masked?: ReadonlySet<string>; undoOf?: number } = {},
@@ -54,17 +58,19 @@ export function setChanges(
   const before = parseDotenv(file.previous ?? '');
   return result.keys
     .filter((entry) => entry.status !== 'unchanged')
-    .map((entry) => ({
-      file: result.file,
-      key: entry.key,
-      operation: result.replaced.includes(entry.key) ? 'replace' : 'set',
-      spec: masked?.has(entry.key)
-        ? { ...entry.spec, secret: true }
-        : entry.spec,
-      before: getValue(before, entry.key),
-      after: entry.plain,
-      ...(undoOf === undefined ? {} : { undoOf }),
-    }));
+    .map((entry) => {
+      const { spec, undeclared } = declared(schema, entry.key);
+      return {
+        file: result.file,
+        key: entry.key,
+        operation: result.replaced.includes(entry.key) ? 'replace' : 'set',
+        spec: masked?.has(entry.key) ? { ...spec, secret: true } : spec,
+        ...(undeclared ? { undeclared } : {}),
+        before: getValue(before, entry.key),
+        after: entry.plain,
+        ...(undoOf === undefined ? {} : { undoOf }),
+      };
+    });
 }
 
 /** The keys an `unsetValues` on `file` removed. */
@@ -81,7 +87,7 @@ export function unsetChanges(
       file: result.file,
       key,
       operation: result.replaced.includes(key) ? 'replace' : 'unset',
-      spec: specOf(schema, file, key),
+      ...declared(schema, key),
       before: getValue(before, key),
       ...(undoOf === undefined ? {} : { undoOf }),
     }));
@@ -115,7 +121,7 @@ export function appliedChanges(
           : now === undefined
             ? 'unset'
             : 'set',
-        spec: schema.variables[key] ?? UNKNOWN_SPEC,
+        ...declared(schema, key),
         before: was,
         after: now,
       });
@@ -311,7 +317,7 @@ async function undoValue(
   return finish(
     context,
     change,
-    setChanges(file, result, { undoOf: change.id }),
+    setChanges(edit.schema, file, result, { undoOf: change.id }),
     result.stateError,
   );
 }

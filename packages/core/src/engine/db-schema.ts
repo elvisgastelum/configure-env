@@ -42,9 +42,10 @@ export const protectedFingerprints = sqliteTable(
  * which file, how, and fingerprints and masked previews of the value before
  * and after. A change to a variable that is not secret also keeps the values
  * (`before_value`, `after_value`), and a change to the schema (operation
- * `schema`, key empty) its text, so it is `restorable`; a secret's value is
- * never kept, so a change to it cannot be undone. `undo_of` names the change
- * an undo reverted. `operation` is not constrained in SQL, so the history can
+ * `schema`, key empty) its text, so it is `restorable`. A value is never
+ * kept for a secret, nor for a key the schema does not declare, and the
+ * creation of the schema is not undone: `not_kept` says which, so the change
+ * says why it cannot be undone. `undo_of` names the change an undo reverted. `operation` is not constrained in SQL, so the history can
  * name new operations without rebuilding the table.
  */
 export const changes = sqliteTable(
@@ -68,6 +69,9 @@ export const changes = sqliteTable(
       .notNull()
       .default(false),
     undoOf: integer('undo_of'),
+    notKept: text('not_kept', {
+      enum: ['secret', 'undeclared', 'schema-created'],
+    }),
   },
   (table) => [
     check('changes_actor', sql`${table.actor} in ('cli', 'portal')`),

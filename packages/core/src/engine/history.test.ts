@@ -6,6 +6,7 @@ import {
   LEGACY_UNDO_REASON,
   SCHEMA_CREATE_UNDO_REASON,
   SECRET_UNDO_REASON,
+  UNDECLARED_UNDO_REASON,
   queryChanges,
   readChange,
   readChanges,
@@ -65,6 +66,7 @@ describe('recordChanges', () => {
         afterValue: null,
         restorable: false,
         undoOf: null,
+        notKept: 'secret',
       },
       {
         id: 2,
@@ -81,6 +83,7 @@ describe('recordChanges', () => {
         afterValue: null,
         restorable: true,
         undoOf: null,
+        notKept: null,
       },
     ]);
     const sqlite = new Database(statePath(), { readonly: true });
@@ -180,6 +183,32 @@ describe('recordChanges', () => {
     expect(undoBlocker(edited!)).toBeUndefined();
   });
 
+  it('keeps no value of a key the schema does not declare, and says why', async () => {
+    const stray = ['stray', 'v'.repeat(70)].join('-');
+    await recordChanges(statePath(), 'cli', [
+      {
+        file: '.env',
+        key: 'STRAY',
+        operation: 'unset',
+        spec: plain,
+        undeclared: true,
+        before: stray,
+      },
+    ]);
+    const row = (await readChange(statePath(), 1))!;
+    expect(row).toMatchObject({
+      beforePreview: '••••',
+      beforeValue: null,
+      restorable: false,
+      notKept: 'undeclared',
+    });
+    expect(undoBlocker(row)).toBe(UNDECLARED_UNDO_REASON);
+    const sqlite = new Database(statePath(), { readonly: true });
+    const dump = JSON.stringify(sqlite.prepare('select * from changes').all());
+    sqlite.close();
+    expect(dump).not.toContain('stray-');
+  });
+
   it("says a secret's change cannot be undone", async () => {
     await recordChanges(statePath(), 'cli', [
       {
@@ -249,6 +278,7 @@ describe('queryChanges', () => {
       'after_value',
       'restorable',
       'undo_of',
+      'not_kept',
     ])
       sqlite.exec(`alter table changes drop column ${column}`);
     sqlite.exec("update meta set value = '1' where key = 'schema_version'");

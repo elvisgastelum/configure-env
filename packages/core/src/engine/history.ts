@@ -34,14 +34,23 @@ export type ChangeOperation = 'set' | 'unset' | 'replace' | 'schema';
 
 /**
  * One key an edit changed, with its values: a secret's never reach the
- * database, any other's do, so the change can be undone.
+ * database, nor do those of a key the schema does not declare; any other's
+ * do, so the change can be undone.
  */
 export interface ValueChangeInput {
   file: string;
   key: string;
   operation: Exclude<ChangeOperation, 'schema'>;
-  /** The variable's spec: a secret's previews are masked, its values never kept. */
+  /**
+   * The spec the schema declares for the key, whichever file holds it: a
+   * secret's previews are masked, its values never kept.
+   */
   spec: VariableSpec;
+  /**
+   * The schema does not declare the key (a stray credential, say): its
+   * previews are masked and its values never kept, as a secret's.
+   */
+  undeclared?: boolean | undefined;
   /** The value before; absent when the key was not set. */
   before?: string | undefined;
   /** The value after; absent when the key is no longer set. */
@@ -76,6 +85,10 @@ export const SECRET_UNDO_REASON =
 export const SCHEMA_CREATE_UNDO_REASON =
   "the schema file did not exist before this change; undoing it would delete the file, so it can't be undone here";
 
+/** Why the change of a key the schema does not declare cannot be undone. */
+export const UNDECLARED_UNDO_REASON =
+  "the schema does not declare this key, so its value is not kept and this change can't be undone";
+
 /** Why a change recorded before values were kept cannot be undone. */
 export const LEGACY_UNDO_REASON =
   "this change was recorded before the history kept values, so it can't be undone";
@@ -83,13 +96,16 @@ export const LEGACY_UNDO_REASON =
 /** Why `change` cannot be undone; undefined when it can. */
 export function undoBlocker(change: ChangeRecord): string | undefined {
   if (change.restorable) return undefined;
-  if (change.operation === 'schema') return SCHEMA_CREATE_UNDO_REASON;
-  if (
-    change.beforePreview === SECRET_PREVIEW ||
-    change.afterPreview === SECRET_PREVIEW
-  )
-    return SECRET_UNDO_REASON;
-  return LEGACY_UNDO_REASON;
+  switch (change.notKept) {
+    case 'secret':
+      return SECRET_UNDO_REASON;
+    case 'undeclared':
+      return UNDECLARED_UNDO_REASON;
+    case 'schema-created':
+      return SCHEMA_CREATE_UNDO_REASON;
+    default:
+      return LEGACY_UNDO_REASON;
+  }
 }
 
 /** The mask a secret's preview is: it tells nothing of the value. */
@@ -159,16 +175,21 @@ function rowOf(
       afterValue: change.after,
       // Undoing the creation would delete the file: not done from here.
       restorable: change.before !== undefined,
+      notKept: change.before === undefined ? 'schema-created' : null,
     };
-  const { spec } = change;
+  // A secret's value, or an undeclared key's, never reaches the database.
+  const notKept = change.spec.secret
+    ? 'secret'
+    : change.undeclared
+      ? 'undeclared'
+      : null;
   const side = (value: string | undefined) =>
     value === undefined
       ? { fingerprint: null, preview: null, value: null }
       : {
           fingerprint: fingerprint(salt, value),
-          preview: previewOf(spec, value),
-          // A secret's value never reaches the database.
-          value: spec.secret ? null : value,
+          preview: notKept ? SECRET_PREVIEW : previewOf(change.spec, value),
+          value: notKept ? null : value,
         };
   const before = side(change.before);
   const after = side(change.after);
@@ -182,7 +203,8 @@ function rowOf(
     afterPreview: after.preview,
     beforeValue: before.value,
     afterValue: after.value,
-    restorable: !spec.secret,
+    restorable: notKept === null,
+    notKept,
   };
 }
 

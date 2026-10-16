@@ -364,7 +364,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
   // A piped value is recorded as a secret: never kept, as it is never shown.
   const recorded = await recordRun(
     context,
-    setChanges(file, result, {
+    setChanges(schema, file, result, {
       masked: new Set(stdinKey === undefined ? [] : [stdinKey]),
     }),
   );

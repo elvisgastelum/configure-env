@@ -7,7 +7,6 @@
 import {
   type ChangeFilter,
   type ChangeRecord,
-  SECRET_UNDO_REASON,
   type UndoFailure,
   queryChanges,
   undoBlocker,
@@ -38,7 +37,7 @@ export function changeView(change: ChangeRecord): Change {
     key: change.key,
     operation: change.operation,
     at: change.at,
-    secret: blocker === SECRET_UNDO_REASON,
+    secret: change.notKept === 'secret',
     beforePreview: change.beforePreview,
     afterPreview: change.afterPreview,
     beforeValue: change.beforeValue,

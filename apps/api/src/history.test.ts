@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   DEFAULT_STATE_PATH,
   SECRET_UNDO_REASON,
+  UNDECLARED_UNDO_REASON,
   readChanges,
   recordChanges,
   schemaFingerprint,
@@ -16,6 +17,7 @@ import {
   protectedProject,
   removeProject,
   startServer,
+  writeProject,
 } from './test-helpers.ts';
 
 const bearer = `Bearer ${TOKEN}`;
@@ -251,5 +253,87 @@ describe('POST /api/history/:id/undo', () => {
   it('answers 404 for no such change and 400 for no id', async () => {
     expect((await post('/api/history/7/undo')).status).toBe(404);
     expect((await post('/api/history/x/undo')).status).toBe(400);
+  });
+});
+
+describe('the history the API records keeps no secret value', () => {
+  const SCHEMA = {
+    version: 1,
+    variables: {
+      HOST: { type: 'string' },
+      API_KEY: { type: 'string', secret: true },
+    },
+    files: [
+      { path: '.env', policy: 'merge', variables: '*' },
+      { path: '.env.local', policy: 'merge', variables: ['HOST'] },
+    ],
+  };
+
+  /** The database's bytes, with its WAL and shared-memory files. */
+  async function stateBytes(): Promise<string> {
+    const base = join(root, DEFAULT_STATE_PATH);
+    const parts = await Promise.all(
+      [base, `${base}-wal`, `${base}-shm`].map((file) =>
+        readFile(file).catch(() => Buffer.alloc(0)),
+      ),
+    );
+    return Buffer.concat(parts).toString('latin1');
+  }
+
+  it('when the file does not list the secret, or the schema does not declare a key', async () => {
+    const secret = fakeSecret('local');
+    const stray = fakeSecret('stray');
+    await server.close();
+    await removeProject(root);
+    root = await writeProject({
+      'env.schema.json': JSON.stringify(SCHEMA),
+      '.env.local': `HOST=a\nAPI_KEY=${secret}\n`,
+      '.env': `HOST=a\nSTRAY=${stray}\n`,
+    });
+    server = await startServer(root);
+
+    const unset = await post('/api/values/unset', {
+      file: '.env.local',
+      fingerprint: schemaFingerprint(
+        await readFile(join(root, '.env.local'), 'utf8'),
+      ),
+      keys: ['API_KEY'],
+    });
+    expect(unset.status).toBe(200);
+    const plan = await post('/api/plan', { files: ['.env'], prune: true });
+    const applied = await post('/api/apply', {
+      files: ['.env'],
+      prune: true,
+      fingerprint: plan.body.fingerprint,
+    });
+    expect(applied.status).toBe(200);
+
+    const listed = await get('/api/history');
+    const printed = JSON.stringify(listed.body);
+    const bytes = await stateBytes();
+    for (const value of [secret, stray]) {
+      expect(printed).not.toContain(value);
+      expect(bytes).not.toContain(value);
+    }
+    expect(listed.body.changes).toMatchObject([
+      // apply adds the secret .env lists, empty: masked all the same.
+      { key: 'API_KEY', file: '.env', afterPreview: '••••', afterValue: null },
+      {
+        key: 'STRAY',
+        beforePreview: '••••',
+        beforeValue: null,
+        restorable: false,
+        undoBlocker: UNDECLARED_UNDO_REASON,
+      },
+      {
+        key: 'API_KEY',
+        file: '.env.local',
+        secret: true,
+        beforePreview: '••••',
+        beforeValue: null,
+        restorable: false,
+        undoBlocker: SECRET_UNDO_REASON,
+      },
+    ]);
   });
 });
