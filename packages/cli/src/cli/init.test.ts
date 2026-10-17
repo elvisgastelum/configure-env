@@ -1,4 +1,12 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -171,6 +179,27 @@ describe('init', () => {
     await writeFile(gitignore, 'node_modules/\n');
     expect((await cli(['init', '--ci'])).code).toBe(2);
     expect(await readFile(gitignore, 'utf8')).toBe('node_modules/\n');
+  });
+
+  it('never writes through a symlinked .gitignore, and says so', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'ignore'), 'node_modules/\n');
+      await symlink(join(outside, 'ignore'), join(root(), '.gitignore'));
+      const r = await cli(['init', '--ci']);
+      expect(r.code).toBe(0);
+      expect(r.out).toEqual(['Wrote env.schema.json: 0 variables']);
+      expect(r.err).toEqual([
+        'configure-env: warning: .gitignore is a symlink; add .configure-env/ to it yourself',
+      ]);
+      expect(await readFile(join(outside, 'ignore'), 'utf8')).toBe(
+        'node_modules/\n',
+      );
+      const json = await cli(['init', '--json', '--force']);
+      expect(JSON.parse(json.out[0]!)).toMatchObject({ gitignore: 'symlink' });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('exits 2 for a --from that is missing or outside the root', async () => {

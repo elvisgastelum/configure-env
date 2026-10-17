@@ -390,7 +390,7 @@ It infers the variables from `--from <file>`, or from `.env.example` when that e
 
 Without an example file it writes an empty schema. In a terminal it shows the inferred types and lets you keep them or pick each one (a default that no longer fits the new type is dropped); with `--ci` it writes them as inferred.
 
-Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so.
+Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so. A `.gitignore` that is a symlink is left alone, since it may lead outside the project: a warning on stderr asks you to add the line yourself.
 
 ```sh
 configure-env init
@@ -744,7 +744,7 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |
 | `PUT /api/schema/variable-order`          | puts the variables in a new order                                                             |
 | `POST` / `PUT` / `DELETE /api/schema/files` | adds, changes or removes a file the schema manages                                          |
-| `POST /api/schema/init`                   | writes the starting schema `configure-env init` writes, inferred from `.env.example` (or `from`), and adds `.configure-env/` to `.gitignore`; 409 when a schema exists, unless it names its fingerprint |
+| `POST /api/schema/init`                   | writes the starting schema `configure-env init` writes, inferred from `.env.example` (or `from`), and adds `.configure-env/` to `.gitignore` (never through a symlink: a warning instead); 409 when a schema exists, unless it names its fingerprint |
 | `POST /api/history/{id}/undo`             | undoes one change of the history: writes the value or the schema text before it              |
 | `POST /api/open-in-editor`                | opens the schema file or one of its env files in your editor at a line: `{ "file": ".env", "key": "PORT" }`, `{ "file": "env.schema.json", "path": "files[1].variables[0]" }` or `{ "file", "line", "column" }`; writes nothing |
 

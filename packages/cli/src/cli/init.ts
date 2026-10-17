@@ -43,6 +43,7 @@ const IGNORE_LINES: Record<IgnoreStatus, string[]> = {
   created: [`Created .gitignore with ${STATE_IGNORE}`],
   added: [`Added ${STATE_IGNORE} to .gitignore`],
   present: [],
+  symlink: [],
 };
 
 /** The example file `init` reads when --from is not given and it exists. */
@@ -214,6 +215,11 @@ export async function initCommand(args: string[], io: Io): Promise<number> {
     );
   else if (interactive) prompts.outro(summary.join('\n'));
   else summary.forEach((line) => io.stdout(line));
-  printWarnings(io, warnings);
+  printWarnings(io, [
+    ...(ignored === 'symlink'
+      ? [`.gitignore is a symlink; add ${STATE_IGNORE} to it yourself`]
+      : []),
+    ...warnings,
+  ]);
   return 0;
 }

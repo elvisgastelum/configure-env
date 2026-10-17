@@ -82,7 +82,7 @@ Errors never hold a value. Error `kind`: `value` (a value breaks its rules or a 
 - `validate`: `{ command, ok, files: [{ path, template, exists, ok, errors, warnings }] }`; each problem has `key` or `line`, `message`, `keys` for a conflict, `kind: "protected"` (with `reason`) for a mismatch.
 - `list`: `[{ file, key, set, valid, error?, value | masked, description, unknown? }]`; `valid` is `null` when not checked; `unknown: true` only for a key the schema does not list for the file.
 - `set`: `{ command, ok, file, keys: [{ key, status, value | masked, replaced? }] }`; `unset`: same with `{ key, status, replaced? }`. A lock or state failure before writing (`keys: []`, nothing written) or a failed state write after the file prints it with `ok: false` and `errors: [{ kind: "file", path, message }]`, exit 1; other failures go to stderr only.
-- `init`: `{ command, ok, schema, from, variables, gitignore }`; `gitignore`: `created`, `added`, `present`.
+- `init`: `{ command, ok, schema, from, variables, gitignore }`; `gitignore`: `created`, `added`, `present`, or `symlink` (a symlinked `.gitignore` is left alone, with a warning on stderr).
 - `history`: `{ command, ok, total, changes: [{ id, at, actor, file, key, operation, before, after, restorable, undoBlocker?, undoOf }] }`; `before`/`after` are previews (a secret's `••••`), `total` counts every change recorded.
 - `serve`: one line once it listens, `{ command, url, port, pid }`; `url` is the launch URL with the token.
 - `get`: `{ key, set, value | masked }`; `{ key, set: false }` (exit 1) when unset.

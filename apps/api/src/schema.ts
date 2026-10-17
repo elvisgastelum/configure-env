@@ -6,8 +6,7 @@
 // A write is recorded in the history with the schema's text before and
 // after, so it can be undone.
 
-import { lstat, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import {
   DEFAULT_EXAMPLE,
   STATE_IGNORE,
@@ -124,19 +123,12 @@ async function sourceText(
   return { from: path, text: await readFile(target.absolute, 'utf8') };
 }
 
-/**
- * ignoreState, but never through a symlink: like every other file the API
- * writes, the .gitignore must be the root's own. Answers what stopped it.
- */
+/** ignoreState, answering what stopped it, if anything. */
 async function ignoreStateInside(root: string): Promise<string | undefined> {
-  const link = await lstat(join(root, '.gitignore')).then(
-    (stats) => stats.isSymbolicLink(),
-    () => false,
-  );
-  if (link) return 'it is a symlink';
   try {
-    await ignoreState(root);
-    return undefined;
+    return (await ignoreState(root)) === 'symlink'
+      ? 'it is a symlink'
+      : undefined;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code ?? String(error);
   }
