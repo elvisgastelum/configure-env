@@ -7,6 +7,7 @@
 import * as writer from '@configure-env/core/schema';
 import type {
   ApplyRequest,
+  FixGitignoreRequest,
   OpenInEditorRequest,
   PlanRequest,
 } from '@configure-env/api-client';
@@ -21,6 +22,7 @@ import * as fixtures from './fixtures';
 import {
   applyPlan,
   checkOf,
+  fixGitignoreProblems,
   editorPosition,
   eventClients,
   findFile,
@@ -220,6 +222,10 @@ export const handlers = [
   http.get('/api/groups', () => json(groupsOf())),
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
+  http.post('/api/check/gitignore', async ({ request }) => {
+    const { paths } = (await request.json()) as FixGitignoreRequest;
+    return json({ fixed: fixGitignoreProblems(paths), check: checkOf() });
+  }),
   http.post('/api/files/content', async ({ request }) => {
     const { file } = (await request.json()) as { file: string };
     const info = findFile(file);

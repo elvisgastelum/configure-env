@@ -6,6 +6,7 @@ import type {
   Change,
   Check,
   Files,
+  GitignoreProblem,
   Plan,
   Project,
   Schema,
@@ -559,6 +560,32 @@ export function manyFilesCheck(count = 24): Check {
     files,
   };
 }
+
+/** What git could commit in the sample project: the state folder and .env. */
+export const gitignoreProblems: GitignoreProblem[] = [
+  {
+    severity: 'error',
+    code: 'state-not-ignored',
+    path: '.configure-env',
+    gitignore: '.configure-env/.gitignore',
+    entries: [
+      'state.db',
+      'state.db-journal',
+      'state.db-wal',
+      'state.db-shm',
+      'state.json',
+    ],
+    message: 'no .gitignore keeps the state out of git',
+  },
+  {
+    severity: 'error',
+    code: 'file-not-ignored',
+    path: '.env',
+    gitignore: '.gitignore',
+    entries: ['/.env'],
+    message: 'not git-ignored; its values could be committed',
+  },
+];
 
 export const passingCheck: Check = {
   command: 'check',

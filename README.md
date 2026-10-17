@@ -614,7 +614,7 @@ What the portal does, page by page:
 - **Overview**: the schema's health, the env files and how they match the schema.
 - **Variables**: every variable with its value in each env file; search, filter, reveal and copy a secret, edit a value in place, open it in your editor. A [dark theme](docs/portal/variables-dark.png) and Spanish follow the switches in the header.
 - **Schema**: add, edit, rename (with every reference rewritten) and remove variables and files, each change reviewed as a diff before it is written. [Screenshot](docs/portal/schema.png).
-- **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. [Screenshot](docs/portal/check.png).
+- **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. Its **What git could commit** section lists the git-ignore problems, each with the lines its fix adds, and fixes one (**Fix**) or all (**Fix all**) as `check --fix` does; a `.gitignore` that is a symlink is named, never written. [Screenshot](docs/portal/check.png).
 - **History**: every change made through the CLI or the portal, with undo.
 - A file changed outside the portal (by an editor, `git checkout` or another command) shows up without a reload.
 

@@ -11,6 +11,8 @@ import type {
   FileInfo,
   FilePlan,
   Files,
+  GitignoreFix,
+  GitignoreProblem,
   Group,
   Groups,
   Plan,
@@ -39,6 +41,8 @@ export interface MockState {
   writes: number;
   /** The history of edits, newest first. */
   history: Change[];
+  /** What git could commit that it must not; none by default. */
+  gitignore: GitignoreProblem[];
 }
 
 const fresh = (): MockState => ({
@@ -50,6 +54,7 @@ const fresh = (): MockState => ({
   secrets: new Map(),
   writes: 0,
   history: structuredClone(fixtures.history),
+  gitignore: [],
 });
 
 export const mockState: MockState = fresh();
@@ -583,12 +588,13 @@ export function checkOf(): Check {
       0,
     );
   const failing = files.filter((file) => !file.ok).length;
+  const { gitignore } = mockState;
   return {
     command: 'check',
-    gitignore: [],
-    ok: failing === 0,
+    gitignore: structuredClone(gitignore),
+    ok: failing === 0 && gitignore.length === 0,
     summary: {
-      errors: count('error'),
+      errors: count('error') + gitignore.length,
       warnings: count('warning'),
       files: files.length,
       failing,
@@ -596,6 +602,32 @@ export function checkOf(): Check {
     files,
     errors: [],
   };
+}
+
+/**
+ * POST /api/check/gitignore: drops the fixable problems `paths` names (all
+ * without it), one fix per .gitignore, as fixGitignore writes them.
+ */
+export function fixGitignoreProblems(
+  paths?: readonly string[],
+): GitignoreFix[] {
+  const chosen = mockState.gitignore.filter(
+    (problem) => !problem.blocked && (!paths || paths.includes(problem.path)),
+  );
+  mockState.gitignore = mockState.gitignore.filter(
+    (problem) => !chosen.includes(problem),
+  );
+  const fixes = new Map<string, GitignoreFix>();
+  for (const problem of chosen) {
+    const fix = fixes.get(problem.gitignore) ?? {
+      gitignore: problem.gitignore,
+      created: problem.code === 'state-not-ignored',
+      added: [],
+    };
+    fix.added.push(...problem.entries);
+    fixes.set(problem.gitignore, fix);
+  }
+  return [...fixes.values()];
 }
 
 // ---------------------------------------------------------------- history

@@ -40,6 +40,7 @@ import {
   pruneFixes,
   sortProblems,
 } from './problems';
+import { GitignoreReport } from './gitignore-report';
 import { VariableLink } from './variable-link';
 
 const STATUS_VARIANT = {
@@ -243,6 +244,10 @@ function ReportBody({
           ))}
         </ul>
       )}
+      <GitignoreReport
+        problems={check.gitignore}
+        hidden={severity === 'warning'}
+      />
     </>
   );
 }
