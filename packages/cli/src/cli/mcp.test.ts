@@ -371,9 +371,8 @@ describe('the MCP write tools', () => {
     };
     const result = await call(client, 'update_schema', {
       document: {
-        version: 1,
-        variables: { HOST: { type: 'nope' } },
-        files: [],
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, HOST: { type: 'nope' } },
       },
       fingerprint: read.fingerprint,
     });
@@ -385,5 +384,79 @@ describe('the MCP write tools', () => {
     expect(await readFile(join(dirs.root, 'env.schema.json'), 'utf8')).toBe(
       read.text,
     );
+  });
+
+  it('refuses a schema that would unmask a secret, writing nothing', async () => {
+    await writeEnv(`HOST=a.test\nAPI_KEY=${SECRET}\n`);
+    const client = await connect();
+    const read = JSON.parse((await call(client, 'get_schema')).text) as {
+      fingerprint: string;
+      text: string;
+    };
+    const others = { HOST: SCHEMA.variables.HOST, PORT: SCHEMA.variables.PORT };
+    for (const variables of [
+      { ...others, API_KEY: { type: 'string' } },
+      { ...others, API_KEY: { type: 'string', secret: false } },
+      others,
+    ]) {
+      const result = await call(client, 'update_schema', {
+        document: { ...SCHEMA, variables },
+        fingerprint: read.fingerprint,
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.text)).toMatchObject({
+        ok: false,
+        kind: 'secret',
+      });
+      expect(result.text).toMatch(/would unmask API_KEY/);
+    }
+    expect(await readFile(join(dirs.root, 'env.schema.json'), 'utf8')).toBe(
+      read.text,
+    );
+    expect(
+      (await call(client, 'get_value', { key: 'API_KEY' })).text,
+    ).not.toContain(SECRET);
+  });
+});
+
+describe('a secret in a file whose variables leave it out', () => {
+  const split = useProject({
+    version: 1,
+    variables: {
+      HOST: { type: 'string' },
+      API_KEY: { type: 'string', secret: true },
+    },
+    files: [
+      { path: '.env', policy: 'merge', variables: ['HOST'] },
+      { path: '.env.secret', policy: 'merge', variables: ['API_KEY'] },
+    ],
+  });
+
+  it('stays masked in every read tool', async () => {
+    await writeFile(
+      join(split.root, '.env'),
+      `HOST=a.test\nAPI_KEY=${SECRET}\n`,
+    );
+    const server = createMcpServer({ cwd: split.root, env: {}, version: '0' });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    clients.push(client);
+    for (const [name, args] of [
+      ['get_value', { key: 'API_KEY', file: '.env' }],
+      ['list_variables', {}],
+      ['check', { strict: true }],
+    ] as const) {
+      const result = await call(client, name, args);
+      expect(result.text, name).not.toContain(SECRET);
+    }
+    const got = await call(client, 'get_value', {
+      key: 'API_KEY',
+      file: '.env',
+    });
+    expect(JSON.parse(got.text)).toMatchObject({
+      key: 'API_KEY',
+      masked: '••••',
+    });
   });
 });

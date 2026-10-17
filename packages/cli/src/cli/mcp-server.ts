@@ -10,15 +10,20 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
+  type EnvSchema,
   type SchemaDocument,
   VARIABLE_NAME,
+  getValue,
+  parseDotenv,
+  parseSchemaText,
   recordHistory,
   schemaChanges,
   schemaFingerprint,
+  unquoteValue,
   writeSchemaFile,
 } from '@configure-env/core';
 import { readFile } from 'node:fs/promises';
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import {
   CliError,
   type Context,
@@ -154,7 +159,9 @@ export function createMcpServer(options: McpOptions): McpServer {
     { name: 'configure-env', version: options.version },
     { instructions: MCP_INSTRUCTIONS },
   );
-  const run = (argv: string[]) => runCommand(options, argv);
+  // Every command's output is masked again here, whatever the command did.
+  const run = async (argv: string[]) =>
+    maskSecrets(options, await runCommand(options, argv));
 
   server.registerTool(
     'list_variables',
@@ -452,6 +459,20 @@ export function createMcpServer(options: McpOptions): McpServer {
     },
     async (input) => {
       const context = await contextFor(options);
+      const unmasked = await unmaskedSecrets(
+        context.schemaPath,
+        input.fingerprint,
+        input.document,
+      );
+      if (unmasked.length)
+        return textResult(
+          JSON.stringify({
+            ok: false,
+            kind: 'secret',
+            message: `the edit would unmask ${unmasked.join(', ')}: a secret variable keeps \`"secret": true\` and stays in the schema; ask the user to change it themselves. Nothing was written.`,
+          }),
+          true,
+        );
       const result = await writeSchemaFile(
         context.schemaPath,
         input.document as SchemaDocument,
@@ -529,3 +550,118 @@ async function secretKeys(
 /** A shell word: quoted when it holds anything but safe characters. */
 const quote = (word: string) =>
   /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+
+const MASK = '••••';
+
+/**
+ * The secret variables of the schema at `fingerprint` that `document` would
+ * unmask: removed, or no longer `secret: true`. A schema changed since the
+ * fingerprint answers none; the write then refuses it as stale.
+ */
+async function unmaskedSecrets(
+  path: string,
+  fingerprint: string,
+  document: Record<string, unknown>,
+): Promise<string[]> {
+  const text = await readFile(path, 'utf8').catch(() => undefined);
+  if (text === undefined || schemaFingerprint(text) !== fingerprint) return [];
+  const current = parseSchemaText(text);
+  if (!current.ok) return [];
+  const next = (document.variables ?? {}) as Record<string, unknown>;
+  return Object.entries(current.schema.variables)
+    .filter(([, spec]) => spec.secret)
+    .map(([name]) => name)
+    .filter((name) => {
+      const spec = Object.hasOwn(next, name) ? next[name] : undefined;
+      return !(
+        typeof spec === 'object' &&
+        spec !== null &&
+        (spec as { secret?: unknown }).secret === true
+      );
+    });
+}
+
+/**
+ * The values every schema file holds for the variables the schema marks
+ * secret, whether or not the file lists them: as written and unquoted.
+ */
+async function heldSecrets(
+  context: Context,
+  schema: EnvSchema,
+): Promise<string[]> {
+  const names = Object.keys(schema.variables).filter(
+    (name) => schema.variables[name]!.secret,
+  );
+  const values = new Set<string>();
+  for (const spec of schema.files) {
+    const text = await readFile(resolve(context.root, spec.path), 'utf8').catch(
+      () => undefined,
+    );
+    if (text === undefined) continue;
+    const doc = parseDotenv(text);
+    for (const name of names) {
+      const raw = getValue(doc, name);
+      if (raw === undefined) continue;
+      for (const value of [raw, unquoteValue(raw)])
+        if (value) values.add(value);
+    }
+  }
+  return [...values].sort((a, b) => b.length - a.length);
+}
+
+/** `value` with every `key` the schema marks secret masked, at any depth. */
+function maskKeys(value: unknown, secret: (name: string) => boolean): unknown {
+  if (Array.isArray(value)) return value.map((item) => maskKeys(item, secret));
+  if (typeof value !== 'object' || value === null) return value;
+  const record = Object.fromEntries(
+    Object.entries(value).map(([name, item]) => [name, maskKeys(item, secret)]),
+  );
+  if (
+    typeof record.key === 'string' &&
+    secret(record.key) &&
+    typeof record.value === 'string'
+  ) {
+    delete record.value;
+    return { ...record, masked: MASK };
+  }
+  return record;
+}
+
+/**
+ * A command run with no secret value left in it: a JSON entry whose `key`
+ * is a secret variable loses its `value`, and any secret value the env
+ * files hold (4 characters or more) is replaced wherever it appears. The
+ * commands mask secrets themselves; this holds even where one does not,
+ * such as a secret in a file whose variables leave it out.
+ */
+async function maskSecrets(
+  options: McpOptions,
+  run: CommandRun,
+): Promise<CommandRun> {
+  let context: Context, schema: EnvSchema;
+  try {
+    context = await contextFor(options);
+    schema = await loadContextSchema(context);
+  } catch {
+    return run;
+  }
+  const secret = (name: string) =>
+    Object.hasOwn(schema.variables, name) &&
+    schema.variables[name]!.secret === true;
+  const values = (await heldSecrets(context, schema)).filter(
+    (value) => value.length >= 4,
+  );
+  const scrub = (line: string) => {
+    let text = line;
+    try {
+      text = JSON.stringify(maskKeys(JSON.parse(line), secret));
+    } catch {
+      // Not a JSON line: a log line, scrubbed as text below.
+    }
+    for (const value of values)
+      for (const form of [value, JSON.stringify(value).slice(1, -1)])
+        text = text.replaceAll(form, MASK);
+    return text;
+  };
+  return { ...run, out: run.out.map(scrub), err: run.err.map(scrub) };
+}

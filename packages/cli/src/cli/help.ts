@@ -556,7 +556,8 @@ their checks and guards:
   ask    request_secret
 
 No tool returns a secret's value: they mask it, and none reveals one.
-set_values refuses a secret variable. A secret goes in only through a
+set_values refuses a secret variable, and update_schema a schema that
+would remove a secret variable or its "secret": true. A secret goes in only through a
 value the server generates (generate_secret, apply's generate), or one the
 user types in a terminal with the command request_secret answers:
 configure-env set --prompt KEY.
