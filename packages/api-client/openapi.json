@@ -1452,6 +1452,36 @@
         "summary": "Opens the schema file or one of its env files at a line in the user's editor ($LAUNCH_EDITOR, else a running VS Code, Cursor, Zed or JetBrains IDE, else $VISUAL, else $EDITOR). Only from this machine",
         "tags": ["project"]
       }
+    },
+    "/api/environments": {
+      "get": {
+        "operationId": "getEnvironments",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environments"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": ".configure-env/environments.json cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The environments the portal can switch to: this server, then each of .configure-env/environments.json with its URL, whether it answers and its version. Never a token. Another environment's API is at /env/{name}/api/",
+        "tags": ["environments"]
+      }
     }
   },
   "info": {
@@ -1872,6 +1902,51 @@
           }
         },
         "required": ["statusCode", "message", "kind", "errors"],
+        "additionalProperties": false
+      },
+      "Environment": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name `configure-env env add` stored, or `local` for this server."
+          },
+          "url": {
+            "type": "string",
+            "description": "The environment's server; for `local`, this server's own URL."
+          },
+          "local": {
+            "type": "boolean",
+            "description": "Whether it is this server's own project; any other is reached through `/env/{name}/api/`."
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Whether its server answered GET /api/project just now."
+          },
+          "version": {
+            "description": "The configure-env version it runs.",
+            "type": "string"
+          },
+          "message": {
+            "description": "When not reachable: why, such as `ECONNREFUSED`.",
+            "type": "string"
+          }
+        },
+        "required": ["name", "url", "local", "reachable"],
+        "additionalProperties": false
+      },
+      "Environments": {
+        "type": "object",
+        "properties": {
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Environment"
+            },
+            "description": "This server first, then the environments of .configure-env/environments.json; never their tokens."
+          }
+        },
+        "required": ["environments"],
         "additionalProperties": false
       },
       "FileCheck": {

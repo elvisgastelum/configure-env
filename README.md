@@ -692,6 +692,19 @@ env.example.com {
 
 Caddy passes the Host on and adds `X-Forwarded-For`. Read the token once with `sudo cat /home/app/.config/configure-env/token` and keep it with you; Another proxy, such as `tailscale serve`, works the same way as long as it passes the original Host header on; give the name clients reach as `--public-url`. To serve HTTPS directly instead, without a proxy: `serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --public-url https://stage.example.com:4747 --token-file token`.
 
+### Switching environments
+
+The environments `configure-env env add` stored are open in your local portal too: `serve` reads `.configure-env/environments.json` on every request, so one added or removed while it runs applies at once. `GET /api/environments` lists `local` (this server) first, then each environment with its URL, whether its server answers `GET /api/project` within 3 seconds, and its version; it never holds a token.
+
+Your browser never talks to the other server, and never holds its token. The local `serve` is a gateway: `/env/<name>/api/*` is forwarded to that environment's `/api/*` with its bearer token, so the portal stays same-origin with its session cookie. A path prefix names the environment, rather than a header, because `EventSource` cannot send headers; `GET /env/<name>/api/events` is streamed through as it comes.
+
+- **Behind the local guard.** A forwarded request passes the same Host, Origin and token checks as every other route first; without this server's own session cookie or token it is a 401, and nothing is forwarded.
+- **Only the stored environments, only their API.** A name `environments.json` does not list (and `local`) answers 404, as does a path outside `/api/`, one with `.` or `..` segments, or an escaped slash or backslash; nothing else is ever reached.
+- **Nothing of the browser's session leaves.** Only an allowlist of request headers goes on (`Accept`, `Accept-Language`, `Content-Type`, `Content-Length`, the `If-*` ones, `Last-Event-ID` and `User-Agent`), plus the environment's `Authorization: Bearer <token>` and `X-Configure-Env-Client: portal`. The cookie, `Origin`, `Referer`, the `Sec-Fetch-*` headers, the local bearer token, forwarding and hop-by-hop headers stay here.
+- **Nothing of the other server's comes back but its answer.** Its status and body pass through, with an allowlist of headers (`Content-Type`, `Content-Length`, `Content-Encoding`, `Content-Language`, `ETag`, `Last-Modified`, `Retry-After`); its cookies, CORS headers and hop-by-hop headers are dropped, and the local guard's own headers frame the answer.
+- **Errors name the environment, never its token.** A server that cannot be reached, or does not start answering within 30 seconds, answers 502 naming the environment and its URL; one that refuses its token answers 502 too (never a 401, which would read as the local session ending), saying to `env remove` and `env add` it again.
+- **Open in editor stays local.** `POST /env/<name>/api/open-in-editor` is refused (403): it would open a file on the other machine.
+
 ## CI usage
 
 In CI the real env files usually do not exist and the secrets are not at hand, so check the committed files, such as the templates, by naming them with `--file`. A missing file is an error under every policy, so a plain `check` fails on a create-only `.env` that CI does not have.
@@ -871,6 +884,8 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, the git-ignore problems, and the counts (`?strict=true` makes unknown keys errors) |
 | `GET /api/history`   | the history of edits, newest first: `file`, `key`, `actor` (`cli` or `portal`), `from` and `to` (a date, its whole UTC day, or a timestamp) filter it; `page` and `limit` (50 by default, at most 200) page it; secrets masked |
 | `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
+| `GET /api/environments` | `local` (this server), then each environment of `.configure-env/environments.json` with its URL, whether it answers and its version; never a token |
+| `/env/{name}/api/*`  | the same API of environment `name`, forwarded with its token (see [Switching environments](#switching-environments)) |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
 
 The endpoints that need a valid schema answer 422 with its errors otherwise. Check reads the protected variables' state (`.configure-env/state.db`) and report a protected value that no longer matches it, as the CLI does.

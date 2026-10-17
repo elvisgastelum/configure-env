@@ -43,6 +43,7 @@ interface Started {
   version?: string;
   publicUrl?: string;
   tls?: { cert: Buffer; key: Buffer };
+  environments?: () => Promise<Record<string, { url: string; token: string }>>;
 }
 
 /**
@@ -514,7 +515,94 @@ describe('server.json', () => {
   });
 });
 
+/** Stores environment `name` through `configure-env env add`. */
+async function addEnvironment(root: string, name: string, url: string) {
+  const err: string[] = [];
+  const code = await main(
+    ['env', 'add', name, '--url', url, '--token-env', 'ENV_TOKEN'],
+    {
+      stdout: () => {},
+      stderr: (line) => err.push(line),
+      env: { ENV_TOKEN: `${name}-token-0123456789abcdefghijklmnopq` },
+      isTTY: false,
+      cwd: root,
+    },
+  );
+  expect(code, err.join('\n')).toBe(0);
+}
+
+describe('serve environments', () => {
+  it('hands the server the environments of environments.json, read each time it asks', async () => {
+    const runtime = fakeRuntime();
+    let first: unknown;
+    let second: unknown;
+    const result = await serve([], {
+      cwd: project.root,
+      runtime,
+      afterStart: async () => {
+        first = await runtime.started[0]!.environments!();
+        await addEnvironment(project.root, 'dev', 'http://127.0.0.1:1');
+        second = await runtime.started[0]!.environments!();
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(first).toEqual({});
+    expect(second).toEqual({
+      dev: {
+        url: 'http://127.0.0.1:1',
+        token: 'dev-token-0123456789abcdefghijklmnopq',
+      },
+    });
+  });
+});
+
 describe('the real server', () => {
+  it('lists the environments without their tokens on GET /api/environments', async () => {
+    await addEnvironment(project.root, 'stage', 'http://127.0.0.1:1');
+    let stop: (signal: NodeJS.Signals) => void = () => {};
+    const signal = new Promise<NodeJS.Signals>((resolve) => {
+      stop = resolve;
+    });
+    const out: string[] = [];
+    let printed: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      printed = resolve;
+    });
+    const running = main(['serve', '--json', '--port', '0'], {
+      stdout: (line) => {
+        out.push(line);
+        printed();
+      },
+      stderr: () => {},
+      env: {},
+      isTTY: false,
+      cwd: project.root,
+      serve: { waitForSignal: () => signal, openBrowser: () => {} },
+    });
+    await Promise.race([ready, running]);
+    const launch = new URL((JSON.parse(out[0]!) as { url: string }).url);
+    const token = launch.searchParams.get('token')!;
+    const response = await fetch(new URL('/api/environments', launch), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const text = await response.text();
+    stop('SIGTERM');
+    await expect(running).resolves.toBe(0);
+    expect(response.status).toBe(200);
+    expect(text).not.toContain('stage-token');
+    expect(
+      (JSON.parse(text) as { environments: { name: string }[] }).environments,
+    ).toEqual([
+      expect.objectContaining({ name: 'local', local: true }),
+      expect.objectContaining({
+        name: 'stage',
+        url: 'http://127.0.0.1:1',
+        local: false,
+        reachable: false,
+      }),
+    ]);
+  }, 30_000);
+
   it('answers with the token, refuses without it, and stops on a signal', async () => {
     let stop: (signal: NodeJS.Signals) => void = () => {};
     const signal = new Promise<NodeJS.Signals>((resolve) => {

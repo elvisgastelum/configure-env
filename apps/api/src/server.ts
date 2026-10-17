@@ -22,6 +22,11 @@ import packageJson from '../package.json' with { type: 'json' };
 import { apiModule } from './api.module.ts';
 import { components } from './contracts.ts';
 import { type EditorLauncher, createLauncher } from './editor.ts';
+import {
+  type EnvironmentsReader,
+  type EnvironmentsSource,
+  gatewayMiddleware,
+} from './gateway.ts';
 import { ApiErrorFilter } from './http.ts';
 import { type Project, resolveProject } from './project.ts';
 import { LAUNCH_PATH, securityMiddleware } from './security.ts';
@@ -73,7 +78,16 @@ export interface ServerOptions {
    * defaults to launch-editor. The tests pass one that starts nothing.
    */
   editor?: EditorLauncher;
+  /**
+   * The other environments the portal can switch to, by name, each a URL
+   * and its token (`configure-env serve` reads .configure-env/environments.json);
+   * read on every request. GET /api/environments lists them without their
+   * tokens, and /env/<name>/api/* forwards to them. None by default.
+   */
+  environments?: EnvironmentsReader;
 }
+
+export type { RemoteEnvironment } from './gateway.ts';
 
 export interface ApiServer {
   host: string;
@@ -121,9 +135,10 @@ async function createApp(
   editor: EditorLauncher = createLauncher(),
   localHosts: () => ReadonlySet<string> = () => new Set(),
   tls?: ServerOptions['tls'],
+  environments?: EnvironmentsSource,
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
-    apiModule(project, version, editor, localHosts),
+    apiModule(project, version, editor, localHosts, environments),
     // forceCloseConnections: close() ends open keep-alive connections too,
     // so a stopping `configure-env serve` never waits on a browser tab.
     {
@@ -256,12 +271,16 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
     return allowed;
   };
 
+  const readEnvironments: EnvironmentsReader =
+    options.environments ?? (() => Promise.resolve({}));
+  let url = '';
   const app = await createApp(
     project,
     options.version ?? packageJson.version,
     options.editor,
     localHosts,
     options.tls,
+    { read: readEnvironments, url: () => url },
   );
   app.use(
     securityMiddleware({
@@ -272,6 +291,9 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       secure: scheme === 'https' || publicUrl?.protocol === 'https:',
     }),
   );
+  // Behind the guard: a request reaches another environment only with
+  // this server's own token.
+  app.use(gatewayMiddleware(readEnvironments));
   if (options.staticDir) {
     app.useStaticAssets(options.staticDir, {
       dotfiles: 'deny',
@@ -297,9 +319,7 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
     throw error;
   }
   port = (app.getHttpServer().address() as AddressInfo).port;
-  const url = publicUrl
-    ? publicUrl.origin
-    : `${scheme}://${hostPort(host, port)}`;
+  url = publicUrl ? publicUrl.origin : `${scheme}://${hostPort(host, port)}`;
   return {
     host,
     port,

@@ -460,6 +460,26 @@ export interface EditRefused {
   errors: EditProblem[];
 }
 
+export interface Environment {
+  /** The name `configure-env env add` stored, or `local` for this server. */
+  name: string;
+  /** The environment's server; for `local`, this server's own URL. */
+  url: string;
+  /** Whether it is this server's own project; any other is reached through `/env/{name}/api/`. */
+  local: boolean;
+  /** Whether its server answered GET /api/project just now. */
+  reachable: boolean;
+  /** The configure-env version it runs. */
+  version?: string;
+  /** When not reachable: why, such as `ECONNREFUSED`. */
+  message?: string;
+}
+
+export interface Environments {
+  /** This server first, then the environments of .configure-env/environments.json; never their tokens. */
+  environments: Environment[];
+}
+
 export interface FileContent {
   file: string;
   exists: boolean;
@@ -6070,3 +6090,175 @@ export const useOpenInEditor = <TError = ApiError, TContext = unknown>(
 > => {
   return useMutation(getOpenInEditorMutationOptions(options), queryClient);
 };
+
+export type getEnvironmentsResponse200 = {
+  data: Environments;
+  status: 200;
+};
+
+export type getEnvironmentsResponse500 = {
+  data: ApiError;
+  status: 500;
+};
+
+export type getEnvironmentsResponseSuccess = getEnvironmentsResponse200 & {
+  headers: Headers;
+};
+export type getEnvironmentsResponseError = getEnvironmentsResponse500 & {
+  headers: Headers;
+};
+
+export type getEnvironmentsResponse =
+  | getEnvironmentsResponseSuccess
+  | getEnvironmentsResponseError;
+
+export const getGetEnvironmentsUrl = () => {
+  return `/api/environments`;
+};
+
+/**
+ * @summary The environments the portal can switch to: this server, then each of .configure-env/environments.json with its URL, whether it answers and its version. Never a token. Another environment's API is at /env/{name}/api/
+ */
+export const getEnvironments = async (
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<getEnvironmentsResponse> => {
+  return apiFetch<getEnvironmentsResponse>(getGetEnvironmentsUrl(), {
+    ...options,
+    method: 'GET',
+  });
+};
+
+export const getGetEnvironmentsQueryKey = () => {
+  return [`/api/environments`] as const;
+};
+
+export const getGetEnvironmentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getEnvironments>>,
+  TError = ApiError,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof getEnvironments>>, TError, TData>
+  >;
+  request?: SecondParameter<typeof apiFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetEnvironmentsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getEnvironments>>> = ({
+    signal,
+  }) => getEnvironments({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getEnvironments>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetEnvironmentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getEnvironments>>
+>;
+export type GetEnvironmentsQueryError = ApiError;
+
+export function useGetEnvironments<
+  TData = Awaited<ReturnType<typeof getEnvironments>>,
+  TError = ApiError,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getEnvironments>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getEnvironments>>,
+          TError,
+          Awaited<ReturnType<typeof getEnvironments>>
+        >,
+        'initialData'
+      >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetEnvironments<
+  TData = Awaited<ReturnType<typeof getEnvironments>>,
+  TError = ApiError,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getEnvironments>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getEnvironments>>,
+          TError,
+          Awaited<ReturnType<typeof getEnvironments>>
+        >,
+        'initialData'
+      >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetEnvironments<
+  TData = Awaited<ReturnType<typeof getEnvironments>>,
+  TError = ApiError,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getEnvironments>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary The environments the portal can switch to: this server, then each of .configure-env/environments.json with its URL, whether it answers and its version. Never a token. Another environment's API is at /env/{name}/api/
+ */
+
+export function useGetEnvironments<
+  TData = Awaited<ReturnType<typeof getEnvironments>>,
+  TError = ApiError,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof getEnvironments>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetEnvironmentsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
