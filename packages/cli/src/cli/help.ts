@@ -556,6 +556,7 @@ their checks and guards:
   ask    request_secret
 
 No tool returns a secret's value: they mask it, and none reveals one.
+A key the schema does not declare is masked too.
 set_values refuses a secret variable, and update_schema a schema that
 would remove a secret variable or its "secret": true. A secret goes in only through a
 value the server generates (generate_secret, apply's generate), or one the

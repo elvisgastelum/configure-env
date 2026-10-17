@@ -14,6 +14,7 @@ import {
   type SchemaDocument,
   VARIABLE_NAME,
   getValue,
+  keysOf,
   parseDotenv,
   parseSchemaText,
   recordHistory,
@@ -541,11 +542,20 @@ async function secretKeys(
   keys: readonly string[],
 ): Promise<string[]> {
   const schema = await loadContextSchema(await contextFor(options));
-  return keys.filter(
-    (name) =>
-      Object.hasOwn(schema.variables, name) && schema.variables[name]!.secret,
-  );
+  return keys.filter((name) => isSecret(schema, name));
 }
+
+/** Whether the schema declares `name` with `secret: true`. */
+const isSecret = (schema: EnvSchema, name: string) =>
+  Object.hasOwn(schema.variables, name) &&
+  schema.variables[name]!.secret === true;
+
+/**
+ * Whether a key's value stays out of every answer: a secret variable, or a
+ * key the schema does not declare, whose sensitivity nobody stated.
+ */
+const isHidden = (schema: EnvSchema, name: string) =>
+  !Object.hasOwn(schema.variables, name) || isSecret(schema, name);
 
 /** A shell word: quoted when it holds anything but safe characters. */
 const quote = (word: string) =>
@@ -582,16 +592,14 @@ async function unmaskedSecrets(
 }
 
 /**
- * The values every schema file holds for the variables the schema marks
- * secret, whether or not the file lists them: as written and unquoted.
+ * The values the schema files hold for the keys {@link isHidden} keeps out
+ * of every answer, whether or not the file lists them: as written and
+ * unquoted, longest first.
  */
-async function heldSecrets(
+async function hiddenValues(
   context: Context,
   schema: EnvSchema,
 ): Promise<string[]> {
-  const names = Object.keys(schema.variables).filter(
-    (name) => schema.variables[name]!.secret,
-  );
   const values = new Set<string>();
   for (const spec of schema.files) {
     const text = await readFile(resolve(context.root, spec.path), 'utf8').catch(
@@ -599,7 +607,7 @@ async function heldSecrets(
     );
     if (text === undefined) continue;
     const doc = parseDotenv(text);
-    for (const name of names) {
+    for (const name of keysOf(doc).filter((key) => isHidden(schema, key))) {
       const raw = getValue(doc, name);
       if (raw === undefined) continue;
       for (const value of [raw, unquoteValue(raw)])
@@ -609,16 +617,36 @@ async function heldSecrets(
   return [...values].sort((a, b) => b.length - a.length);
 }
 
-/** `value` with every `key` the schema marks secret masked, at any depth. */
-function maskKeys(value: unknown, secret: (name: string) => boolean): unknown {
-  if (Array.isArray(value)) return value.map((item) => maskKeys(item, secret));
+/**
+ * The shortest hidden value replaced where it appears inside longer text:
+ * a shorter one is masked only where it is a whole JSON string, so a
+ * common word that happens to be a secret does not garble the rest.
+ */
+const SUBSTRING_MIN = 8;
+
+/**
+ * `value` with nothing hidden left in it, at any depth: an entry whose
+ * `key` is hidden trades its `value` for a mask, and a string that is a
+ * hidden value, or holds one of 8 characters or more, is masked.
+ */
+function maskJson(
+  value: unknown,
+  hidden: (name: string) => boolean,
+  values: readonly string[],
+): unknown {
+  if (typeof value === 'string') return maskText(value, values, true);
+  if (Array.isArray(value))
+    return value.map((item) => maskJson(item, hidden, values));
   if (typeof value !== 'object' || value === null) return value;
   const record = Object.fromEntries(
-    Object.entries(value).map(([name, item]) => [name, maskKeys(item, secret)]),
+    Object.entries(value).map(([name, item]) => [
+      name,
+      maskJson(item, hidden, values),
+    ]),
   );
   if (
     typeof record.key === 'string' &&
-    secret(record.key) &&
+    hidden(record.key) &&
     typeof record.value === 'string'
   ) {
     delete record.value;
@@ -627,12 +655,26 @@ function maskKeys(value: unknown, secret: (name: string) => boolean): unknown {
   return record;
 }
 
+/** `text` with the hidden values masked; `whole` masks an exact match too. */
+function maskText(
+  text: string,
+  values: readonly string[],
+  whole: boolean,
+): string {
+  if (whole && values.includes(text)) return MASK;
+  let masked = text;
+  for (const value of values)
+    if (value.length >= SUBSTRING_MIN) masked = masked.replaceAll(value, MASK);
+  return masked;
+}
+
 /**
- * A command run with no secret value left in it: a JSON entry whose `key`
- * is a secret variable loses its `value`, and any secret value the env
- * files hold (4 characters or more) is replaced wherever it appears. The
- * commands mask secrets themselves; this holds even where one does not,
- * such as a secret in a file whose variables leave it out.
+ * A command run with nothing hidden left in it (see {@link maskJson}); a
+ * line that is not JSON, a log line, has its longer hidden values masked.
+ * The commands mask secrets themselves; this holds even where one does
+ * not, such as a secret in a file whose variables leave it out. When the
+ * schema cannot be read, nothing can be masked, so the output is withheld
+ * and only the command's errors, which never hold a value, are answered.
  */
 async function maskSecrets(
   options: McpOptions,
@@ -643,25 +685,27 @@ async function maskSecrets(
     context = await contextFor(options);
     schema = await loadContextSchema(context);
   } catch {
-    return run;
+    return {
+      ...run,
+      out: [],
+      err: run.out.length
+        ? [
+            ...run.err,
+            'configure-env: output withheld: the schema could not be read to mask it',
+          ]
+        : run.err,
+    };
   }
-  const secret = (name: string) =>
-    Object.hasOwn(schema.variables, name) &&
-    schema.variables[name]!.secret === true;
-  const values = (await heldSecrets(context, schema)).filter(
-    (value) => value.length >= 4,
-  );
+  const hidden = (name: string) => isHidden(schema, name);
+  const values = await hiddenValues(context, schema);
   const scrub = (line: string) => {
-    let text = line;
+    let parsed: unknown;
     try {
-      text = JSON.stringify(maskKeys(JSON.parse(line), secret));
+      parsed = JSON.parse(line);
     } catch {
-      // Not a JSON line: a log line, scrubbed as text below.
+      return maskText(line, values, false);
     }
-    for (const value of values)
-      for (const form of [value, JSON.stringify(value).slice(1, -1)])
-        text = text.replaceAll(form, MASK);
-    return text;
+    return JSON.stringify(maskJson(parsed, hidden, values));
   };
   return { ...run, out: run.out.map(scrub), err: run.err.map(scrub) };
 }

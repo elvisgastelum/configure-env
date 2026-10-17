@@ -460,3 +460,51 @@ describe('a secret in a file whose variables leave it out', () => {
     });
   });
 });
+
+describe('the masking of every answer', () => {
+  it('masks a key the schema does not declare', async () => {
+    const undeclared = ['tok', 'q'.repeat(20)].join('-');
+    await writeEnv(`HOST=a.test\nLEGACY_TOKEN=${undeclared}\n`);
+    const client = await connect();
+    for (const [name, args] of [
+      ['get_value', { key: 'LEGACY_TOKEN' }],
+      ['list_variables', {}],
+      ['check', {}],
+    ] as const) {
+      const result = await call(client, name, args);
+      expect(result.text, name).not.toContain(undeclared);
+    }
+    const got = await call(client, 'get_value', { key: 'LEGACY_TOKEN' });
+    expect(JSON.parse(got.text)).toMatchObject({
+      key: 'LEGACY_TOKEN',
+      masked: '••••',
+    });
+    const host = await call(client, 'get_value', { key: 'HOST' });
+    expect(JSON.parse(host.text)).toMatchObject({ value: 'a.test' });
+  });
+
+  it('masks a short secret only where it is a whole value', async () => {
+    await writeEnv('HOST=localhost\nAPI_KEY=host\n');
+    const client = await connect();
+    const host = await call(client, 'get_value', { key: 'HOST' });
+    expect(JSON.parse(host.text)).toMatchObject({ value: 'localhost' });
+    const rows = JSON.parse((await call(client, 'list_variables')).text) as {
+      key: string;
+      value?: string;
+      masked?: string;
+    }[];
+    expect(rows.find((row) => row.key === 'HOST')?.value).toBe('localhost');
+    expect(rows.find((row) => row.key === 'API_KEY')?.value).toBeUndefined();
+  });
+
+  it('withholds the output when the schema cannot be read to mask it', async () => {
+    await writeEnv(`HOST=a.test\nAPI_KEY=${SECRET}\n`);
+    const client = await connect();
+    await writeFile(join(dirs.root, 'env.schema.json'), '{');
+    for (const name of ['list_variables', 'check', 'history']) {
+      const result = await call(client, name);
+      expect(result.text, name).not.toContain(SECRET);
+      expect(result.text, name).not.toContain('a.test');
+    }
+  });
+});
