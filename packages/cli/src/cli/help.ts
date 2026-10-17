@@ -469,12 +469,13 @@ that is not plain JSON (VS Code's may hold comments) is refused, exit 2,
 and so is a Codex config.toml that registers configure-env other than as
 its own [mcp_servers.configure-env] table.
 Every file is checked before any is written, and each is written whole
-next to itself and renamed into place, keeping its mode; a symlink is
-written where it points, and stays; two agents sharing one file write it
-once, or exit 2 when they would register the server differently. A file
-another program changes
-meanwhile is left alone (exit 1). When a write fails, the files the run
-already wrote are put back as they were (exit 1).
+next to itself and renamed into place, keeping its mode. A symlink is
+written where it points, and stays, when it points inside the project
+(project) or the home folder (user); else it exits 2. Two agents sharing
+one file write it once, or exit 2 when they would register the server
+differently. A file another program changes meanwhile is left alone
+(exit 1). When a write fails, the files the run already wrote are put
+back as they were (exit 1).
 
 In a terminal it asks for the scope, the agents and the runner the options
 leave out; with --ci, --json or no terminal they default to project,
@@ -563,14 +564,14 @@ their checks and guards:
   ask    request_secret
 
 No tool returns a secret's value: they mask it, and none reveals one.
-A key the schema does not declare is masked too.
+A key the schema does not declare has its value masked in its entry.
 set_values refuses a secret variable, and update_schema a schema that
 would remove a secret variable or its "secret": true, or show a value a
 schema file already holds: a key declared without it, or a newly listed
-file's values. A secret goes in only through a
-value the server generates (generate_secret, apply's generate), or one the
-user types in a terminal with the command request_secret answers:
-configure-env set --prompt KEY.
+file's values. A secret goes in only through a value the server
+generates (generate_secret, apply's generate), or one the user types in a
+terminal with the command request_secret answers, which runs from any
+folder: configure-env set --root <root> --prompt KEY.
 
 Register it with configure-env install mcp, or in an agent's MCP
 configuration as the command configure-env with the argument mcp.
