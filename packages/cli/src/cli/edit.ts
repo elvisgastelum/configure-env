@@ -1,148 +1,238 @@
 // `configure-env set`, `get` and `unset`: edit one file's variables in
-// place, keeping every other byte, or print one.
+// place, keeping every other byte, or print one. They run through the
+// configure-env API (connect.ts): GET /api/variables reads the file, POST
+// /api/reveal a secret shown unmasked, POST /api/values/set and
+// /api/values/unset write it, and the server records the history as the
+// cli's.
 
 import {
-  type EditContext,
-  type EditFailure,
-  type EnvFile,
+  type EditProblem,
+  type ValuesEdit,
+  revealValue,
+  setValues,
+  unsetValues,
+} from '@configure-env/api-client/client';
+import {
   type EnvSchema,
   type FileSpec,
-  type RunState,
   VARIABLE_NAME,
-  getValue,
   isTemplate,
-  maskValue,
   parsePairs,
-  setChanges,
-  setValues,
-  unsetChanges,
-  unsetValues,
 } from '@configure-env/core';
 import { ask } from './apply.ts';
 import {
   CliError,
-  type Context,
   NO_TERMINAL,
-  contextOf,
   displayPath,
   givenTwice,
-  loadContextSchema,
+  keyError,
   parseCommandArgs,
   printWarnings,
-  recordRun,
   usageError,
 } from './common.ts';
-import { checkConflict, generateKeys, generateValue } from './generate.ts';
+import {
+  type Connection,
+  type ProjectRun,
+  answerMessage,
+  answerOf,
+  openProject,
+  send,
+} from './connect.ts';
+import { checkConflict, generateKeys } from './generate.ts';
 import { GET_HELP, SET_HELP, UNSET_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
+  type ProtectedProblem,
   confirmReplacements,
-  loadRunState,
   protectedError,
   replaceKeys,
   stateError,
 } from './protect.ts';
 import {
+  type ListedFile,
   UNKNOWN_SPEC,
   chooseFile,
-  jsonValue,
-  readEnvFile,
+  listFiles,
+  listedFile,
+  listedKey,
   variablesOf,
 } from './target.ts';
 
 const CANCELLED = 130;
 
-function cancelled(context: { prompts: { cancel(message?: string): void } }) {
-  context.prompts.cancel('Cancelled; nothing was written.');
+function cancelled(run: { prompts: { cancel(message?: string): void } }) {
+  run.prompts.cancel('Cancelled; nothing was written.');
   return CANCELLED;
 }
 
-/** The core's view of a run: the schema, the state it read, and its io. */
-const editContext = (
-  context: Context,
-  schema: EnvSchema,
-  run: RunState | undefined,
-): EditContext => ({
-  schema,
-  run,
-  cwd: context.io.cwd,
-  writeState: context.io.writeState,
-});
-
 /**
- * Asks a person to confirm the replacements; unattended (--ci or --json)
+ * Whether a person confirms the replacements; unattended (--ci or --json)
  * there is no question, and every --replace-protected key may be replaced.
  */
-const confirmOf = (context: Context) =>
-  context.ci || context.json
-    ? undefined
-    : (keys: string[]) => confirmReplacements(context, keys);
+const confirms = (run: ProjectRun) => !run.ci && !run.json;
+
+/** The schema's file as the server reads it now. */
+async function readFile(
+  run: ProjectRun,
+  connection: Connection,
+  spec: FileSpec,
+): Promise<ListedFile> {
+  return listedFile(await listFiles(run, connection), spec);
+}
+
+/** What a write answered when it wrote nothing. */
+type Refusal = { status: number; data: unknown };
+
+/** The message a generated value failed with, as the CLI words it. */
+function generateError({ key, message }: EditProblem & { key: string }) {
+  if (/ is too short for a generated secret$/.test(message))
+    return keyError(
+      'usage',
+      key,
+      `${message}; set it with --prompt or --stdin`,
+    );
+  if (message === 'cannot generate a value that passes its rules')
+    return keyError(
+      'value',
+      key,
+      `${message}; set it with --prompt or --stdin`,
+    );
+  return new CliError(1, [`${key}: ${message}`]);
+}
+
+const protectedProblems = (errors: readonly EditProblem[]) =>
+  errors.map(({ key = '', message, reason }): ProtectedProblem => ({
+    kind: 'protected',
+    key,
+    message,
+    ...(reason ? { reason } : {}),
+  }));
 
 /**
- * An edit that wrote nothing, as the CLI reports it: a cancel exits 130, a
- * protected refusal 2, anything else 1. A state it could not get or use is
- * printed as the command's document with --json.
+ * A write that wrote nothing, as the CLI reports it: values that break
+ * their rules exit 1, a protected refusal 2, a state the server could not
+ * get or use 1 (printed as the command's document with --json), anything
+ * else 1 with the server's message.
  */
-function failed(
-  context: Context,
+function refused(
+  io: Io,
+  run: ProjectRun,
   command: string,
   file: string,
-  failure: EditFailure,
+  response: Refusal,
 ): number {
   const hint = `nothing was written to ${file}`;
-  switch (failure.kind) {
-    case 'cancelled':
-      return cancelled(context);
-    case 'invalid':
-      throw new CliError(1, [...failure.messages, hint]);
-    case 'protected':
-      throw protectedError(failure.problems, hint);
-    case 'write':
-      throw new CliError(1, [failure.message]);
-    case 'state': {
-      const error = stateError(failure.path, failure.lines);
-      if (!context.json) throw error;
-      context.io.stdout(
-        JSON.stringify({
-          command,
-          ok: false,
-          file,
-          keys: [],
-          errors: error.errors,
-        }),
-      );
-      return error.code;
-    }
+  const data = (response.data ?? {}) as {
+    kind?: string;
+    errors?: EditProblem[];
+    path?: string;
+    lines?: string[];
+    message?: string;
+  };
+  if (response.status === 422 && data.kind === 'protected')
+    throw protectedError(protectedProblems(data.errors ?? []), hint);
+  if (response.status === 422 && data.kind === 'invalid') {
+    const errors = data.errors ?? [];
+    const keyed = errors.find((error) => error.key !== undefined);
+    if (keyed) throw generateError(keyed as EditProblem & { key: string });
+    throw new CliError(1, [...errors.map((error) => error.message), hint]);
   }
+  if (response.status === 503 && data.lines && data.path !== undefined) {
+    const error = stateError(data.path, data.lines);
+    if (!run.json) throw error;
+    io.stdout(
+      JSON.stringify({
+        command,
+        ok: false,
+        file,
+        keys: [],
+        errors: error.errors,
+      }),
+    );
+    return error.code;
+  }
+  if (response.status === 503)
+    throw new CliError(1, [
+      answerMessage(response),
+      'fix or restore it; nothing was written',
+    ]);
+  return answerOf<never>(run, response);
+}
+
+/**
+ * Sends a write, confirming its replacements first when a person runs it:
+ * the server checks everything else first, then names the protected keys
+ * it would replace and writes nothing (428); once the person confirms
+ * them, it is sent again replacing those only. Resolves to the answer, or
+ * to the exit code of a write that wrote nothing.
+ */
+async function write(
+  io: Io,
+  run: ProjectRun,
+  connection: Connection,
+  command: string,
+  file: string,
+  replace: ReadonlySet<string>,
+  request: (options: {
+    replaceProtected?: string[];
+    confirmReplacements?: boolean;
+  }) => Promise<{ status: number; data: unknown }>,
+): Promise<ValuesEdit | number> {
+  const ask = confirms(run) && replace.size > 0;
+  let response = await send(connection, () =>
+    request({
+      ...(replace.size ? { replaceProtected: [...replace] } : {}),
+      ...(ask ? { confirmReplacements: true } : {}),
+    }),
+  );
+  if (ask && response.status === 428) {
+    const { keys = [] } = response.data as { keys?: string[] };
+    if (!(await confirmReplacements({ io, ...run }, keys)))
+      return cancelled(run);
+    response = await send(connection, () =>
+      request({ replaceProtected: keys }),
+    );
+  }
+  if (response.status !== 200) return refused(io, run, command, file, response);
+  return response.data as ValuesEdit;
 }
 
 /**
  * The end of a set or unset run: with --json, its document, `ok` false and
  * the state failure as a `file` error when the state was not written (exit
- * 1); else the lines, or the state failure (exit 1). `warnings` (a history
- * not recorded) go to stderr either way.
+ * 1); else the lines, or the state failure (exit 1). The other warnings (a
+ * history not recorded) go to stderr either way.
  */
 function finish(
-  context: Context,
+  io: Io,
+  run: ProjectRun,
   document: { command: string; file: string; keys: unknown[] },
   lines: string[],
-  stateError: string[] | undefined,
-  warnings: readonly string[],
+  edit: ValuesEdit,
 ): number {
-  const { io } = context;
-  printWarnings(io, warnings);
-  if (context.json) {
+  const failure = edit.stateError;
+  const { statePath } = run;
+  const shown = (line: string) =>
+    statePath
+      ? line.replaceAll(statePath, displayPath(io.cwd, statePath))
+      : line;
+  printWarnings(
+    io,
+    edit.warnings.filter((line) => !failure?.includes(line)).map(shown),
+  );
+  if (run.json) {
     io.stdout(
       JSON.stringify(
-        stateError
+        failure
           ? {
               ...document,
               ok: false,
               errors: [
                 {
                   kind: 'file',
-                  path: displayPath(io.cwd, context.statePath),
-                  message: stateError.join('; '),
+                  // The state, as the failure's first line names it.
+                  path: failure[0]?.split(': not written')[0] ?? '',
+                  message: failure.join('; '),
                 },
               ],
             }
@@ -154,9 +244,9 @@ function finish(
             },
       ),
     );
-    return stateError ? 1 : 0;
+    return failure ? 1 : 0;
   }
-  if (stateError) throw new CliError(1, stateError);
+  if (failure) throw new CliError(1, failure);
   lines.forEach((line) => io.stdout(line));
   return 0;
 }
@@ -165,16 +255,15 @@ function finish(
 const replacedLines = (replaced: ReadonlySet<string>) =>
   [...replaced].map((key) => `replaced protected ${key}`);
 
-/** The context, schema and file every edit command starts from. */
+/** The project and file every edit command starts from. */
 async function start(
   io: Io,
-  values: Parameters<typeof contextOf>[1],
+  values: Parameters<typeof openProject>[1],
   guard: { guard?: boolean; allowTemplate?: boolean },
 ) {
-  const context = await contextOf(io, values);
-  const schema = await loadContextSchema(context);
-  const spec = chooseFile(schema, context.files, guard);
-  return { context, schema, spec };
+  const run = await openProject(io, values);
+  const spec = chooseFile(run.schema, run.files, guard);
+  return { run, schema: run.schema, spec };
 }
 
 /** A key's spec for this file, or undefined when it is not one of its variables. */
@@ -184,6 +273,19 @@ const specFor = (schema: EnvSchema, file: FileSpec, key: string) =>
 function checkName(key: string) {
   if (!VARIABLE_NAME.test(key))
     throw usageError(`${key}: is not a valid variable name`);
+}
+
+/** Runs `task` with a connection to the run's server, closed after. */
+async function connected<T>(
+  run: ProjectRun,
+  task: (connection: Connection) => Promise<T>,
+): Promise<T> {
+  const connection = await run.connect();
+  try {
+    return await task(connection);
+  } finally {
+    await connection.close();
+  }
 }
 
 // ---------------------------------------------------------------- set
@@ -215,10 +317,10 @@ async function readStdinOrFail(read: () => Promise<string>): Promise<string> {
 }
 
 /** Exits 1 for a missing file, unless `create` lets set create it. */
-function checkExists(file: EnvFile, create: boolean) {
+function checkExists(file: ListedFile, create: boolean) {
   if (!file.exists && !create)
     throw new CliError(1, [
-      `${file.spec.path}: does not exist; pass --create to create it`,
+      `${file.path}: does not exist; pass --create to create it`,
     ]);
 }
 
@@ -255,7 +357,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     throw usageError(
       'set takes KEY=VALUE pairs, --prompt KEY, --generate KEY or --stdin KEY',
     );
-  const { context, schema, spec } = await start(io, options, {
+  const { run, schema, spec } = await start(io, options, {
     guard: true,
     allowTemplate: Boolean(options['allow-template']),
   });
@@ -264,7 +366,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     throw usageError(
       `--generate and --stdin never write to a template such as ${spec.path}`,
     );
-  if (promptKeys.length && (context.ci || context.json || !io.isTTY))
+  if (promptKeys.length && (run.ci || run.json || !io.isTTY))
     throw usageError(`--prompt needs a terminal; ${NO_TERMINAL}`);
   if (stdinKey !== undefined && !io.readStdin)
     throw usageError('--stdin needs readStdin in the io passed to main()');
@@ -278,7 +380,6 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
     schema,
   );
   const replace = replaceKeys(schema, options['replace-protected']);
-  const run = await loadRunState(context, schema);
 
   const allowUnknown = Boolean(options['allow-unknown']);
   const unknown = [
@@ -295,110 +396,114 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       ),
     );
 
-  // A missing file fails before any prompt or wait.
-  const peek = await readEnvFile(context, spec);
-  checkExists(peek, Boolean(options.create));
+  return connected(run, async (connection) => {
+    // A missing file fails before any prompt or wait.
+    const peek = await readFile(run, connection, spec);
+    checkExists(peek, Boolean(options.create));
 
-  // Every wait (prompts, stdin) comes before the file is read for the
-  // edit: a change made meanwhile, as by a parallel set, is kept, and the
-  // write's check that the file is unchanged since it was read rarely fails.
-  for (const key of promptKeys) {
-    const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
-    const current = getValue(peek.doc, key);
-    const initial =
-      current ??
-      (variable.default === undefined ? '' : String(variable.default));
-    const answer = await ask(
-      context.prompts,
-      key,
-      variable,
-      variable.secret ? '' : initial,
-    );
-    if (context.prompts.isCancel(answer)) return cancelled(context);
-    pairs.set(key, answer);
-  }
-  if (stdinKey !== undefined) {
-    const value = (await readStdinOrFail(io.readStdin!)).replace(/\r?\n$/, '');
-    // An empty pipe is almost always a failed command upstream, whose exit
-    // status the shell drops: never write it, even for an optional key.
-    if (!value)
-      throw new CliError(1, [
-        `${stdinKey}: stdin was empty; nothing was written to ${spec.path}`,
-      ]);
-    pairs.set(stdinKey, value);
-  }
-
-  const waited = promptKeys.length > 0 || stdinKey !== undefined;
-  const file = waited ? await readEnvFile(context, spec) : peek;
-  // Checked again: the file can be deleted during a prompt or a stdin wait.
-  checkExists(file, Boolean(options.create));
-
-  // A generated value never replaces one that is set: no rotation by accident.
-  const kept = new Set<string>();
-  for (const key of generated) {
-    const current = getValue(file.doc, key);
-    if (current) {
-      kept.add(key);
-      pairs.set(key, current);
-      continue;
-    }
-    // As apply does: a partner the file would hold refuses it before any
-    // value is made.
-    checkConflict(schema, spec, key, (other) =>
-      Boolean(
-        pairs.has(other) || generated.includes(other)
-          ? (pairs.get(other) ?? true)
-          : getValue(file.doc, other),
-      ),
-    );
-    pairs.set(key, generateValue(key, specFor(schema, spec, key)!));
-  }
-
-  const result = await setValues(
-    editContext(context, schema, run),
-    file,
-    pairs,
-    { replace, kept, confirm: confirmOf(context) },
-  );
-  if (!result.ok) return failed(context, 'set', spec.path, result);
-  // A piped value is recorded as a secret: never kept, as it is never shown.
-  const recorded = await recordRun(
-    context,
-    setChanges(schema, file, result, {
-      masked: new Set(stdinKey === undefined ? [] : [stdinKey]),
-    }),
-  );
-  const replaced = new Set(result.replaced);
-  // A piped value is masked even for a key not marked secret: it came
-  // from a secret manager, and the output may land in an agent's log.
-  const report = result.keys.map((entry) =>
-    entry.key === stdinKey
-      ? { ...entry, spec: { ...entry.spec, secret: true } }
-      : entry,
-  );
-
-  return finish(
-    context,
-    {
-      command: 'set',
-      file: spec.path,
-      keys: report.map(({ key, status, spec: variable, plain }) => ({
+    // Every wait (prompts, stdin) comes before the file is read for the
+    // edit: a change made meanwhile, as by a parallel set, is kept, and the
+    // write's check that the file is unchanged since it was read rarely
+    // fails.
+    for (const key of promptKeys) {
+      const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
+      const current = listedKey(peek, key)?.value;
+      const initial =
+        current ??
+        (variable.default === undefined ? '' : String(variable.default));
+      const answer = await ask(
+        run.prompts,
         key,
-        status,
-        ...jsonValue(variable, plain),
-        ...(replaced.has(key) ? { replaced: true } : {}),
-      })),
-    },
-    [
-      ...report.map(
-        ({ key, status, spec: variable, plain }) =>
-          `${key}: ${status} (${maskValue(variable, plain)})`,
-      ),
-      ...replacedLines(replaced),
-    ],
-    result.stateError,
-    recorded,
-  );
+        variable,
+        variable.secret ? '' : initial,
+      );
+      if (run.prompts.isCancel(answer)) return cancelled(run);
+      pairs.set(key, answer);
+    }
+    if (stdinKey !== undefined) {
+      const value = (await readStdinOrFail(io.readStdin!)).replace(
+        /\r?\n$/,
+        '',
+      );
+      // An empty pipe is almost always a failed command upstream, whose exit
+      // status the shell drops: never write it, even for an optional key.
+      if (!value)
+        throw new CliError(1, [
+          `${stdinKey}: stdin was empty; nothing was written to ${spec.path}`,
+        ]);
+      pairs.set(stdinKey, value);
+    }
+
+    const waited = promptKeys.length > 0 || stdinKey !== undefined;
+    const file = waited ? await readFile(run, connection, spec) : peek;
+    // Checked again: the file can be deleted during a prompt or a stdin wait.
+    checkExists(file, Boolean(options.create));
+
+    // A generated value never replaces one that is set: no rotation by
+    // accident. As apply does, a partner the file would hold refuses it
+    // before any value is made.
+    for (const key of generated) {
+      if (listedKey(file, key)?.set === 'yes') continue;
+      checkConflict(schema, spec, key, (other) =>
+        pairs.has(other)
+          ? Boolean(pairs.get(other))
+          : generated.includes(other) || listedKey(file, other)?.set === 'yes',
+      );
+    }
+
+    const done = await write(
+      io,
+      run,
+      connection,
+      'set',
+      spec.path,
+      replace,
+      (replacing) =>
+        setValues(
+          {
+            file: spec.path,
+            fingerprint: file.fingerprint ?? null,
+            ...(pairs.size ? { values: Object.fromEntries(pairs) } : {}),
+            ...(generated.length
+              ? { generate: generated, keepExisting: true }
+              : {}),
+            ...replacing,
+            ...(allowUnknown ? { allowUnknown } : {}),
+            // A piped value is masked and never kept in the history, even
+            // for a key not marked secret: it came from a secret manager,
+            // and the output may land in an agent's log.
+            ...(stdinKey === undefined ? {} : { masked: [stdinKey] }),
+          },
+          connection.init(),
+        ),
+    );
+    if (typeof done === 'number') return done;
+    const replaced = new Set(done.replaced);
+    const secret = (key: string) =>
+      key === stdinKey || Boolean(specFor(schema, spec, key)?.secret);
+
+    return finish(
+      io,
+      run,
+      {
+        command: 'set',
+        file: spec.path,
+        keys: done.keys.map(({ key, status, value = '' }) => ({
+          key,
+          status,
+          ...(secret(key) ? { masked: value } : { value }),
+          ...(replaced.has(key) ? { replaced: true } : {}),
+        })),
+      },
+      [
+        ...done.keys.map(
+          ({ key, status, value = '' }) => `${key}: ${status} (${value})`,
+        ),
+        ...replacedLines(replaced),
+      ],
+      done,
+    );
+  });
 }
 
 // ---------------------------------------------------------------- get
@@ -414,23 +519,30 @@ export async function getCommand(args: string[], io: Io): Promise<number> {
   if (positionals.length !== 1) throw usageError('get takes one KEY');
   const key = positionals[0]!;
   checkName(key);
-  const { context, schema, spec } = await start(io, options, {});
-  const file = await readEnvFile(context, spec);
-  if (!file.exists) throw new CliError(1, [`${spec.path}: does not exist`]);
+  const { run, schema, spec } = await start(io, options, {});
   const variable = specFor(schema, spec, key) ?? UNKNOWN_SPEC;
-  const value = getValue(file.doc, key);
   const reveal = Boolean(options.reveal) || !variable.secret;
+  const read = await connected(run, async (connection) => {
+    const file = await readFile(run, connection, spec);
+    if (!file.exists) throw new CliError(1, [`${spec.path}: does not exist`]);
+    // The listing masks a secret: it is revealed only when asked.
+    const shown = listedKey(file, key)?.value;
+    if (shown === undefined || !reveal || !variable.secret)
+      return { shown, value: shown };
+    const revealed = await send(connection, () =>
+      revealValue({ file: spec.path, key }, connection.init()),
+    );
+    const value = answerOf<{ value: string | null }>(run, revealed).value;
+    return { shown, value: value ?? undefined };
+  });
+  const { shown, value } = read;
 
-  if (context.json) {
+  if (run.json) {
     io.stdout(
       JSON.stringify(
         value === undefined
           ? { key, set: false }
-          : {
-              key,
-              ...(reveal ? { value } : jsonValue(variable, value)),
-              set: true,
-            },
+          : { key, ...(reveal ? { value } : { masked: shown }), set: true },
       ),
     );
     return value === undefined ? 1 : 0;
@@ -439,7 +551,7 @@ export async function getCommand(args: string[], io: Io): Promise<number> {
     throw new CliError(1, [`${key}: is not set in ${spec.path}`]);
   if (!reveal)
     throw new CliError(1, [
-      `${key}: is secret (${maskValue(variable, value)})`,
+      `${key}: is secret (${shown})`,
       'pass --reveal to print it',
     ]);
   io.stdout(value);
@@ -464,37 +576,49 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
   }
   if (!positionals.length) throw usageError('unset takes one or more KEYs');
   positionals.forEach(checkName);
-  const { context, schema, spec } = await start(io, options, {
+  const { run, schema, spec } = await start(io, options, {
     guard: true,
     allowTemplate: Boolean(options['allow-template']),
   });
   const replace = replaceKeys(schema, options['replace-protected']);
-  const run = await loadRunState(context, schema);
-  const file = await readEnvFile(context, spec);
-  const result = await unsetValues(
-    editContext(context, schema, run),
-    file,
-    positionals,
-    { replace, confirm: confirmOf(context) },
-  );
-  if (!result.ok) return failed(context, 'unset', spec.path, result);
-  const recorded = await recordRun(context, unsetChanges(schema, file, result));
-  const replaced = new Set(result.replaced);
+  return connected(run, async (connection) => {
+    const file = await readFile(run, connection, spec);
+    const done = await write(
+      io,
+      run,
+      connection,
+      'unset',
+      spec.path,
+      replace,
+      (replacing) =>
+        unsetValues(
+          {
+            file: spec.path,
+            fingerprint: file.fingerprint ?? null,
+            keys: positionals,
+            ...replacing,
+          },
+          connection.init(),
+        ),
+    );
+    if (typeof done === 'number') return done;
+    const replaced = new Set(done.replaced);
 
-  return finish(
-    context,
-    {
-      command: 'unset',
-      file: spec.path,
-      keys: result.keys.map((entry) =>
-        replaced.has(entry.key) ? { ...entry, replaced: true } : entry,
-      ),
-    },
-    [
-      ...result.keys.map(({ key, status }) => `${key}: ${status}`),
-      ...replacedLines(replaced),
-    ],
-    result.stateError,
-    recorded,
-  );
+    return finish(
+      io,
+      run,
+      {
+        command: 'unset',
+        file: spec.path,
+        keys: done.keys.map(({ key, status }) =>
+          replaced.has(key) ? { key, status, replaced: true } : { key, status },
+        ),
+      },
+      [
+        ...done.keys.map(({ key, status }) => `${key}: ${status}`),
+        ...replacedLines(replaced),
+      ],
+      done,
+    );
+  });
 }

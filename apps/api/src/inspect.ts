@@ -9,6 +9,7 @@ import {
   type FileSpec,
   type FileCheck,
   type RuleProblem,
+  UNKNOWN_SPEC,
   checkDrift,
   fileKeys,
   fileRules,
@@ -19,6 +20,7 @@ import {
   maskValue,
   readEnvFile,
   ruleKeys,
+  unknownKeys,
   unquoteValue,
   validateValue,
 } from '@configure-env/core';
@@ -28,6 +30,8 @@ import type {
   fileInfo,
   fileValue,
   filesResponse,
+  listedFile,
+  listedKey,
   groupsResponse,
   revealResponse,
   variablesResponse,
@@ -37,6 +41,8 @@ import { contentFingerprint } from './fingerprint.ts';
 import { ApiError } from './http.ts';
 
 type FileValue = z.output<typeof fileValue>;
+type ListedFile = z.output<typeof listedFile>;
+type ListedKey = z.output<typeof listedKey>;
 type FileInfo = z.output<typeof fileInfo>;
 
 /** Thrown for a file or key the project does not have, or a refused path. */
@@ -129,7 +135,56 @@ export function listGroups(schema: EnvSchema): z.output<typeof groupsResponse> {
   return { groups: [...groups.values(), ...(ungrouped ? [ungrouped] : [])] };
 }
 
-/** Each variable's spec and its status in every file that lists it. */
+/**
+ * A file's keys as `configure-env list` shows them: its variables in schema
+ * order, each checked (a missing value too, against `required` and the
+ * rules between variables), then the keys it holds that the schema does not
+ * list for it. A template's placeholders are not checked. Secrets masked.
+ */
+function listedFileOf(schema: EnvSchema, file: Read): ListedFile {
+  const { spec } = file;
+  const template = isTemplate(spec);
+  if (!file.ok)
+    return {
+      path: spec.path,
+      template,
+      exists: false,
+      error: file.message,
+      keys: [],
+    };
+  const broken = new Map<string, string>();
+  for (const problem of fileRules(schema, spec, file.doc))
+    for (const key of ruleKeys(problem))
+      if (!broken.has(key)) broken.set(key, ruleMessage(problem));
+  const entry = (key: string, unknown: boolean): ListedKey => {
+    const variable = unknown ? UNKNOWN_SPEC : schema.variables[key]!;
+    const value = getValue(file.doc, key);
+    const checked = !unknown && !template;
+    const error = checked
+      ? (valueError(schema, spec, key, value) ?? broken.get(key))
+      : undefined;
+    return {
+      key,
+      set: value === undefined ? 'no' : value === '' ? 'empty' : 'yes',
+      valid: checked ? !error : null,
+      ...(error ? { error } : {}),
+      ...(value === undefined ? {} : { value: maskValue(variable, value) }),
+      ...(unknown ? { unknown: true as const } : {}),
+    };
+  };
+  return {
+    path: spec.path,
+    template,
+    exists: file.exists,
+    fingerprint: file.fingerprint,
+    keys: [
+      ...fileKeys(schema, spec).map((key) => entry(key, false)),
+      ...unknownKeys(schema, spec, file.doc).map((key) => entry(key, true)),
+    ],
+  };
+}
+
+/** Each variable's spec and its status in every file that lists it, and each file's keys. */
 export async function listVariables(
   schema: EnvSchema,
   root: string,
@@ -175,6 +230,7 @@ export async function listVariables(
       spec,
       files: values.get(name)!,
     })),
+    files: files.map((file) => listedFileOf(schema, file)),
   };
 }
 

@@ -136,7 +136,7 @@ export class ProjectController {
     schemaResponse,
   )
   schemaFile(): Promise<z.output<typeof schemaResponse>> {
-    return currentSchema(this.project);
+    return currentSchema(this.project, { text: true });
   }
 
   @Get('variables')

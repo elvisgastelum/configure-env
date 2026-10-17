@@ -397,6 +397,20 @@ export interface CheckRequest {
   values?: CheckRequestValues;
 }
 
+export type ConfirmReplacementsStatusCode =
+  (typeof ConfirmReplacementsStatusCode)[keyof typeof ConfirmReplacementsStatusCode];
+
+export const ConfirmReplacementsStatusCode = {
+  NUMBER_428: 428,
+} as const;
+
+export interface ConfirmReplacements {
+  statusCode: ConfirmReplacementsStatusCode;
+  message: string;
+  /** The protected keys the edit would replace; nothing was written. */
+  keys: string[];
+}
+
 export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
 
 export const DiffLineKind = {
@@ -725,6 +739,11 @@ export interface History {
   limit: number;
 }
 
+/**
+ * The variables to write in place of the inferred ones, such as the inferred ones with the types a person picked; the schema is validated with them.
+ */
+export type InitSchemaRequestVariables = { [key: string]: unknown };
+
 export interface InitSchemaRequest {
   /**
    * The env file to infer the variables from, inside the root; `.env.example` when it exists, else none.
@@ -737,6 +756,10 @@ export interface InitSchemaRequest {
    * @nullable
    */
   fingerprint?: string | null;
+  /** The variables to write in place of the inferred ones, such as the inferred ones with the types a person picked; the schema is validated with them. */
+  variables?: InitSchemaRequestVariables;
+  /** Answer the schema init would write, its refusals included, and write nothing: no schema, no .gitignore, no history. */
+  preview?: boolean;
 }
 
 export type InvalidSchemaStatusCode =
@@ -766,6 +789,49 @@ export interface InvalidSchema {
   statusCode: InvalidSchemaStatusCode;
   message: string;
   errors: SchemaError[];
+}
+
+/**
+ * Whether the file holds a value for it, or holds it empty.
+ */
+export type ListedKeySet = (typeof ListedKeySet)[keyof typeof ListedKeySet];
+
+export const ListedKeySet = {
+  yes: 'yes',
+  no: 'no',
+  empty: 'empty',
+} as const;
+
+export interface ListedKey {
+  key: string;
+  /** Whether the file holds a value for it, or holds it empty. */
+  set: ListedKeySet;
+  /**
+   * Whether it passes its rules, a missing value included; null when it is not checked: a key the schema does not list for the file, or a template's placeholder.
+   * @nullable
+   */
+  valid: boolean | null;
+  /** Why it is not valid; never holds the value. */
+  error?: string;
+  /** The value, masked when secret; absent when it is not set. */
+  value?: string;
+  /** A key the schema does not list for the file. */
+  unknown?: true;
+}
+
+export interface ListedFile {
+  path: string;
+  template: boolean;
+  exists: boolean;
+  /**
+   * Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.
+   * @nullable
+   */
+  fingerprint?: string | null;
+  /** Why the path was refused. */
+  error?: string;
+  /** The file's variables in schema order, then the keys it holds that the schema does not list for it; empty when its path was refused. */
+  keys: ListedKey[];
 }
 
 /**
@@ -934,6 +1000,23 @@ export interface ReorderVariablesRequest {
   order: string[];
 }
 
+/**
+ * The whole schema document, validated before it is written.
+ */
+export type ReplaceSchemaRequestDocument = { [key: string]: unknown };
+
+export interface ReplaceSchemaRequest {
+  /**
+   * The fingerprint of the schema the document replaces, as GET /api/schema gave it; a schema changed since is refused (409).
+   * @minLength 1
+   */
+  fingerprint: string;
+  /** The whole schema document, validated before it is written. */
+  document: ReplaceSchemaRequestDocument;
+  /** Refuse (403) a document that would show a hidden value: a secret variable dropped or no longer `secret: true`, or a key an env file already holds a value for declared without `secret: true` or held in a file the document newly lists. configure-env mcp's update_schema sets it. */
+  keepSecretsMasked?: boolean;
+}
+
 export interface Reveal {
   file: string;
   key: string;
@@ -954,6 +1037,19 @@ export interface RevealRequest {
   key: string;
 }
 
+/**
+ * After POST /api/schema/init writes: what it did to .gitignore (created, added the state directory, found it present, or left a symlink alone). Absent when it could not update it; a warning says why.
+ */
+export type SchemaGitignore =
+  (typeof SchemaGitignore)[keyof typeof SchemaGitignore];
+
+export const SchemaGitignore = {
+  created: 'created',
+  added: 'added',
+  present: 'present',
+  symlink: 'symlink',
+} as const;
+
 export interface Schema {
   path: string;
   valid: boolean;
@@ -972,6 +1068,10 @@ export interface Schema {
   warnings?: string[];
   /** While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema. */
   initFrom?: string;
+  /** GET /api/schema only: the schema file as text, the bytes the fingerprint identifies. Absent when it cannot be read. */
+  text?: string;
+  /** After POST /api/schema/init writes: what it did to .gitignore (created, added the state directory, found it present, or left a symlink alone). Absent when it could not update it; a warning says why. */
+  gitignore?: SchemaGitignore;
 }
 
 export type SchemaEditRefusedStatusCode =
@@ -987,6 +1087,20 @@ export interface SchemaEditRefused {
   errors: SchemaError[];
   /** The schema as it is now. */
   schema: Schema;
+}
+
+export type SchemaUnmaskRefusedStatusCode =
+  (typeof SchemaUnmaskRefusedStatusCode)[keyof typeof SchemaUnmaskRefusedStatusCode];
+
+export const SchemaUnmaskRefusedStatusCode = {
+  NUMBER_403: 403,
+} as const;
+
+export interface SchemaUnmaskRefused {
+  statusCode: SchemaUnmaskRefusedStatusCode;
+  message: string;
+  /** The keys the document would unmask, sorted. */
+  keys: string[];
 }
 
 /**
@@ -1017,6 +1131,17 @@ export interface SetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
+  /** Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables. */
+  allowUnknown?: boolean;
+  /** Generate only the keys the file holds no value for: a value it holds is kept, checked as it is, and reported unchanged. */
+  keepExisting?: boolean;
+  /**
+   * Keys treated as secret whatever their spec, such as a value piped in: masked in the answer, their values never kept in the history.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  masked?: string[];
 }
 
 export type StaleFileStatusCode =
@@ -1045,6 +1170,22 @@ export interface StaleSchema {
   message: string;
   /** The schema as it is now. */
   schema: Schema;
+}
+
+export type StateUnavailableStatusCode =
+  (typeof StateUnavailableStatusCode)[keyof typeof StateUnavailableStatusCode];
+
+export const StateUnavailableStatusCode = {
+  NUMBER_503: 503,
+} as const;
+
+export interface StateUnavailable {
+  statusCode: StateUnavailableStatusCode;
+  message: string;
+  /** When the write could not get or use the state: the state database, as the lines show it. */
+  path?: string;
+  /** Why, a line each; the message joins them. */
+  lines?: string[];
 }
 
 export type UndoConflictStatusCode =
@@ -1127,6 +1268,8 @@ export interface UnsetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
 }
 
 /**
@@ -1175,6 +1318,8 @@ export const ValuesEditKeysItemStatus = {
 export type ValuesEditKeysItem = {
   key: string;
   status: ValuesEditKeysItemStatus;
+  /** For a set: the value the file holds for it, masked when secret or `masked`. */
+  value?: string;
 };
 
 export interface ValuesEdit {
@@ -1197,6 +1342,8 @@ export interface ValuesEdit {
   changes: number[];
   /** What went wrong after the file was written: the protected state or the history not recorded. */
   warnings: string[];
+  /** When the file was written but the protected state was not: why, as the first warnings say it. */
+  stateError?: string[];
 }
 
 export type VariableSpec =
@@ -1749,6 +1896,8 @@ export interface Variable {
 
 export interface Variables {
   variables: Variable[];
+  /** Every schema file with its keys as `configure-env list` shows them, the keys the schema does not list for it included. */
+  files?: ListedFile[];
 }
 
 export type GetCheckParams = {
@@ -1883,6 +2032,90 @@ export const getSchema = async (
   return apiFetch<getSchemaResponse>(getGetSchemaUrl(), {
     ...options,
     method: 'GET',
+  });
+};
+
+export type replaceSchemaResponse200 = {
+  data: Schema;
+  status: 200;
+};
+
+export type replaceSchemaResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type replaceSchemaResponse403 = {
+  data: SchemaUnmaskRefused;
+  status: 403;
+};
+
+export type replaceSchemaResponse409 = {
+  data: StaleSchema;
+  status: 409;
+};
+
+export type replaceSchemaResponse422 = {
+  data: SchemaEditRefused;
+  status: 422;
+};
+
+export type replaceSchemaResponseSuccess = replaceSchemaResponse200 & {
+  headers: Headers;
+};
+export type replaceSchemaResponseError = (
+  | replaceSchemaResponse400
+  | replaceSchemaResponse403
+  | replaceSchemaResponse409
+  | replaceSchemaResponse422
+) & {
+  headers: Headers;
+};
+
+export type replaceSchemaResponse =
+  | replaceSchemaResponseSuccess
+  | replaceSchemaResponseError;
+
+export const getReplaceSchemaUrl = () => {
+  return `/api/schema`;
+};
+
+/**
+ * @summary Replaces the whole schema document, against its fingerprint
+ */
+export const replaceSchema = async (
+  replaceSchemaRequest: ReplaceSchemaRequest,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<replaceSchemaResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return apiFetch<replaceSchemaResponse>(getReplaceSchemaUrl(), {
+    ...options,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(replaceSchemaRequest),
   });
 };
 
@@ -2380,8 +2613,13 @@ export type setValuesResponse422 = {
   status: 422;
 };
 
+export type setValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type setValuesResponse503 = {
-  data: ApiError;
+  data: StateUnavailable;
   status: 503;
 };
 
@@ -2393,6 +2631,7 @@ export type setValuesResponseError = (
   | setValuesResponse404
   | setValuesResponse409
   | setValuesResponse422
+  | setValuesResponse428
   | setValuesResponse503
 ) & {
   headers: Headers;
@@ -2470,8 +2709,13 @@ export type unsetValuesResponse422 = {
   status: 422;
 };
 
+export type unsetValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type unsetValuesResponse503 = {
-  data: ApiError;
+  data: StateUnavailable;
   status: 503;
 };
 
@@ -2483,6 +2727,7 @@ export type unsetValuesResponseError = (
   | unsetValuesResponse404
   | unsetValuesResponse409
   | unsetValuesResponse422
+  | unsetValuesResponse428
   | unsetValuesResponse503
 ) & {
   headers: Headers;

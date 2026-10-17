@@ -7,11 +7,19 @@ import {
   type DriftStatus,
   FILE_POLICIES,
   GITIGNORE_CODES,
+  type IgnoreStatus,
   PROBLEM_CODES,
   VARIABLE_NAME,
   variableSpec,
 } from '@configure-env/core';
 import { z } from 'zod';
+
+const IGNORE_STATUSES = [
+  'created',
+  'added',
+  'present',
+  'symlink',
+] as const satisfies readonly IgnoreStatus[];
 
 const DRIFT_STATUSES = [
   'current',
@@ -85,6 +93,14 @@ export const schemaResponse = named(
       description:
         'While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema.',
     }),
+    text: z.string().optional().meta({
+      description:
+        'GET /api/schema only: the schema file as text, the bytes the fingerprint identifies. Absent when it cannot be read.',
+    }),
+    gitignore: z.enum(IGNORE_STATUSES).optional().meta({
+      description:
+        'After POST /api/schema/init writes: what it did to .gitignore (created, added the state directory, found it present, or left a symlink alone). Absent when it could not update it; a warning says why.',
+    }),
   }),
 );
 
@@ -131,9 +147,59 @@ export const variable = named(
   }),
 );
 
+export const listedKey = named(
+  'ListedKey',
+  z.object({
+    key: z.string(),
+    set: z.enum(['yes', 'no', 'empty']).meta({
+      description: 'Whether the file holds a value for it, or holds it empty.',
+    }),
+    valid: z.boolean().nullable().meta({
+      description:
+        "Whether it passes its rules, a missing value included; null when it is not checked: a key the schema does not list for the file, or a template's placeholder.",
+    }),
+    error: z.string().optional().meta({
+      description: 'Why it is not valid; never holds the value.',
+    }),
+    value: z.string().optional().meta({
+      description: 'The value, masked when secret; absent when it is not set.',
+    }),
+    unknown: z.literal(true).optional().meta({
+      description: 'A key the schema does not list for the file.',
+    }),
+  }),
+);
+
+export const listedFile = named(
+  'ListedFile',
+  z.object({
+    path: z.string(),
+    template: z.boolean(),
+    exists: z.boolean(),
+    fingerprint: z.string().nullable().optional().meta({
+      description:
+        'Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.',
+    }),
+    error: z
+      .string()
+      .optional()
+      .meta({ description: 'Why the path was refused.' }),
+    keys: z.array(listedKey).meta({
+      description:
+        "The file's variables in schema order, then the keys it holds that the schema does not list for it; empty when its path was refused.",
+    }),
+  }),
+);
+
 export const variablesResponse = named(
   'Variables',
-  z.object({ variables: z.array(variable) }),
+  z.object({
+    variables: z.array(variable),
+    files: z.array(listedFile).optional().meta({
+      description:
+        'Every schema file with its keys as `configure-env list` shows them, the keys the schema does not list for it included.',
+    }),
+  }),
 );
 
 export const group = named(
@@ -410,6 +476,11 @@ const basedOn = fileFingerprint.meta({
     "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
 });
 
+const confirmReplacements = z.boolean().optional().meta({
+  description:
+    'Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.',
+});
+
 const replaceProtected = z.array(variableName).optional().meta({
   description:
     'The protected keys the edit may replace or remove; any other protected change is refused.',
@@ -429,6 +500,19 @@ export const setValuesRequest = named(
           'Secret string variables to set to a new random value, never returned.',
       }),
       replaceProtected,
+      confirmReplacements,
+      allowUnknown: z.boolean().optional().meta({
+        description:
+          "Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables.",
+      }),
+      keepExisting: z.boolean().optional().meta({
+        description:
+          'Generate only the keys the file holds no value for: a value it holds is kept, checked as it is, and reported unchanged.',
+      }),
+      masked: z.array(variableName).optional().meta({
+        description:
+          'Keys treated as secret whatever their spec, such as a value piped in: masked in the answer, their values never kept in the history.',
+      }),
     })
     .refine(
       (body) => Object.keys(body.values ?? {}).length || body.generate?.length,
@@ -448,6 +532,7 @@ export const unsetValuesRequest = named(
     fingerprint: basedOn,
     keys: z.array(variableName).min(1),
     replaceProtected,
+    confirmReplacements,
   }),
 );
 
@@ -466,7 +551,16 @@ export const valuesResponse = named(
     fingerprint: fileFingerprint.meta({
       description: "The file's fingerprint after the edit.",
     }),
-    keys: z.array(z.object({ key: z.string(), status: z.enum(KEY_STATUSES) })),
+    keys: z.array(
+      z.object({
+        key: z.string(),
+        status: z.enum(KEY_STATUSES),
+        value: z.string().optional().meta({
+          description:
+            'For a set: the value the file holds for it, masked when secret or `masked`.',
+        }),
+      }),
+    ),
     replaced: z
       .array(z.string())
       .meta({ description: 'The protected keys replaced.' }),
@@ -480,6 +574,37 @@ export const valuesResponse = named(
     warnings: z.array(z.string()).meta({
       description:
         'What went wrong after the file was written: the protected state or the history not recorded.',
+    }),
+    stateError: z.array(z.string()).optional().meta({
+      description:
+        'When the file was written but the protected state was not: why, as the first warnings say it.',
+    }),
+  }),
+);
+
+export const confirmReplacementsResponse = named(
+  'ConfirmReplacements',
+  z.object({
+    statusCode: z.literal(428),
+    message: z.string(),
+    keys: z.array(z.string()).meta({
+      description:
+        'The protected keys the edit would replace; nothing was written.',
+    }),
+  }),
+);
+
+export const stateUnavailableResponse = named(
+  'StateUnavailable',
+  z.object({
+    statusCode: z.literal(503),
+    message: z.string(),
+    path: z.string().optional().meta({
+      description:
+        'When the write could not get or use the state: the state database, as the lines show it.',
+    }),
+    lines: z.array(z.string()).optional().meta({
+      description: 'Why, a line each; the message joins them.',
     }),
   }),
 );
@@ -742,6 +867,42 @@ export const initSchemaRequest = named(
     fingerprint: z.string().min(1).nullable().optional().meta({
       description:
         'To replace an existing schema, its fingerprint; without it an existing schema is kept (409).',
+    }),
+    variables: z.record(z.string(), z.unknown()).optional().meta({
+      description:
+        'The variables to write in place of the inferred ones, such as the inferred ones with the types a person picked; the schema is validated with them.',
+    }),
+    preview: z.boolean().optional().meta({
+      description:
+        'Answer the schema init would write, its refusals included, and write nothing: no schema, no .gitignore, no history.',
+    }),
+  }),
+);
+
+export const replaceSchemaRequest = named(
+  'ReplaceSchemaRequest',
+  z.strictObject({
+    fingerprint: z.string().min(1).meta({
+      description:
+        'The fingerprint of the schema the document replaces, as GET /api/schema gave it; a schema changed since is refused (409).',
+    }),
+    document: z.record(z.string(), z.unknown()).meta({
+      description: 'The whole schema document, validated before it is written.',
+    }),
+    keepSecretsMasked: z.boolean().optional().meta({
+      description:
+        "Refuse (403) a document that would show a hidden value: a secret variable dropped or no longer `secret: true`, or a key an env file already holds a value for declared without `secret: true` or held in a file the document newly lists. configure-env mcp's update_schema sets it.",
+    }),
+  }),
+);
+
+export const schemaUnmaskRefusedResponse = named(
+  'SchemaUnmaskRefused',
+  z.object({
+    statusCode: z.literal(403),
+    message: z.string(),
+    keys: z.array(z.string()).meta({
+      description: 'The keys the document would unmask, sorted.',
     }),
   }),
 );

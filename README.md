@@ -320,7 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
-| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another one yet; every other command exits 2 for it |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against another one; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -462,15 +462,20 @@ Without an example file it writes an empty schema. In a terminal it shows the in
 
 Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so. A `.gitignore` that is a symlink is left alone, since it may lead outside the project: a warning on stderr asks you to add the line yourself.
 
+`init` runs through the configure-env API, as `check` does: `POST /api/schema/init` writes the schema, previewed first (`preview`) for the types you review in a terminal, which it then sends as `variables`; `--force` names the fingerprint `GET /api/schema` gives. The history records the write as `cli`. `init --env <name>` writes a stored environment's schema on its server (see "env"), its messages naming it `<name>:<path>`; `--from` is then a file inside that server's root.
+
 ```sh
 configure-env init
 configure-env init --ci --from config/app.env.example
 configure-env init --force
+configure-env init --env staging --ci
 ```
 
 ### Choosing the file to edit
 
 `set`, `get` and `unset` work on one file: the `--file` path, else the only schema file that is not a template. When the schema has more than one such file, `--file` is required (exit 2, listing the paths). `set` and `unset` edit a template file only with `--allow-template`.
+
+`list`, `get`, `set`, `unset` and `history` run through the configure-env API, as `check` does: `list` and `get` read `GET /api/variables` (and `POST /api/reveal` for a secret `get --reveal` prints), `set` writes through `POST /api/values/set` (`--generate` included: the server makes the value), `unset` through `POST /api/values/unset`, and `history` reads `GET /api/history`. They go through the project's running `serve` when there is one, else a server of their own on 127.0.0.1 for the run only, and with `--env <name>` they work on that environment's project on its server (see "env"). Their flags, output and exit codes are the same either way, and the history records the changes they make as the `cli`'s: the API records `cli` for a request carrying `X-Configure-Env-Client: cli`, and `portal` otherwise.
 
 ### set
 
@@ -501,6 +506,7 @@ configure-env set --prompt API_TOKEN
 configure-env set --generate SESSION_SECRET
 op read op://dev/api/token | configure-env set --stdin API_TOKEN
 configure-env set --create --file .env WEB_HOST=10.0.0.5
+configure-env set --env staging --file .env WEB_PORT=9090
 ```
 
 ### get
@@ -511,6 +517,7 @@ configure-env set --create --file .env WEB_HOST=10.0.0.5
 configure-env get WEB_PORT
 configure-env get API_TOKEN --reveal
 configure-env get WEB_HOST --file .env --json
+configure-env get WEB_PORT --env staging
 ```
 
 ### unset
@@ -520,6 +527,7 @@ configure-env get WEB_HOST --file .env --json
 ```sh
 configure-env unset WEB_PORT
 configure-env unset --file .env API_TOKEN MODE
+configure-env unset --env staging --file .env MODE
 ```
 
 ### list
@@ -545,6 +553,7 @@ EXTRA      yes    unknown                             1
 ```sh
 configure-env list
 configure-env list --file .env --json
+configure-env list --env staging
 ```
 
 ### history
@@ -574,6 +583,7 @@ Undo stays in the portal for now: its History page undoes a change while the fil
 ```sh
 configure-env history
 configure-env history --json
+configure-env history --env staging
 ```
 
 ### env
@@ -592,7 +602,7 @@ An environment is a configure-env server the CLI reaches over HTTP: its URL and 
 - **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
 - **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
 
-`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` runs against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against an environment: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
 
 ### JSON output
 
@@ -652,7 +662,7 @@ What the portal does, page by page:
 - **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. With a persistent token, `url` is the server's address without it, and `token` names where the token is (the token file, or `CONFIGURE_ENV_TOKEN`). Stop it with SIGTERM to `pid`.
 
-`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and `check` load the server (NestJS); `check` starts one of its own only when no `serve` of the project runs.
+`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and the commands that run through the API (`check`, `list`, `get`, `set`, `unset` and `history`) load the server (NestJS); those start one of their own only when no `serve` of the project runs.
 
 ### Remote environments
 
@@ -780,10 +790,12 @@ In a terminal it asks for what the options leave out; with `--ci`, `--json` or n
 | `list_variables`, `get_value`, `check`, `history`, `get_schema` | read the project; a secret is masked |
 | `set_values` | set values in one file; refuses a secret variable |
 | `generate_secret` | give secrets a random value made on this machine, never returned |
-| `request_secret` | changes nothing: answers the command the user types the secret with, `configure-env set --root <root> --prompt KEY`, which runs from any folder (with `--create` for a missing file) |
+| `request_secret` | changes nothing: answers the command the user types the secret with, `configure-env set --root <root> --prompt KEY`, which runs from any folder (with `--create` for a missing file); for another environment, `cd <folder> && configure-env set --env <name> --prompt KEY`, from the folder that stores it |
 | `unset`, `apply` | remove variables; write the files, with `generate` and `defer` for secrets |
 | `fix_gitignore` | add the git-ignore lines `check` reports missing |
-| `update_schema` | replace the schema with a validated document, at the fingerprint `get_schema` gave; refuses one that would remove a secret variable or its `"secret": true`, or show a value a schema file already holds: a key declared without `"secret": true`, or a file the schema newly lists that holds values of non-secret keys |
+| `update_schema` | replace the schema with a validated document, at the fingerprint `get_schema` gave, through `PUT /api/schema`; refuses one that would remove a secret variable or its `"secret": true`, or show a value a schema file already holds: a key declared without `"secret": true`, or a file the schema newly lists that holds values of non-secret keys |
+
+Every tool takes an optional `env`, an environment `env add` stored, passed on as `--env`: the tool then works on that server's project through the configure-env API, as the CLI does with `--env`, and the `--root`, `--schema` and `--state` the server was started with, which name this project, are left out. Without it, the tools work on this project (`local`, or `CONFIGURE_ENV_ENV`). For another environment, the masking below holds what its server answers, which masks its secrets itself.
 
 No tool returns a secret's value, and none reveals one: the server masks every value the env files hold for a secret variable in whatever a tool answers, a secret in a file whose `variables` leave it out included: a secret of 4 characters or more inside other values too, such as a password in a URL, a shorter one where it is a whole value. A key the schema does not declare has its value masked in its own entry. Key and file names are never masked. When the schema cannot be read, a tool answers only the error. Unmasking a secret is left to a person editing the schema. A secret goes in only through a value the server generates, or one the user types in a terminal. Every tool argument passes through the model, which is why `set_values` refuses secrets. The history records the server's changes as `cli`, since it runs the CLI's commands. The server only keeps the agent away from secrets when it is the agent's only way in: an agent that also has a shell can still read `.env`, so deny that too (below).
 
@@ -880,7 +892,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `GET /api/health`    | `{ "status": "ok" }`                                                                              |
 | `GET /api/project`   | the root, the schema path and the version                                                       |
-| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`; while the schema file is missing, `initFrom` names the example `POST /api/schema/init` would read |
+| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`, and its `text`, the bytes its `fingerprint` identifies; while the schema file is missing, `initFrom` names the example `POST /api/schema/init` would read |
 | `GET /api/variables` | each variable's spec and its status in every file: `set`, `missing`, `invalid` or `masked`      |
 | `GET /api/groups`    | the variables by `group`, in schema order with the ungrouped ones last (`name: null`): each group's variable names and how many are required, secret or protected |
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
@@ -909,14 +921,15 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |
 | `PUT /api/schema/variable-order`          | puts the variables in a new order                                                             |
 | `POST` / `PUT` / `DELETE /api/schema/files` | adds, changes or removes a file the schema manages                                          |
-| `POST /api/schema/init`                   | writes the starting schema `configure-env init` writes, inferred from `.env.example` (or `from`), and adds `.configure-env/` to `.gitignore` (never through a symlink: a warning instead); 409 when a schema exists, unless it names its fingerprint |
+| `POST /api/schema/init`                   | writes the starting schema `configure-env init` writes, byte for byte, inferred from `.env.example` (or `from`), with `variables` in place of the inferred ones when given, and adds `.configure-env/` to `.gitignore` (never through a symlink: a warning instead), answering what it did as `gitignore`; 409 when a schema exists, unless it names its fingerprint; `preview: true` answers the schema it would write, refused as the write would be, and writes nothing |
+| `PUT /api/schema`                         | replaces the whole schema with `document`, validated, at its `fingerprint`; with `keepSecretsMasked` (the MCP server's `update_schema` sets it), 403 with the `keys` for a document that would show a hidden value: a secret variable dropped or no longer `secret: true`, or a key an env file holds a value for declared without it or held in a newly listed file |
 | `POST /api/history/{id}/undo`             | undoes one change of the history: writes the value or the schema text before it              |
 | `POST /api/open-in-editor`                | opens the schema file or one of its env files in your editor at a line: `{ "file": ".env", "key": "PORT" }`, `{ "file": "env.schema.json", "path": "files[1].variables[0]" }` or `{ "file", "line", "column" }`; writes nothing |
 
 - **Validated and atomic.** A value is checked against its variable and the rules between variables, and a schema edit against every check the schema loader makes, before anything is written; one bad value or field writes nothing (422, with JSON paths for the schema). Files are written through a temporary file and renamed into place.
 - **Based on a fingerprint.** Every write names the fingerprint of what it was based on: an env file's from `GET /api/files` (`null` for a file that does not exist yet), the schema's from `GET /api/schema`, a plan's from `POST /api/plan`. When the file changed on disk since, nothing is written, and the answer is 409 with the file, schema or plan as it is now. A schema write answers with the new schema and its fingerprint.
 - **Protected values.** A protected value is never changed or removed unless the request names it in `replaceProtected`; otherwise the write answers 422 (`kind: "protected"`) with the schema's reason. A plan lists the protected values it would change, and apply refuses it the same way.
-- **Recorded.** Each key a value write or an apply changes, and each schema write, is recorded in the history of edits (the `changes` table of the state database), as the CLI's `set`, `unset`, `apply` and `init` record theirs (actor `cli`): actor `portal`, file, key, operation (`set`, `unset`, `replace`, or `schema` for the schema file), salted HMAC fingerprints and previews of the values before and after, and the values themselves for a variable the schema declares and does not mark secret (the schema's text for a schema write), so the change can be undone. A secret's value is never stored, even in a file whose variable list leaves the secret out, nor is the value of a key the schema does not declare: their previews are `••••`, and their changes can't be undone, which the history says. A value write answers with the ids of the changes it recorded (`changes`), a schema write with its id (`change`).
+- **Recorded.** Each key a value write or an apply changes, and each schema write, is recorded in the history of edits (the `changes` table of the state database), as the CLI's `set`, `unset`, `apply` and `init` record theirs (actor `cli`): actor `portal` (`cli` for a schema write the CLI sends, its requests carrying `X-Configure-Env-Client: cli`), file, key, operation (`set`, `unset`, `replace`, or `schema` for the schema file), salted HMAC fingerprints and previews of the values before and after, and the values themselves for a variable the schema declares and does not mark secret (the schema's text for a schema write), so the change can be undone. A secret's value is never stored, even in a file whose variable list leaves the secret out, nor is the value of a key the schema does not declare: their previews are `••••`, and their changes can't be undone, which the history says. A value write answers with the ids of the changes it recorded (`changes`), a schema write with its id (`change`).
 - **Undo.** `POST /api/history/{id}/undo` writes the change's previous state (the value before, or no value, or the schema text before) only while the file still holds what the change wrote, compared by fingerprint; otherwise nothing is written, and the answer is 409 with why and the file or schema as it is now. A change that can't be undone (a secret's, the schema's creation) answers 422 (`kind: "not-restorable"`) with the reason. The undo is checked and written like any other edit, and recorded as a change naming the one it undid (`undoOf`).
 - **Open in editor.** `POST /api/open-in-editor` starts your editor on this machine with [launch-editor](https://github.com/vitejs/launch-editor): `$LAUNCH_EDITOR` first, then the VS Code, Cursor, Zed or JetBrains IDE that is running, then `$VISUAL`, then `$EDITOR` (launch-editor's own order, so a shell with `EDITOR=vim` still opens the running IDE). It opens only the schema file or one of the env files it lists, inside the root and never through a symlink (403 for a path that leaves it, 404 for any other file), and answers only requests from a loopback address, with the token like every route. The line comes from the dotenv parser for a variable's entry (`key`, its last entry), and from a JSON source map of the schema for a JSON path (`path`, as the schema errors give it, or `key` for the variable's definition); an explicit `line` and `column` win. `"opened": true` means the editor started and did not fail within 300 ms, not that it confirmed the file is open; a failure after that is only written to stderr. When no editor is found, the answer is `{ "opened": false, "reason": "no-editor", "message": ... }`, never an error. A terminal editor (vim, vi, nvim, nano, micro, Helix, Kakoune, ne, joe, mcedit, or emacs with `-nw` or `-t`) is never started, even when `$LAUNCH_EDITOR` names it, since the server has no terminal to give it: the answer is `{ "opened": false, "reason": "terminal-editor", "message": ... }`, and the message says to set `$LAUNCH_EDITOR` to a GUI editor or open an IDE. The editor runs without a shell (through `cmd.exe` on Windows, with launch-editor's escaping), and whatever it prints goes to stderr, so `configure-env serve --json` keeps its one line on stdout.
 

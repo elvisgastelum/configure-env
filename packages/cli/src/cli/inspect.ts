@@ -1,56 +1,24 @@
 // `configure-env list`: a read-only view of the values the env files hold
-// now, checked against the schema. `check` reports their problems.
+// now, checked against the schema. `check` reports their problems. It runs
+// through the configure-env API (connect.ts): GET /api/variables, whose
+// files hold each key as list shows it, secrets masked.
 
-import {
-  type EnvSchema,
-  type FileSpec,
-  type RuleProblem,
-  fileKeys,
-  fileRules,
-  getValue,
-  isTemplate,
-  ruleKeys,
-  unknownKeys,
-  unquoteValue,
-  validateValue,
-} from '@configure-env/core';
-import {
-  type Context,
-  contextOf,
-  loadContextSchema,
-  parseCommand,
-} from './common.ts';
+import { type EnvSchema, type FileSpec } from '@configure-env/core';
+import { parseCommand } from './common.ts';
+import { type ProjectRun, openProject } from './connect.ts';
 import { LIST_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import {
-  type EnvFile,
+  type ListedFile,
+  type ListedKey,
   UNKNOWN_SPEC,
-  jsonValue,
-  readEnvFile,
+  listFiles,
+  listedFile,
 } from './target.ts';
 
 /** The schema files the command covers: the --file paths, else all. */
-const selectedFiles = (schema: EnvSchema, context: Context): FileSpec[] =>
-  schema.files.filter(
-    (file) => !context.files || context.files.includes(file.path),
-  );
-
-/**
- * Validates one held value: a placeholder the file sets on purpose through
- * `values` passes. The error names the rule, never the value.
- */
-function checkValue(
-  schema: EnvSchema,
-  file: FileSpec,
-  key: string,
-  value: string | undefined,
-): string | undefined {
-  const literal = file.values?.[key];
-  if (literal !== undefined && value === unquoteValue(literal))
-    return undefined;
-  const result = validateValue(schema.variables[key]!, value);
-  return result.ok ? undefined : result.error;
-}
+const selectedFiles = (schema: EnvSchema, run: ProjectRun): FileSpec[] =>
+  schema.files.filter((file) => !run.files || run.files.includes(file.path));
 
 // ---------------------------------------------------------------- list
 
@@ -78,45 +46,23 @@ const truncate = (text: string) => {
     : text;
 };
 
-/** A broken rule for the VALID column of each key it is reported under. */
-const ruleCell = (problem: RuleProblem) =>
-  problem.rule === 'conflictsWith'
-    ? `set only one of ${ruleKeys(problem).join(', ')}`
-    : problem.message;
-
-function rowsOf(schema: EnvSchema, file: EnvFile): Row[] {
-  const { spec, doc } = file;
-  const template = isTemplate(spec);
-  // A key's own rule comes first; a broken rule between variables shows
-  // when its value passes.
-  const broken = new Map<string, string>();
-  for (const problem of fileRules(schema, spec, doc))
-    for (const key of ruleKeys(problem))
-      if (!broken.has(key)) broken.set(key, ruleCell(problem));
-  const row = (key: string, unknown: boolean): Row => {
-    const variable = unknown ? UNKNOWN_SPEC : schema.variables[key]!;
-    const value = getValue(doc, key);
-    const set: SetState =
-      value === undefined ? 'no' : value === '' ? 'empty' : 'yes';
-    const checked = !unknown && !template;
-    const error = checked
-      ? (checkValue(schema, spec, key, value) ?? broken.get(key))
-      : undefined;
-    return {
-      file: spec.path,
-      key,
-      set,
-      valid: checked ? !error : null,
-      ...(error ? { error } : {}),
-      ...(value === undefined ? {} : jsonValue(variable, value)),
-      ...(variable.description ? { description: variable.description } : {}),
-      ...(unknown ? { unknown: true as const } : {}),
-    };
+/** A listed key as a row: its value as `value`, or as `masked` for a secret. */
+function rowOf(schema: EnvSchema, file: ListedFile, entry: ListedKey): Row {
+  const variable = entry.unknown ? UNKNOWN_SPEC : schema.variables[entry.key]!;
+  return {
+    file: file.path,
+    key: entry.key,
+    set: entry.set,
+    valid: entry.valid,
+    ...(entry.error ? { error: entry.error } : {}),
+    ...(entry.value === undefined
+      ? {}
+      : variable.secret
+        ? { masked: entry.value }
+        : { value: entry.value }),
+    ...(variable.description ? { description: variable.description } : {}),
+    ...(entry.unknown ? { unknown: true as const } : {}),
   };
-  return [
-    ...fileKeys(schema, spec).map((key) => row(key, false)),
-    ...unknownKeys(schema, spec, doc).map((key) => row(key, true)),
-  ];
 }
 
 /** The VALID column: ok, the error, `unknown`, or `-` when not checked. */
@@ -146,27 +92,31 @@ export async function listCommand(args: string[], io: Io): Promise<number> {
     io.stdout(LIST_HELP);
     return 0;
   }
-  const context = await contextOf(io, options);
-  const schema = await loadContextSchema(context);
-  const files: { file: EnvFile; rows: Row[] }[] = [];
-  for (const spec of selectedFiles(schema, context)) {
-    const file = await readEnvFile(context, spec);
-    files.push({ file, rows: rowsOf(schema, file) });
+  const run = await openProject(io, options);
+  const { schema } = run;
+  const connection = await run.connect();
+  let listed: ListedFile[];
+  try {
+    listed = await listFiles(run, connection);
+  } finally {
+    await connection.close();
   }
+  const files = selectedFiles(schema, run).map((spec) => {
+    const file = listedFile(listed, spec);
+    return { file, rows: file.keys.map((entry) => rowOf(schema, file, entry)) };
+  });
 
-  if (context.json) {
+  if (run.json) {
     io.stdout(JSON.stringify(files.flatMap(({ rows }) => rows)));
     return 0;
   }
   files.forEach(({ file, rows }, index) => {
     if (index > 0) io.stdout('');
     const notes = [
-      ...(isTemplate(file.spec) ? ['template'] : []),
+      ...(file.template ? ['template'] : []),
       ...(file.exists ? [] : ['missing']),
     ];
-    io.stdout(
-      notes.length ? `${file.spec.path} (${notes.join(', ')})` : file.spec.path,
-    );
+    io.stdout(notes.length ? `${file.path} (${notes.join(', ')})` : file.path);
     table([
       ['KEY', 'SET', 'VALID', 'VALUE', 'DESCRIPTION'],
       ...rows.map((row) => [

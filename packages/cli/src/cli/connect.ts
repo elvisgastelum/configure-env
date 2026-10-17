@@ -25,6 +25,8 @@ import {
 import {
   DEFAULT_STATE_PATH,
   type EnvSchema,
+  type SchemaError,
+  type StateWriter,
   displayPath,
   parseSchema,
 } from '@configure-env/core';
@@ -60,6 +62,10 @@ const REMOTE_TIMEOUT_MS = 30_000;
 export interface InProcessOptions extends ServerOptions {
   statePath: string;
   schemaAnywhere: true;
+  /** Where the CLI runs: the paths in a write's messages are relative to it. */
+  cwd?: string;
+  /** The state writer the tests pass; never for a server others reach. */
+  writeState?: StateWriter;
 }
 
 /** Starts the API in-process; tests replace it to watch the starts. */
@@ -78,22 +84,28 @@ export interface Connection {
   close(): Promise<void>;
 }
 
-/** A project a command works on, before or after it connects. */
-export interface ProjectRun {
+/** The environment a command works on, its schema unread. */
+export interface TargetRun {
   /** `local` or the environment's name. */
   name: string;
   /** Whether the server owns the project (another environment). */
   remote: boolean;
-  schema: EnvSchema;
-  /** The schema as the terminal title names it. */
-  title: string;
-  /** The --file paths; every file when absent. */
-  files?: string[];
+  /** For `local`: the absolute state path, which messages show relative to cwd. */
+  statePath?: string;
   ci: boolean;
   json: boolean;
   prompts: Prompts;
   /** The server to send requests to: started, attached, or the remote one. */
   connect(): Promise<Connection>;
+}
+
+/** A project a command works on, before or after it connects. */
+export interface ProjectRun extends TargetRun {
+  schema: EnvSchema;
+  /** The schema as the terminal title names it. */
+  title: string;
+  /** The --file paths; every file when absent. */
+  files?: string[];
 }
 
 type GlobalValues = Parameters<typeof contextOf>[1] & { env?: string };
@@ -139,6 +151,26 @@ export const answerMessage = (response: { status: number; data: unknown }) => {
     ? message
     : `the server answered ${response.status}`;
 };
+
+/**
+ * The body of an answer a command expects, else the error the CLI exits
+ * with: an invalid schema (exit 1, with its errors), or anything else the
+ * server refused, by its message.
+ */
+export function answerOf<T>(
+  run: Pick<ProjectRun, 'title'>,
+  response: { status: number; data: unknown },
+): T {
+  if (response.status === 200) return response.data as T;
+  if (response.status === 422) {
+    const { errors = [] } = response.data as { errors?: SchemaError[] };
+    throw new CliError(1, [
+      `invalid schema ${run.title}:`,
+      ...errors.map((error) => `  ${error.path}: ${error.message}`),
+    ]);
+  }
+  throw new CliError(1, [answerMessage(response)]);
+}
 
 const versionParts = (version: string) =>
   version.split(/[.+-]/).slice(0, 2).map(Number);
@@ -213,10 +245,27 @@ async function startLocal(
     port: 0,
     token,
     version: VERSION,
+    cwd: context.io.cwd,
+    ...(context.io.writeState ? { writeState: context.io.writeState } : {}),
   });
   return {
     ...connectionTo(LOCAL, { baseUrl: server.url, token, client: CLIENT }),
     close: () => server.close(),
+  };
+}
+
+/** The local environment, over the paths the person gave. */
+function localTarget(io: Io, context: Context): TargetRun {
+  return {
+    name: LOCAL,
+    remote: false,
+    statePath: context.statePath,
+    ci: context.ci,
+    json: context.json,
+    prompts: context.prompts,
+    connect: async () =>
+      (await attach(context)) ??
+      startLocal(context, io.startServer ?? startInProcess),
   };
 }
 
@@ -225,17 +274,10 @@ async function localRun(io: Io, values: GlobalValues): Promise<ProjectRun> {
   const context = await contextOf(io, values);
   const schema = await loadContextSchema(context);
   return {
-    name: LOCAL,
-    remote: false,
+    ...localTarget(io, context),
     schema,
     title: displayPath(io.cwd, context.schemaPath),
     ...(context.files ? { files: context.files } : {}),
-    ci: context.ci,
-    json: context.json,
-    prompts: context.prompts,
-    connect: async () =>
-      (await attach(context)) ??
-      startLocal(context, io.startServer ?? startInProcess),
   };
 }
 
@@ -253,12 +295,15 @@ async function storedEnvironment(io: Io, name: string): Promise<Environment> {
   return environment;
 }
 
-/** The project of another environment: its server's, read through it. */
-async function remoteRun(
+/**
+ * Another environment's server, once it answers as a configure-env server
+ * of a compatible version.
+ */
+async function remoteTarget(
   io: Io,
   values: GlobalValues,
   name: string,
-): Promise<ProjectRun> {
+): Promise<TargetRun & { connection: Connection; schemaPath: string }> {
   for (const option of ['root', 'schema', 'state'] as const)
     if (values[option] !== undefined)
       throw usageError(
@@ -283,6 +328,25 @@ async function remoteRun(
       `environment ${name} runs configure-env ${version}; this CLI is ${VERSION}`,
       'run a configure-env of a compatible version on either side',
     ]);
+  return {
+    name,
+    remote: true,
+    ci: Boolean(values.ci) || isCiEnv(io.env),
+    json: Boolean(values.json),
+    prompts: io.prompts ?? clackPrompts,
+    connection,
+    schemaPath: project.data.schemaPath,
+    connect: async () => connection,
+  };
+}
+
+/** The project of another environment: its server's, read through it. */
+async function remoteRun(
+  io: Io,
+  values: GlobalValues,
+  name: string,
+): Promise<ProjectRun> {
+  const { connection, ...target } = await remoteTarget(io, values, name);
   const read = await send(connection, () => getSchema(connection.init()));
   if (read.status !== 200)
     throw new CliError(1, [`${name}: ${answerMessage(read)}`]);
@@ -298,15 +362,10 @@ async function remoteRun(
   const files = values.file?.length ? values.file : undefined;
   checkSchemaFiles(parsed.schema, files);
   return {
-    name,
-    remote: true,
+    ...target,
     schema: parsed.schema,
     title: shown,
     ...(files ? { files } : {}),
-    ci: Boolean(values.ci) || isCiEnv(io.env),
-    json: Boolean(values.json),
-    prompts: io.prompts ?? clackPrompts,
-    connect: async () => connection,
   };
 }
 
@@ -316,4 +375,48 @@ export function openProject(io: Io, values: GlobalValues): Promise<ProjectRun> {
   return name === LOCAL
     ? localRun(io, { ...values, env: LOCAL })
     : remoteRun(io, values, name);
+}
+
+/**
+ * The environment the selected one names, its schema unread: for a command
+ * that needs none, such as history.
+ */
+export async function openTarget(
+  io: Io,
+  values: GlobalValues,
+): Promise<TargetRun> {
+  const name = selectedEnvironment(io, values);
+  if (name === LOCAL)
+    return localTarget(io, await contextOf(io, { ...values, env: LOCAL }));
+  return remoteTarget(io, values, name);
+}
+
+/**
+ * The server of a project whose schema may be missing or invalid, such as
+ * the one init writes: nothing is read before it connects. `local` has its
+ * paths; another environment names its schema file as its server does.
+ */
+export interface ServerRun extends TargetRun {
+  /** The local paths; absent for another environment, whose server owns them. */
+  context?: Context;
+  /** The schema file as messages name it: shown from the cwd, or `name:path`. */
+  title: string;
+}
+
+/** The server the selected environment names, without reading its schema. */
+export async function openServer(
+  io: Io,
+  values: GlobalValues,
+): Promise<ServerRun> {
+  const name = selectedEnvironment(io, values);
+  if (name === LOCAL) {
+    const context = await contextOf(io, { ...values, env: LOCAL });
+    return {
+      ...localTarget(io, context),
+      context,
+      title: displayPath(io.cwd, context.schemaPath),
+    };
+  }
+  const target = await remoteTarget(io, values, name);
+  return { ...target, title: `${name}:${target.schemaPath}` };
 }

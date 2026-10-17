@@ -14,10 +14,8 @@ import type {
   CheckReport,
   GitignoreFix,
   GitignoreProblem,
-  SchemaError,
 } from '@configure-env/core';
 import {
-  CliError,
   describeError,
   givenValue,
   parseCommand,
@@ -26,7 +24,7 @@ import {
 import {
   type Connection,
   type ProjectRun,
-  answerMessage,
+  answerOf,
   openProject,
   send,
 } from './connect.ts';
@@ -53,27 +51,6 @@ interface Inputs {
   values: Record<string, string>;
 }
 
-/**
- * The body of an answer the check expects, else the error the CLI exits
- * with: an invalid schema (exit 1, with its errors), a state that cannot be
- * read, a .gitignore that cannot be written, or anything else the server
- * refused, by its message.
- */
-function answer<T>(
-  run: ProjectRun,
-  response: { status: number; data: unknown },
-): T {
-  if (response.status === 200) return response.data as T;
-  if (response.status === 422) {
-    const { errors = [] } = response.data as { errors?: SchemaError[] };
-    throw new CliError(1, [
-      `invalid schema ${run.title}:`,
-      ...errors.map((error) => `  ${error.path}: ${error.message}`),
-    ]);
-  }
-  throw new CliError(1, [answerMessage(response)]);
-}
-
 /** The check report, through GET /api/check unless it takes files or values. */
 async function check(
   run: ProjectRun,
@@ -91,7 +68,7 @@ async function check(
       : await send(connection, () =>
           getCheck(strict ? { strict: 'true' } : undefined, connection.init()),
         );
-  return answer<CheckReport>(run, response);
+  return answerOf<CheckReport>(run, response);
 }
 
 /**
@@ -117,7 +94,7 @@ async function fix(
       connection.init(),
     ),
   );
-  return answer<{ fixed: GitignoreFix[]; check: CheckReport }>(run, response);
+  return answerOf<{ fixed: GitignoreFix[]; check: CheckReport }>(run, response);
 }
 
 /** Asks which git-ignore problems to fix, each selected first; none on cancel. */

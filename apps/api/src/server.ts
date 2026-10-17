@@ -14,6 +14,7 @@ import {
   StandardSchemaValidationPipe,
 } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import type { StateWriter } from '@configure-env/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -85,6 +86,16 @@ export interface ServerOptions {
    * tokens, and /env/<name>/api/* forwards to them. None by default.
    */
   environments?: EnvironmentsReader;
+  /**
+   * What the messages of a value write show paths relative to; the root by
+   * default. The CLI's in-process server passes the directory it runs in.
+   */
+  cwd?: string;
+  /**
+   * Writes the protected variables' state; the CLI's tests pass one that
+   * fails, as a full disk would. Never for a server others reach.
+   */
+  writeState?: StateWriter;
 }
 
 export type { RemoteEnvironment } from './gateway.ts';
@@ -249,6 +260,8 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       : { statePath: options.statePath }),
     ...(options.schemaAnywhere ? { schemaAnywhere: true } : {}),
   });
+  if (options.cwd !== undefined) project.cwd = resolve(options.cwd);
+  if (options.writeState) project.writeState = options.writeState;
 
   let port = options.port;
   /** The Host values of the address the server listens on. */

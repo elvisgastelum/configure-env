@@ -23,7 +23,8 @@ const GLOBAL = `Global options:
                    not a template)
   --env <name>     the environment to run against: local (this project,
                    the default) or one env add stored; CONFIGURE_ENV_ENV
-                   too. Only check runs against another one yet
+                   too. check, init, list, get, set, unset and history run
+                   against another one
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
   --no-color       plain output; NO_COLOR is honoured too
@@ -45,6 +46,13 @@ file lost one that the state (.configure-env/state.db) recorded; the
 recorded value itself is taken back. --replace-protected KEY allows the
 change: in a terminal you type KEY to confirm, with --ci or --json the
 flag is enough.`;
+
+/** How a command that runs through the API reaches it. */
+const OVER_THE_API = `It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only,
+on 127.0.0.1. With --env <name> it works on that environment's project on
+its server instead; --root, --schema and --state are then the server's
+and exit 2.`;
 
 export const MAIN_HELP = `Usage: configure-env [command] [options]
 
@@ -224,6 +232,12 @@ each one; with --ci (or --json) it writes them as inferred.
 Once the schema is written, it adds .configure-env/ (where the protected
 variables' state lives) to .gitignore, creating it when missing.
 
+It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only,
+on 127.0.0.1. With --env <name> it writes that environment's schema on
+its server instead; --root, --schema and --state are then the server's
+and exit 2.
+
 Options:
   --from <file>  the env file to infer from, inside the root
                  (default: .env.example when it exists)
@@ -235,6 +249,7 @@ Examples:
   configure-env init
   configure-env init --ci --from config/app.env.example
   configure-env init --force
+  configure-env init --env staging --ci
 
 ${EXIT_CODES}`;
 
@@ -265,6 +280,8 @@ edited only with --allow-template, and never with --generate or --stdin.
 
 ${PROTECTED}
 
+${OVER_THE_API} The history records its changes as the cli's.
+
 Options:
   --prompt KEY      ask for the value in the terminal (hidden for a
                     secret); repeat for more
@@ -288,6 +305,7 @@ Examples:
   configure-env set --generate SESSION_SECRET
   op read op://dev/api/token | configure-env set --stdin API_TOKEN
   configure-env set --create --file .env WEB_HOST=10.0.0.5
+  configure-env set --env staging --file .env WEB_PORT=9090
 
 ${EXIT_CODES}`;
 
@@ -298,6 +316,8 @@ that is not set exits 1. A secret is not printed (exit 1) unless
 --reveal; with --json it shows masked instead.
 
 ${FILE_CHOICE}
+
+${OVER_THE_API}
 
 Options:
   --reveal  print a secret value
@@ -311,6 +331,7 @@ Examples:
   configure-env get WEB_PORT
   configure-env get API_TOKEN --reveal
   configure-env get WEB_HOST --file .env --json
+  configure-env get WEB_PORT --env staging
 
 ${EXIT_CODES}`;
 
@@ -327,6 +348,8 @@ edited only with --allow-template.
 
 ${PROTECTED}
 
+${OVER_THE_API} The history records its changes as the cli's.
+
 Options:
   --allow-template  edit a template file
   --replace-protected KEY
@@ -337,6 +360,7 @@ ${GLOBAL}
 Examples:
   configure-env unset WEB_PORT
   configure-env unset --file .env API_TOKEN MODE
+  configure-env unset --env staging --file .env MODE
 
 ${EXIT_CODES}`;
 
@@ -356,12 +380,15 @@ Without --file it lists every file, grouped by path. With --json it prints
 one array: per variable {"file", "key", "set", "valid", "error",
 "value" or "masked", "description", "unknown"}. Changes nothing; exits 0.
 
+${OVER_THE_API}
+
 ${GLOBAL}
 
 Examples:
   configure-env list
   configure-env list --file .env
   configure-env list --json
+  configure-env list --env staging
 
 ${EXIT_CODES}`;
 
@@ -391,11 +418,14 @@ Undo stays in the portal for now: its History page undoes a change while
 the file still holds what the change wrote. A secret's change can't be
 undone.
 
+${OVER_THE_API}
+
 ${GLOBAL}
 
 Examples:
   configure-env history
   configure-env history --json
+  configure-env history --env staging
 
 ${EXIT_CODES}`;
 
@@ -648,6 +678,12 @@ file's values. A secret goes in only through a value the server
 generates (generate_secret, apply's generate), or one the user types in a
 terminal with the command request_secret answers, which runs from any
 folder: configure-env set --root <root> --prompt KEY.
+
+Every tool takes an optional env, an environment configure-env env add
+stored, passed on as --env: the tool then works on that server's project
+through the configure-env API, without the --root, --schema and --state
+the server was started with. request_secret then answers the command to
+run from this folder: configure-env set --env <name> --prompt KEY.
 
 Register it with configure-env install mcp, or in an agent's MCP
 configuration as the command configure-env with the argument mcp.

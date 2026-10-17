@@ -127,7 +127,7 @@ export const stateError = (path: string, lines: string[]) =>
  * a cancel; a wrong name exits 2.
  */
 export async function confirmReplacements(
-  { io, prompts, ci, json }: Context,
+  { io, prompts, ci, json }: Pick<Context, 'io' | 'prompts' | 'ci' | 'json'>,
   keys: readonly string[],
 ): Promise<boolean> {
   if (!keys.length || ci || json) return true;
