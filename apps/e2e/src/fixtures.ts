@@ -61,11 +61,20 @@ export const test = base.extend<Fixtures>({
     }
   },
   portal: async ({ page, served }, use) => {
+    // The portal opens the event stream once it renders, and the server
+    // answers it once it watches the files. A test that edits a file or
+    // drops the cookie before then would race it: the edit sends no event,
+    // or the stream never opens without the cookie.
+    const events = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/events' && response.ok(),
+    );
     await page.goto(served.launchUrl);
     // The launch route sets the session cookie and moves to the overview;
     // the navigation may sit behind "Open navigation" on a narrow screen.
     await expect(page).toHaveURL(`${served.origin}/`);
     await expect(page.locator('main#main')).toBeVisible();
+    await events;
     await use(page);
   },
 });
