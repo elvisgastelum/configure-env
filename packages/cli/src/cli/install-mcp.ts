@@ -107,11 +107,16 @@ export type McpStatus = 'created' | 'added' | 'updated' | 'unchanged';
 /** A configuration's new text, or why it is left alone. */
 type Plan =
   | { status: 'unchanged' }
-  | { status: Exclude<McpStatus, 'unchanged'>; text: string; mode?: number }
+  | { status: Exclude<McpStatus, 'unchanged'>; text: string }
   | { conflict: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Why a configuration that registers another configure-env server is left alone. */
+const DIFFERENT_SERVER = {
+  conflict: `already has a different ${SERVER_NAME} server; pass --force to replace it`,
+};
 
 const sameJson = (a: unknown, b: unknown) =>
   JSON.stringify(a) === JSON.stringify(b);
@@ -141,10 +146,7 @@ function planJson(
   const existing = servers[SERVER_NAME];
   if (existing !== undefined && sameJson(existing, entry))
     return { status: 'unchanged' };
-  if (existing !== undefined && !force)
-    return {
-      conflict: `already has a different ${SERVER_NAME} server; pass --force to replace it`,
-    };
+  if (existing !== undefined && !force) return DIFFERENT_SERVER;
   const next = { ...document, [key]: { ...servers, [SERVER_NAME]: entry } };
   return {
     status:
@@ -193,10 +195,7 @@ function planToml(
   const end = next ? start + header[0].length + next.index : current.length;
   const block = current.slice(start, end);
   if (block.trim() === table.trim()) return { status: 'unchanged' };
-  if (!force)
-    return {
-      conflict: `already has a different ${SERVER_NAME} server; pass --force to replace it`,
-    };
+  if (!force) return DIFFERENT_SERVER;
   const tail = current.slice(end);
   return {
     status: 'updated',
@@ -248,6 +247,22 @@ export interface InstalledServer {
 const toSlash = (path: string) => path.split(sep).join('/');
 
 /**
+ * A configuration's path as `install mcp` prints it: `~/...` for the user
+ * scope when it is under the home folder, else relative to the base.
+ */
+export function shownPath(
+  path: string,
+  scope: McpScope,
+  base: string,
+  home: string,
+): string {
+  const fromHome = relative(home, path);
+  return scope === 'user' && !fromHome.startsWith('..')
+    ? `~/${toSlash(fromHome)}`
+    : toSlash(relative(base, path));
+}
+
+/**
  * Registers the server for each agent: every configuration is read and
  * checked before any is written, so a refused run changes nothing.
  */
@@ -262,10 +277,7 @@ export async function installMcp(
 ): Promise<number> {
   const { io, prompts } = context;
   const home = io.env.HOME || io.env.USERPROFILE || homedir();
-  const show = (path: string) =>
-    choices.scope === 'user' && !relative(home, path).startsWith('..')
-      ? `~/${toSlash(relative(home, path))}`
-      : toSlash(relative(base, path));
+  const show = (path: string) => shownPath(path, choices.scope, base, home);
 
   const planned: {
     agent: McpAgent;

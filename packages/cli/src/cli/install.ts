@@ -41,6 +41,7 @@ import {
   type Runner,
   installMcp,
   launchOf,
+  shownPath,
   targetOf,
 } from './install-mcp.ts';
 import type { Io } from './io.ts';
@@ -613,12 +614,13 @@ async function chooseMcp(
   const where = scope ?? 'project';
   if (interactive && agents === undefined) {
     const home = io.env.HOME || io.env.USERPROFILE || homedir();
-    const shown = (agent: McpAgent) => {
-      const path = targetOf(agent, where, base(where), io.env).path;
-      return where === 'user'
-        ? `~/${toSlash(relative(home, path))}`
-        : toSlash(relative(base(where), path));
-    };
+    const shown = (agent: McpAgent) =>
+      shownPath(
+        targetOf(agent, where, base(where), io.env).path,
+        where,
+        base(where),
+        home,
+      );
     const picked = await prompts.multiselect({
       message: 'Which agents should start it?',
       options: MCP_AGENTS.map((value) => ({ value, hint: shown(value) })),
