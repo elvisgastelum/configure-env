@@ -192,6 +192,42 @@ describe('install mcp', () => {
     );
   });
 
+  it('replaces the Codex table with its subtables, keeping what follows', async () => {
+    const path = join(dirs.root, '.codex/config.toml');
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      '[mcp_servers."configure-env"]\ncommand = "old"\n\n[mcp_servers.configure-env.env]\nA = "1"\n\n[profiles.z]\nmodel = "y"\n',
+    );
+    const result = await install(['--ci', '--agent', 'codex', '--force']);
+    expect(result.code).toBe(0);
+    expect(await readFile(path, 'utf8')).toBe(
+      '[mcp_servers.configure-env]\ncommand = "npx"\nargs = ["-y", "@elvisgastelum/configure-env", "mcp"]\n\n[profiles.z]\nmodel = "y"\n',
+    );
+  });
+
+  it.each([
+    [
+      'under [mcp_servers]',
+      '[mcp_servers]\nconfigure-env = { command = "x" }\n',
+    ],
+    ['as a dotted key', 'mcp_servers.configure-env.command = "x"\n'],
+    ['inline', 'mcp_servers = { "configure-env" = { command = "x" } }\n'],
+  ])(
+    'refuses a Codex server registered %s, even with --force',
+    async (_form, text) => {
+      const path = join(dirs.root, '.codex/config.toml');
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, text);
+      const result = await install(['--ci', '--agent', 'codex', '--force']);
+      expect(result.code).toBe(2);
+      expect(result.err.join('\n')).toMatch(
+        /in a form install mcp does not edit/,
+      );
+      expect(await readFile(path, 'utf8')).toBe(text);
+    },
+  );
+
   it("registers for the user in the home folder, keeping the file's mode", async () => {
     const path = join(home, '.claude.json');
     await writeFile(path, JSON.stringify({ projects: {} }), { mode: 0o600 });

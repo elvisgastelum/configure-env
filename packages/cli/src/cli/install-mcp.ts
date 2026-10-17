@@ -182,10 +182,53 @@ function tomlTable(launch: Launch): string {
   return `[mcp_servers.${SERVER_NAME}]\ncommand = ${JSON.stringify(launch.command)}\nargs = [${args}]\n`;
 }
 
-const TABLE_HEADER = new RegExp(
-  `^\\[mcp_servers\\.(?:${SERVER_NAME}|"${SERVER_NAME}")\\][ \\t]*$`,
-  'm',
+/** The server's name as a TOML key: bare, or in either kind of quotes. */
+const TOML_NAME = `(?:${SERVER_NAME}|"${SERVER_NAME}"|'${SERVER_NAME}')`;
+
+/** A table header line, with its dotted name. */
+const HEADER = /^\s*\[(?!\[)\s*([^\]]+?)\s*\]\s*(?:#.*)?$/;
+
+/** A table name that is the server's, or one of its subtables. */
+const SERVER_TABLE = new RegExp(
+  `^mcp_servers\\s*\\.\\s*${TOML_NAME}(\\s*\\..*)?$`,
 );
+
+/** A key line that registers the server another way than its own table. */
+const OTHER_FORM = new RegExp(
+  `^\\s*(?:mcp_servers\\s*\\.\\s*${TOML_NAME}\\s*[.=]|mcp_servers\\s*=.*${TOML_NAME})`,
+);
+const KEY_IN_SERVERS = new RegExp(`^\\s*${TOML_NAME}\\s*[.=]`);
+
+/**
+ * Where the server's table and its subtables sit in a Codex configuration,
+ * as line indexes, or that it is registered in a form this command does
+ * not edit: under `[mcp_servers]`, as a dotted key, or inline.
+ */
+function findServerTable(
+  lines: readonly string[],
+): { start: number; end: number } | 'other' | undefined {
+  let table = '';
+  let start: number | undefined;
+  let end: number | undefined;
+  for (const [index, line] of lines.entries()) {
+    const header = HEADER.exec(line);
+    if (header) {
+      table = header[1]!;
+      const ours = SERVER_TABLE.test(table);
+      if (ours && start !== undefined && end !== undefined) return 'other';
+      if (ours && start === undefined) start = index;
+      if (!ours && start !== undefined && end === undefined) end = index;
+      continue;
+    }
+    if (
+      (table === '' && OTHER_FORM.test(line)) ||
+      (table === 'mcp_servers' && KEY_IN_SERVERS.test(line))
+    )
+      return 'other';
+  }
+  if (start === undefined) return undefined;
+  return { start, end: end ?? lines.length };
+}
 
 /** The TOML configuration with the server's table added or replaced. */
 function planToml(
@@ -195,8 +238,13 @@ function planToml(
 ): Plan {
   const table = tomlTable(launch);
   if (current === undefined) return { status: 'created', text: table };
-  const header = TABLE_HEADER.exec(current);
-  if (!header) {
+  const lines = current.split('\n');
+  const found = findServerTable(lines);
+  if (found === 'other')
+    return {
+      conflict: `registers ${SERVER_NAME} in a form install mcp does not edit (under [mcp_servers], a dotted key or inline); change it yourself`,
+    };
+  if (!found) {
     const separator =
       !current || current.endsWith('\n\n')
         ? ''
@@ -205,17 +253,17 @@ function planToml(
           : '\n\n';
     return { status: 'added', text: `${current}${separator}${table}` };
   }
-  const start = header.index;
-  const rest = current.slice(start + header[0].length);
-  const next = /^\[/m.exec(rest);
-  const end = next ? start + header[0].length + next.index : current.length;
-  const block = current.slice(start, end);
+  // The block ends at the next table; blank lines before it stay outside.
+  let { end } = found;
+  while (end > found.start + 1 && !lines[end - 1]!.trim()) end -= 1;
+  const block = lines.slice(found.start, end).join('\n');
   if (block.trim() === table.trim()) return { status: 'unchanged' };
   if (!force) return DIFFERENT_SERVER;
-  const tail = current.slice(end);
+  const head = lines.slice(0, found.start).join('\n');
+  const tail = lines.slice(end).join('\n');
   return {
     status: 'updated',
-    text: `${current.slice(0, start)}${table}${tail ? `\n${tail}` : ''}`,
+    text: `${head}${head ? '\n' : ''}${table}${tail ? `${tail.startsWith('\n') ? '' : '\n'}${tail}` : ''}`,
   };
 }
 
