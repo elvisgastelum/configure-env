@@ -44,7 +44,7 @@ interface Node {
 
 const SPACE = /[ \t\n\r]*/y;
 // No raw control character inside a string.
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const STRING = /"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
 const SCALAR =
   /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null/y;

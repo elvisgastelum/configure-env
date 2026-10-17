@@ -6,7 +6,7 @@
 
 // The helpers' declarations, for every package that type-checks this file
 // (the portal's too). An ambient declaration file has no module to import.
-// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+// oxlint-disable-next-line typescript/triple-slash-reference
 /// <reference path="./launch-editor.d.ts" />
 
 import { type ChildProcess, spawn } from 'node:child_process';

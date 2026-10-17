@@ -1,8 +1,10 @@
-# Lint, format check, typecheck, JSON Schema and API client drift, and
-# tests on every pull request and on every push to main. Every step runs a
-# root script, which covers the whole pnpm workspace. Each action is pinned
-# to a full commit SHA (the tag in the comment) so a moved tag cannot change
-# what runs.
+# Format, lint (`vp check`), typecheck, JSON Schema and API client drift,
+# and tests on every pull request and on every push to main. Every step runs
+# across the whole pnpm workspace through Vite+ (https://viteplus.dev):
+# setup-vp installs Vite+, Node.js, pnpm and the dependencies, and `vp run`
+# replays tasks whose inputs did not change from the Vite Task cache. Each
+# action is pinned to a full commit SHA (the tag in the comment) so a moved
+# tag cannot change what runs.
 name: CI
 
 on:
@@ -29,22 +31,40 @@ jobs:
         with:
           persist-credentials: false
 
-      # No `version` input: the action reads it from `packageManager`.
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: .node-version
-          cache: pnpm
+          cache: true
+          run-install: |
+            args: ['--frozen-lockfile']
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm format:check
-      - run: pnpm typecheck
-      - run: pnpm schema:check
+      # Vite Task's results (node_modules/.vite/task-cache), restored after
+      # the install so `vp run` replays unchanged tasks. Vite Task fingerprints
+      # the inputs; the key only rolls per run.
+      - name: Restore Vite Task cache
+        id: vite-task-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vite-task-check-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vite-task-check-${{ runner.os }}-${{ runner.arch }}-
+
+      # Format and lint. tsgolint's type check reports errors `tsc` does not,
+      # so `vp check` leaves types to `typecheck`.
+      - run: vp check
+      - run: vp run typecheck
+      - run: vp run schema:check
       # The committed OpenAPI document and generated client match the API.
-      - run: pnpm gen:api:check
-      - run: pnpm test
+      - run: vp run gen:api:check
+      - run: vp run test
+
+      - name: Save Vite Task cache
+        if: success()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: ${{ steps.vite-task-cache.outputs.cache-primary-key }}
 
   # Packs the package as npm would publish it, installs the tarball into a
   # throwaway project and runs the CLI through npx
@@ -73,16 +93,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
+          cache: true
+          run-install: |
+            args: ['--frozen-lockfile']
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm smoke
+      - run: vp run build
+      - run: vp run smoke
       # The manifest does not depend on the OS or Node version: checked once.
       - if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         run: npm publish --dry-run
@@ -90,7 +109,7 @@ jobs:
 
   # Builds the design system's Storybook and runs every story in headless
   # Chromium, once in the light theme and once in the dark one; any axe
-  # violation fails the job (packages/design-system/vitest.config.ts). Then
+  # violation fails the job (packages/design-system/vite.config.ts). Then
   # builds the portal's Storybook.
   storybook:
     needs: check
@@ -101,23 +120,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          cache: true
+          run-install: |
+            args: ['--frozen-lockfile']
       - run: pnpm --filter @configure-env/design-system exec playwright install --with-deps chromium
-      - run: pnpm build-storybook
-      - run: pnpm test:storybook
+      - run: vp run build-storybook
+      - run: vp run test:storybook
       # The portal's stories (apps/web) must keep building.
-      - run: pnpm build-storybook:web
+      - run: vp run build-storybook:web
 
   # Proves the portal end to end (apps/e2e): Playwright drives a real
   # `configure-env serve` on fixture projects through every journey, and axe
-  # fails the job on any violation, in the light and dark themes. `pnpm e2e`
+  # fails the job on any violation, in the light and dark themes. `vp run e2e`
   # builds the portal first; CI=true gives each test one retry.
   e2e:
     needs: check
@@ -128,16 +145,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
         with:
           node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          cache: true
+          run-install: |
+            args: ['--frozen-lockfile']
       - run: pnpm --filter @configure-env/e2e exec playwright install --with-deps chromium
-      - run: pnpm e2e
+      - run: vp run e2e
       # On a failure, keep the HTML report and the traces of retried tests
       # (apps/e2e/playwright-report, apps/e2e/test-results) for a week.
       - if: failure()

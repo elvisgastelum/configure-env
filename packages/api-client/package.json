@@ -13,8 +13,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "gen:api": "tsx --tsconfig tsconfig.json scripts/gen-api.ts",
-    "gen:api:check": "tsx --tsconfig tsconfig.json scripts/gen-api.ts --check"
+    "gen:api": "tsx --tsconfig tsconfig.json scripts/gen-api.ts"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.104.1",
@@ -26,9 +25,9 @@
     "@types/node": "^22.20.5",
     "@types/react": "19.3.0",
     "orval": "8.41.0",
-    "prettier": "^3.9.9",
     "react": "19.3.0",
     "tsx": "^4.23.15",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vite-plus": "catalog:"
   }
 }

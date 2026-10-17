@@ -47,3 +47,5 @@ peerDependencyRules:
   # Storybook 10.6's optional `vite-plus` peer predates Vite+ 1.0.
   allowedVersions:
     storybook>vite-plus: '1'
+    vite: '*'
+    vitest: '*'

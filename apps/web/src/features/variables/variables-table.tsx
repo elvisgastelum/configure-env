@@ -190,7 +190,7 @@ function VirtualRows({
   );
 
   // The virtualizer re-renders this component itself as it scrolls.
-  // eslint-disable-next-line react-hooks/incompatible-library
+  // oxlint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollElement,

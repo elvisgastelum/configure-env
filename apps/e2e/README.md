@@ -11,7 +11,7 @@ project, and `@axe-core/playwright` scans every page.
    `pnpm --filter @configure-env/e2e exec playwright install chromium`
    (add `--with-deps` on a fresh Linux CI runner).
 3. Nothing to build by hand: the suite's global setup runs
-   `pnpm --filter @configure-env/web build` before every run, and serve, run
+   `vp run @configure-env/web#build` before every run, and serve, run
    from source, serves that `apps/web/dist` ahead of the copy in
    `packages/cli/dist/web` an earlier `pnpm build` left.
 

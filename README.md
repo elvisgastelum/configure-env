@@ -775,22 +775,24 @@ Every change the portal makes goes through these write endpoints, which reuse th
 
 `packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
 
-Vite and Vitest come from [Vite+](https://viteplus.dev): packages depend on `vite-plus`, run `vp dev`, `vp build` and `vp test`, and import from `vite-plus` and `vite-plus/test`. `pnpm-workspace.yaml` pins its version in the `catalog` and points `vite` and `vitest` at the copies it bundles, so Storybook and the Vite plugins use the same ones.
+The toolchain is [Vite+](https://viteplus.dev): packages depend on `vite-plus`, run `vp dev`, `vp build`, `vp pack` (the CLI and the API) and `vp test`, and import from `vite-plus` and `vite-plus/test`. `vp lint` (Oxlint) and `vp fmt` (Oxfmt) take their settings from the `lint` and `fmt` blocks of the root `vite.config.ts`; `vp check` runs both. `pnpm-workspace.yaml` pins the Vite+ version in the `catalog` and points `vite` and `vitest` at the copies it bundles, so Storybook and the Vite plugins use the same ones.
+
+`build`, `test`, `schema:check` and `gen:api:check` are Vite Task tasks, defined under `run.tasks` in each package's `vite.config.ts`: the root scripts run them through `vp run`, which replays a task from its cache (`node_modules/.vite/task-cache`) when none of the files it read changed. Run one package's task with `vp run <package>#<task>`, such as `vp run @configure-env/core#test`.
 
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
 | `pnpm dev`             | run the CLI from source with tsx                                     |
 | `pnpm start`           | same as `pnpm dev`                                                   |
-| `pnpm lint`            | lint with ESLint                                                     |
-| `pnpm format`          | format with Prettier                                                 |
+| `pnpm lint`            | lint with Oxlint (`vp lint`)                                         |
+| `pnpm format`          | format with Oxfmt (`vp fmt`)                                         |
 | `pnpm format:check`    | check the formatting without changing files                          |
-| `pnpm typecheck`       | type-check with `tsc`                                                |
-| `pnpm test`            | run the tests with Vitest, through Vite+ (`vp test`)                 |
+| `pnpm typecheck`       | type-check every package with `tsc`                                  |
+| `pnpm test`            | run the tests with Vitest (`vp test`), cached by `vp run`            |
 | `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
 | `pnpm gen:api`         | regenerate the OpenAPI document and the API client in `packages/api-client/` |
 | `pnpm gen:api:check`   | fail when the committed API client is stale                          |
-| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with tsdown (JavaScript, declarations and source maps), the API into `apps/api/dist/`, and the portal into `apps/web/dist/` |
+| `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with `vp pack` (JavaScript, declarations and source maps), the API into `apps/api/dist/`, and the portal into `apps/web/dist/` |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx`, `serve` included |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
 | `pnpm unlink:local`    | remove that global link                                              |
@@ -805,7 +807,7 @@ Vite and Vitest come from [Vite+](https://viteplus.dev): packages depend on `vit
 
 The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
 
-CI runs lint, format:check, typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. A third job builds the design system's Storybook and runs `pnpm test:storybook`, then builds the portal's Storybook.
+CI sets up Vite+, Node.js and pnpm with `voidzero-dev/setup-vp`, then runs `vp check` (format and lint), typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. It restores and saves the Vite Task cache between runs, so unchanged tasks are replayed. A third job builds the design system's Storybook and runs `pnpm test:storybook`, then builds the portal's Storybook.
 
 `dist/` is built, never committed; packing and publishing build it first (`prepack`), and copy this README and the license in from the repo root (`postpack` removes the copies). The package ships `dist/` (with the state database's migrations in `dist/migrations` and the portal in `dist/web`, copied from `apps/web/dist`, which the workspace builds first), `schema/`, this README, the license and the changelog, and no tests or fixtures. `@configure-env/core` and `@configure-env/api` are private and never published: the build inlines them, the API in a chunk that only `serve` imports, so the published package depends only on zod, @clack/prompts, better-sqlite3, drizzle-orm and the API's NestJS runtime (`@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express`, `@nestjs/swagger`, reflect-metadata and rxjs), and `pnpm smoke` fails if the tarball names a workspace package.
 
@@ -814,7 +816,7 @@ CI runs lint, format:check, typecheck, schema:check, gen:api:check and test on e
 Versions and the changelog come from [Changesets](https://github.com/changesets/changesets):
 
 1. A pull request with a user-visible change adds a changeset: `pnpm changeset`, pick the bump, describe the change. It lands in `.changeset/`.
-2. To release, run the **Release** workflow by hand (Actions, Release, Run workflow, on `main`). It runs every check and the smoke test, then opens a `chore: release` pull request that bumps `packages/cli/package.json` and writes `packages/cli/CHANGELOG.md`.
+2. To release, run the **Release** workflow by hand (Actions, Release, Run workflow, on `main`). It sets up Vite+ with `setup-vp` (no dependency or task cache, since the job holds the npm token), runs every check and the smoke test, then opens a `chore: release` pull request that bumps `packages/cli/package.json` and writes `packages/cli/CHANGELOG.md`.
 3. Merge that pull request and run the **Release** workflow again. With no changesets left, it publishes the version to npm with [provenance](https://docs.npmjs.com/generating-provenance-statements), tags it and creates the GitHub release.
 
 Releases are tagged `@elvisgastelum/configure-env@X.Y.Z` (for example `@elvisgastelum/configure-env@0.1.0`), the format Changesets gives a package in a workspace; the GitHub release takes the same name. Only this package is tagged: the workspace root is private, any package added to the workspace must be private too (`release.test.ts` checks it), and `.changeset/config.json` never versions or tags private packages.
