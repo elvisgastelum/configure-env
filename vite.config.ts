@@ -74,7 +74,16 @@ export default defineConfig({
       'no-unsafe-optional-chaining': 'error',
       'no-unused-labels': 'error',
       'no-unused-private-class-members': 'error',
-      'no-unused-vars': 'error',
+      // typescript-eslint's defaults: no name is exempt for starting with `_`.
+      'no-unused-vars': [
+        'error',
+        {
+          varsIgnorePattern: '^$',
+          argsIgnorePattern: '^$',
+          caughtErrorsIgnorePattern: '^$',
+          destructuredArrayIgnorePattern: '^$',
+        },
+      ],
       'no-useless-assignment': 'error',
       'no-useless-backreference': 'error',
       'no-useless-catch': 'error',
