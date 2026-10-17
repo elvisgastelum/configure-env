@@ -2,9 +2,19 @@
 // MCP configuration, for the project or the user, keeping every other entry.
 
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { CliError, type Context, displayPath, usageError } from './common.ts';
 import type { Io } from './io.ts';
 
@@ -276,8 +286,36 @@ const readText = (path: string) =>
     },
   );
 
-/** Writes next to the file, then renames over it, keeping its mode. */
-async function writeAtomically(path: string, text: string): Promise<void> {
+/**
+ * The file a configuration path stands for: a symlink's target, so a
+ * config kept in a dotfiles folder is changed there and stays linked.
+ */
+async function realTarget(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  // A dangling symlink: create the file it points to.
+  const link = await lstat(path).catch(() => undefined);
+  return link?.isSymbolicLink()
+    ? realTarget(resolve(dirname(path), await readlink(path)))
+    : path;
+}
+
+/** A configuration that changed between its read and its write. */
+class Changed extends Error {}
+
+/**
+ * Writes next to the file, then renames over it, keeping its mode. The
+ * file must still hold `expected` (undefined: not exist), else another
+ * program wrote it meanwhile and it is left alone.
+ */
+async function writeAtomically(
+  path: string,
+  text: string,
+  expected: string | undefined,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const mode = await stat(path).then(
     (stats) => stats.mode & 0o777,
@@ -286,6 +324,7 @@ async function writeAtomically(path: string, text: string): Promise<void> {
   const temp = `${path}.${randomBytes(6).toString('hex')}.tmp`;
   try {
     await writeFile(temp, text, mode === undefined ? {} : { mode });
+    if ((await readText(path)) !== expected) throw new Changed();
     await rename(temp, path);
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined);
@@ -348,13 +387,17 @@ export async function installMcp(
     target: Target;
     launch: Launch;
     plan: Plan;
+    /** The file written: the path, or the file its symlink points to. */
+    file: string;
+    current: string | undefined;
   }[] = [];
   for (const agent of choices.agents) {
     const target = targetOf(agent, choices.scope, base, io.env);
     const launch = launchOf(choices.runner, agent);
-    let current: string | undefined;
+    let current: string | undefined, file: string;
     try {
-      current = await readText(target.path);
+      file = await realTarget(target.path);
+      current = await readText(file);
     } catch (error) {
       throw new CliError(1, [
         `cannot read ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
@@ -366,19 +409,21 @@ export async function installMcp(
         : planJson(target, current, jsonEntry(agent, launch), force);
     if ('conflict' in plan)
       throw usageError(`${show(target.path)} ${plan.conflict}`);
-    planned.push({ agent, target, launch, plan });
+    planned.push({ agent, target, launch, plan, file, current });
   }
 
   const servers: InstalledServer[] = [];
   const lines: string[] = [];
-  for (const { agent, target, launch, plan } of planned) {
+  for (const { agent, target, launch, plan, file, current } of planned) {
     if ('text' in plan) {
       try {
-        await writeAtomically(target.path, plan.text);
+        await writeAtomically(file, plan.text, current);
       } catch (error) {
         lines.forEach((line) => io.stdout(line));
         throw new CliError(1, [
-          `cannot write ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
+          error instanceof Changed
+            ? `${show(target.path)} changed while install mcp ran; run it again`
+            : `cannot write ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
         ]);
       }
     }

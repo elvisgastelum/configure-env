@@ -2,18 +2,47 @@
 // configuration, keeping every other entry.
 
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vite-plus/test';
 import { targetOf } from './install-mcp.ts';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
+
+// Runs after a temp file is written, before it is renamed into place: to
+// stand for another program writing the configuration meanwhile.
+const hooks = vi.hoisted(() => ({
+  afterTemp: undefined as ((temp: string) => Promise<void>) | undefined,
+}));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+      await actual.writeFile(...args);
+      const path = String(args[0]);
+      if (hooks.afterTemp && path.endsWith('.tmp')) await hooks.afterTemp(path);
+    },
+  };
+});
+afterEach(() => {
+  hooks.afterTemp = undefined;
+});
 
 const dirs = useProject(null);
 let home = '';
@@ -252,6 +281,56 @@ describe('install mcp', () => {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     const vscode = targetOf('vscode', 'user', home, {}).path;
     expect(vscode.startsWith(home)).toBe(true);
+  });
+
+  it('writes through a symlinked configuration, keeping the link', async () => {
+    const real = join(home, 'dotfiles', 'claude.json');
+    await mkdir(dirname(real), { recursive: true });
+    await writeFile(real, JSON.stringify({ projects: {} }));
+    const link = join(home, '.claude.json');
+    await symlink(real, link);
+    const result = await install(['--ci', '--scope', 'user']);
+    expect(result.code).toBe(0);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await readJson(real)).toEqual({
+      projects: {},
+      mcpServers: { 'configure-env': { type: 'stdio', ...NPX } },
+    });
+  });
+
+  it('creates the file a dangling symlink points to', async () => {
+    const real = join(home, 'dotfiles', 'cursor.json');
+    await mkdir(join(home, '.cursor'), { recursive: true });
+    await symlink(real, join(home, '.cursor', 'mcp.json'));
+    const result = await install([
+      '--ci',
+      '--scope',
+      'user',
+      '--agent',
+      'cursor',
+    ]);
+    expect(result.code).toBe(0);
+    expect(
+      (await lstat(join(home, '.cursor', 'mcp.json'))).isSymbolicLink(),
+    ).toBe(true);
+    expect(await readJson(real)).toEqual({
+      mcpServers: { 'configure-env': NPX },
+    });
+  });
+
+  it('leaves a configuration another program wrote meanwhile', async () => {
+    const path = join(dirs.root, '.mcp.json');
+    await writeFile(path, '{}');
+    hooks.afterTemp = async () => {
+      hooks.afterTemp = undefined;
+      await writeFile(path, '{"theirs":true}');
+    };
+    const result = await install(['--ci']);
+    expect(result.code).toBe(1);
+    expect(result.err.join('\n')).toMatch(
+      /\.mcp\.json changed while install mcp ran; run it again/,
+    );
+    expect(await readFile(path, 'utf8')).toBe('{"theirs":true}');
   });
 
   it('prints one JSON document with --json', async () => {
