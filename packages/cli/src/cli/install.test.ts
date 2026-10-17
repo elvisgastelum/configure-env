@@ -876,7 +876,7 @@ describe('install', () => {
     const result = await run(['install', '--ci'], { cwd: root() });
     expect(result.code).toBe(2);
     expect(result.err).toEqual([
-      'configure-env: install needs a subject: skill',
+      'configure-env: install needs a subject: skill, mcp',
     ]);
   });
 
@@ -885,7 +885,7 @@ describe('install', () => {
     expect(result.code).toBe(2);
     expect(result.err).toEqual([
       'configure-env: unknown subject: theme',
-      'configure-env install takes: skill',
+      'configure-env install takes: skill, mcp',
     ]);
   });
 
