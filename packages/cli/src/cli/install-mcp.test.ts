@@ -235,6 +235,35 @@ describe('install mcp', () => {
     );
   });
 
+  it('reads a Codex table holding multi-line values, keeping them', async () => {
+    const path = join(dirs.root, '.codex/config.toml');
+    await mkdir(dirname(path), { recursive: true });
+    const tail =
+      '\n[profiles.z]\nmatrix = [\n  [1, 2],\n  [3]\n]\nnote = """\n[not.a.table]\n"""\n';
+    await writeFile(
+      path,
+      `[mcp_servers.configure-env]\ncommand = "old"\nargs = [\n  "mcp",\n  ["x"]\n]\n${tail}`,
+    );
+    const result = await install(['--ci', '--agent', 'codex', '--force']);
+    expect(result.code).toBe(0);
+    expect(await readFile(path, 'utf8')).toBe(
+      `[mcp_servers.configure-env]\ncommand = "npx"\nargs = ["-y", "@elvisgastelum/configure-env", "mcp"]\n${tail}`,
+    );
+  });
+
+  it("adds the Codex table when another server's args only mention it", async () => {
+    const path = join(dirs.root, '.codex/config.toml');
+    await mkdir(dirname(path), { recursive: true });
+    const current =
+      'mcp_servers = { db = { command = "x", args = ["configure-env"] } }\n';
+    await writeFile(path, current);
+    const result = await install(['--ci', '--agent', 'codex']);
+    expect(result.code).toBe(0);
+    expect(await readFile(path, 'utf8')).toMatch(
+      /^\[mcp_servers\.configure-env\]$/m,
+    );
+  });
+
   it('ends the Codex table at an array of tables, keeping it', async () => {
     const path = join(dirs.root, '.codex/config.toml');
     await mkdir(dirname(path), { recursive: true });

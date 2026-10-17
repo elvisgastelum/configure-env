@@ -209,9 +209,50 @@ const SERVER_TABLE = new RegExp(
 
 /** A key line that registers the server another way than its own table. */
 const OTHER_FORM = new RegExp(
-  `^\\s*(?:mcp_servers\\s*\\.\\s*${TOML_NAME}\\s*[.=]|mcp_servers\\s*=.*${TOML_NAME})`,
+  `^\\s*(?:mcp_servers\\s*\\.\\s*${TOML_NAME}\\s*[.=]|mcp_servers\\s*=.*[{,]\\s*${TOML_NAME}\\s*[.=])`,
 );
 const KEY_IN_SERVERS = new RegExp(`^\\s*${TOML_NAME}\\s*[.=]`);
+
+/** What a TOML line leaves open: array brackets, a multi-line string. */
+interface Open {
+  brackets: number;
+  string?: '"""' | "'''";
+}
+
+/**
+ * What stays open after `line`, from what was open before it: the
+ * brackets of arrays outside strings and comments, and a multi-line
+ * string. A header line, `[a.b]`, opens nothing.
+ */
+function scanValue(line: string, before: Open): Open {
+  let { brackets, string } = before;
+  for (let at = 0; at < line.length; at += 1) {
+    if (string) {
+      if (line.startsWith(string, at)) {
+        at += 2;
+        string = undefined;
+      }
+      continue;
+    }
+    const triple = line.startsWith('"""', at)
+      ? '"""'
+      : line.startsWith("'''", at)
+        ? "'''"
+        : undefined;
+    if (triple) {
+      string = triple;
+      at += 2;
+    } else if (line[at] === '"' || line[at] === "'") {
+      // A one-line string, its escaped quotes skipped in a basic one.
+      const quote = line[at]!;
+      for (at += 1; at < line.length && line[at] !== quote; at += 1)
+        if (quote === '"' && line[at] === '\\') at += 1;
+    } else if (line[at] === '#') break;
+    else if (line[at] === '[') brackets += 1;
+    else if (line[at] === ']') brackets = Math.max(0, brackets - 1);
+  }
+  return string === undefined ? { brackets } : { brackets, string };
+}
 
 /**
  * Where the server's table and its subtables sit in a Codex configuration,
@@ -224,9 +265,15 @@ function findServerTable(
   let table = '';
   let start: number | undefined;
   let end: number | undefined;
+  // Inside a value that spans lines, a line is never a header or a key.
+  let open: Open = { brackets: 0 };
   for (const [index, line] of lines.entries()) {
+    const inside = open.brackets > 0 || open.string !== undefined;
+    open = scanValue(line, open);
+    if (inside) continue;
     const header = HEADER.exec(line);
     if (header) {
+      open = { brackets: 0 };
       table = header[2]!;
       // An array of tables is never the server's: it ends the block.
       const ours = !header[1] && SERVER_TABLE.test(table);
