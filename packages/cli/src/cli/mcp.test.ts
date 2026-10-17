@@ -619,6 +619,33 @@ describe('update_schema and the keys the env files hold', () => {
     expect(result.text).toMatch(/would unmask NPM_TOKEN/);
   });
 
+  it('refuses a new file that holds a key declared non-secret earlier', async () => {
+    const client = await connect();
+    const declared = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, KEYQ: { type: 'string' } },
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(declared.isError).toBe(false);
+    await writeFile(join(dirs.root, '.env.prod'), `KEYQ=${held}\n`);
+    const result = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, KEYQ: { type: 'string' } },
+        files: [
+          ...SCHEMA.files,
+          { path: '.env.prod', policy: 'merge', variables: '*' },
+        ],
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/would unmask KEYQ/);
+    expect(result.text).toMatch(/also when the edit adds that file/);
+  });
+
   it('adds a non-secret variable no file holds yet', async () => {
     await writeEnv('HOST=a.test\n');
     const client = await connect();

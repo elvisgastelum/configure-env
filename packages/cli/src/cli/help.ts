@@ -563,8 +563,9 @@ their checks and guards:
 No tool returns a secret's value: they mask it, and none reveals one.
 A key the schema does not declare is masked too.
 set_values refuses a secret variable, and update_schema a schema that
-would remove a secret variable or its "secret": true, or declare without
-it a key a schema file already holds a value for. A secret goes in only through a
+would remove a secret variable or its "secret": true, or show a value a
+schema file already holds: a key declared without it, or a newly listed
+file's values. A secret goes in only through a
 value the server generates (generate_secret, apply's generate), or one the
 user types in a terminal with the command request_secret answers:
 configure-env set --prompt KEY.

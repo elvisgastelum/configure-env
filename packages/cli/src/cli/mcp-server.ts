@@ -487,7 +487,7 @@ export function createMcpServer(options: McpOptions): McpServer {
           JSON.stringify({
             ok: false,
             kind: 'secret',
-            message: `the edit would unmask ${unmasked.join(', ')}: a secret variable keeps \`"secret": true\` and stays in the schema, and a key the env files already hold is declared with \`"secret": true\`; ask the user to change it themselves. Nothing was written.`,
+            message: `the edit would unmask ${unmasked.join(', ')}. A secret variable must keep \`"secret": true\` and stay in the schema, and a key an env file already holds a value for must be declared with \`"secret": true\`, also when the edit adds that file; ask the user to make this change themselves. Nothing was written.`,
           }),
           true,
         );
@@ -587,7 +587,7 @@ const MASK = '••••';
  * The keys the schema at `fingerprint` keeps hidden that `document` would
  * show an agent: a secret variable removed or no longer `secret: true`, or
  * a key a schema file (of either schema) already holds a value for, newly
- * declared without `secret: true`. A schema changed since the fingerprint,
+ * declared without `secret: true` or held in a file the schema newly lists. A schema changed since the fingerprint,
  * or an invalid document, answers none; the write then refuses it.
  */
 async function unmaskedKeys(
@@ -611,6 +611,9 @@ async function unmaskedKeys(
       (name) => isSecret(current, name) && !isSecret(next.schema, name),
     ),
   );
+  // A file the current schema does not list is never read, so every value
+  // it holds is hidden until now.
+  const read = new Set(current.files.map((file) => file.path));
   const paths = new Set(
     [...current.files, ...next.schema.files].map((file) => file.path),
   );
@@ -623,7 +626,7 @@ async function unmaskedKeys(
     for (const name of keysOf(doc))
       if (
         getValue(doc, name) &&
-        isHidden(current, name) &&
+        (!read.has(path) || isHidden(current, name)) &&
         !isHidden(next.schema, name)
       )
         unmasked.add(name);
