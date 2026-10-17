@@ -20,11 +20,13 @@ import {
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { type EnvSchema, checkDrift } from '@configure-env/core';
+import { type EnvSchema, checkDrift, fixGitignore } from '@configure-env/core';
 import type { z } from 'zod';
 import {
   checkResponse,
   errorResponse,
+  fixGitignoreRequest,
+  fixGitignoreResponse,
   fileContentRequest,
   fileContentResponse,
   filesResponse,
@@ -38,6 +40,7 @@ import {
   variablesResponse,
 } from './contracts.ts';
 import {
+  ApiError,
   NeedsSchema,
   PROJECT,
   Read,
@@ -219,15 +222,55 @@ export class ProjectController {
   @StrictQuery()
   @NeedsSchema()
   @NeedsState()
-  async check(
-    @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
+  check(@Query({ schema: strictQuery }) query: z.output<typeof strictQuery>) {
+    return this.runCheck(isStrict(query));
+  }
+
+  @Post('check/gitignore')
+  @HttpCode(200)
+  @Read(
+    'fixGitignore',
+    'Adds the missing git-ignore lines the check reports, as configure-env check --fix does; answers the check after',
+    fixGitignoreResponse,
+  )
+  @ApiBody({ schema: ref(fixGitignoreRequest) })
+  @NeedsSchema()
+  @NeedsState()
+  async fixGitignore(
+    @Body({ schema: fixGitignoreRequest })
+    body: z.output<typeof fixGitignoreRequest>,
   ) {
+    const strict = body.strict ?? false;
+    // The problems come from a fresh check, never from the request.
+    const { gitignore } = await this.runCheck(strict);
+    const wanted = body.paths && new Set(body.paths);
+    let fixed;
+    try {
+      ({ fixed } = await fixGitignore(
+        this.project.root,
+        wanted
+          ? gitignore.filter((problem) => wanted.has(problem.path))
+          : gitignore,
+      ));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      throw new ApiError(
+        500,
+        `cannot update .gitignore: ${code ?? (error as Error).message}`,
+      );
+    }
+    return { fixed, check: await this.runCheck(strict) };
+  }
+
+  /** check --json's report, the state's folder checked too. */
+  private async runCheck(strict: boolean) {
     const schema = await this.schema();
     const state = await protectedState(schema, this.project);
     return checkDrift({
       schema,
       root: this.project.root,
-      strict: isStrict(query),
+      strict,
+      statePath: this.project.statePath,
       ...(state ? { state } : {}),
     });
   }

@@ -322,6 +322,56 @@
         "tags": ["project"]
       }
     },
+    "/api/check/gitignore": {
+      "post": {
+        "operationId": "fixGitignore",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FixGitignoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixGitignore"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The protected variables' state cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Adds the missing git-ignore lines the check reports, as configure-env check --fix does; answers the check after",
+        "tags": ["project"]
+      }
+    },
     "/api/values/set": {
       "post": {
         "operationId": "setValues",
@@ -1660,6 +1710,13 @@
               "$ref": "#/components/schemas/FileCheck"
             }
           },
+          "gitignore": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitignoreProblem"
+            },
+            "description": "What git could commit that it must not; each an error."
+          },
           "errors": {
             "type": "array",
             "items": {
@@ -1667,7 +1724,14 @@
             }
           }
         },
-        "required": ["command", "ok", "summary", "files", "errors"],
+        "required": [
+          "command",
+          "ok",
+          "summary",
+          "files",
+          "gitignore",
+          "errors"
+        ],
         "additionalProperties": false
       },
       "DiffLine": {
@@ -1999,6 +2063,106 @@
           }
         },
         "required": ["file", "status"],
+        "additionalProperties": false
+      },
+      "FixGitignore": {
+        "type": "object",
+        "properties": {
+          "fixed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitignoreFix"
+            },
+            "description": "Each .gitignore written; a problem it may not fix is left."
+          },
+          "check": {
+            "$ref": "#/components/schemas/Check"
+          }
+        },
+        "required": ["fixed", "check"],
+        "additionalProperties": false
+      },
+      "FixGitignoreRequest": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "description": "The git-ignore problems to fix, by their path; every one when absent.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "strict": {
+            "description": "Treat keys the schema does not list for a file as errors in the check it answers.",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GitignoreFix": {
+        "type": "object",
+        "properties": {
+          "gitignore": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lines it added."
+          }
+        },
+        "required": ["gitignore", "created", "added"],
+        "additionalProperties": false
+      },
+      "GitignoreProblem": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["error"]
+          },
+          "code": {
+            "type": "string",
+            "enum": ["state-not-ignored", "file-not-ignored"],
+            "description": "state-not-ignored: the state folder's own .gitignore is missing or lacks a state file; file-not-ignored: in a git work tree, an env file holding real values the repository does not ignore."
+          },
+          "path": {
+            "type": "string",
+            "description": "The state folder or the env file, relative to the root."
+          },
+          "gitignore": {
+            "type": "string",
+            "description": "The .gitignore the fix writes, relative to the root."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The lines the fix adds."
+          },
+          "message": {
+            "type": "string"
+          },
+          "blocked": {
+            "description": "Why it is not fixed automatically: that .gitignore is a symlink.",
+            "type": "string",
+            "enum": ["symlink"]
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "path",
+          "gitignore",
+          "entries",
+          "message"
+        ],
         "additionalProperties": false
       },
       "Group": {

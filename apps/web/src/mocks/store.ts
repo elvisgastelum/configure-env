@@ -585,6 +585,7 @@ export function checkOf(): Check {
   const failing = files.filter((file) => !file.ok).length;
   return {
     command: 'check',
+    gitignore: [],
     ok: failing === 0,
     summary: {
       errors: count('error'),

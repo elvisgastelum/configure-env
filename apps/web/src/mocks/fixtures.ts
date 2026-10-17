@@ -360,6 +360,7 @@ export const everyActionPlan: Plan = {
 /** The default check: one invalid value in `.env`. */
 export const check: Check = {
   command: 'check',
+  gitignore: [],
   ok: false,
   summary: { errors: 1, warnings: 0, files: 1, failing: 1 },
   files: [
@@ -387,6 +388,7 @@ export const check: Check = {
 /** A report with one of every kind of problem check gives, for the check page. */
 export const checkReport: Check = {
   command: 'check',
+  gitignore: [],
   ok: false,
   summary: { errors: 7, warnings: 1, files: 3, failing: 2 },
   errors: [
@@ -481,6 +483,7 @@ export const checkReport: Check = {
 /** Only warnings: unknown keys, which do not fail the check. */
 export const warningsCheck: Check = {
   command: 'check',
+  gitignore: [],
   ok: true,
   summary: { errors: 0, warnings: 2, files: 2, failing: 0 },
   errors: [],
@@ -549,6 +552,7 @@ export function manyFilesCheck(count = 24): Check {
   const failing = files.filter((file) => !file.ok).length;
   return {
     command: 'check',
+    gitignore: [],
     ok: failing === 0,
     summary: { errors: failing, warnings: 0, files: count, failing },
     errors: [],
@@ -558,6 +562,7 @@ export function manyFilesCheck(count = 24): Check {
 
 export const passingCheck: Check = {
   command: 'check',
+  gitignore: [],
   ok: true,
   summary: { errors: 0, warnings: 0, files: 0, failing: 0 },
   files: [],

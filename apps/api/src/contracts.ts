@@ -6,6 +6,7 @@
 import {
   type DriftStatus,
   FILE_POLICIES,
+  GITIGNORE_CODES,
   PROBLEM_CODES,
   VARIABLE_NAME,
   variableSpec,
@@ -295,6 +296,31 @@ export const planError = named(
   }),
 );
 
+const gitignoreProblem = named(
+  'GitignoreProblem',
+  z.object({
+    severity: z.literal('error'),
+    code: z.enum(GITIGNORE_CODES).meta({
+      description:
+        "state-not-ignored: the state folder's own .gitignore is missing or lacks a state file; file-not-ignored: in a git work tree, an env file holding real values the repository does not ignore.",
+    }),
+    path: z.string().meta({
+      description: 'The state folder or the env file, relative to the root.',
+    }),
+    gitignore: z.string().meta({
+      description: 'The .gitignore the fix writes, relative to the root.',
+    }),
+    entries: z
+      .array(z.string())
+      .meta({ description: 'The lines the fix adds.' }),
+    message: z.string(),
+    blocked: z.enum(['symlink']).optional().meta({
+      description:
+        'Why it is not fixed automatically: that .gitignore is a symlink.',
+    }),
+  }),
+);
+
 export const checkResponse = named(
   'Check',
   z.object({
@@ -309,7 +335,43 @@ export const checkResponse = named(
       failing: z.int().meta({ description: 'The files with an error.' }),
     }),
     files: z.array(fileCheck),
+    gitignore: z.array(gitignoreProblem).meta({
+      description: 'What git could commit that it must not; each an error.',
+    }),
     errors: z.array(planError),
+  }),
+);
+
+export const fixGitignoreRequest = named(
+  'FixGitignoreRequest',
+  z.strictObject({
+    paths: z.array(z.string()).optional().meta({
+      description:
+        'The git-ignore problems to fix, by their path; every one when absent.',
+    }),
+    strict: z.boolean().optional().meta({
+      description:
+        'Treat keys the schema does not list for a file as errors in the check it answers.',
+    }),
+  }),
+);
+
+const gitignoreFix = named(
+  'GitignoreFix',
+  z.object({
+    gitignore: z.string(),
+    created: z.boolean(),
+    added: z.array(z.string()).meta({ description: 'The lines it added.' }),
+  }),
+);
+
+export const fixGitignoreResponse = named(
+  'FixGitignore',
+  z.object({
+    fixed: z.array(gitignoreFix).meta({
+      description: 'Each .gitignore written; a problem it may not fix is left.',
+    }),
+    check: checkResponse,
   }),
 );
 

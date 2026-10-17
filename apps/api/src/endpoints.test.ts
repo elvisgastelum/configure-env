@@ -303,6 +303,7 @@ describe('GET /api/check', () => {
       'ok',
       'summary',
       'files',
+      'gitignore',
       'errors',
     ]);
     expect(response.body).toMatchObject({

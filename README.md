@@ -771,7 +771,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
 | `POST /api/files/content` | one schema file's lines as it holds them, secrets masked: `{ "file": ".env" }`                |
-| `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, and the counts (`?strict=true` makes unknown keys errors) |
+| `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, the git-ignore problems, and the counts (`?strict=true` makes unknown keys errors) |
 | `GET /api/history`   | the history of edits, newest first: `file`, `key`, `actor` (`cli` or `portal`), `from` and `to` (a date, its whole UTC day, or a timestamp) filter it; `page` and `limit` (50 by default, at most 200) page it; secrets masked |
 | `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
@@ -786,6 +786,7 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `POST /api/values/unset`                  | removes keys from one file, each with the comment the engine wrote above it                   |
 | `POST /api/plan`                          | what `apply` would do to each file, with masked line diffs and a plan fingerprint; writes nothing |
 | `POST /api/apply`                         | writes the plan shown: the same inputs and the plan's `fingerprint`                           |
+| `POST /api/check/gitignore`               | adds the missing git-ignore lines the check reports, as `check --fix` does: every problem, or those whose `path` is in `paths`; it finds them itself, never writes through a symlink, and answers `fixed` with the check after (`check`) |
 | `POST /api/schema/variables`              | declares a variable                                                                           |
 | `PUT` / `DELETE /api/schema/variables/{name}` | changes a variable's fields (`null` removes one) / removes it (`cleanup` drops its references) |
 | `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |
