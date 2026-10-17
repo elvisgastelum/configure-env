@@ -4,14 +4,16 @@ description: "Trigger: set up or configure env, .env files, add/change an env va
 license: MIT
 metadata:
   author: "elvisgastelum"
-  version: "1.2"
+  version: "1.3"
 ---
 
 ## Activation Contract
 
 Use this skill whenever a task creates, reads, changes or checks env files (`.env`, `.env.example`, `*.env`) or `env.schema.json`, the source of truth for the files, their policies and the variables' rules. The CLI validates every value, writes atomically with the schema mode, and keeps every byte it does not change.
 
-Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a dependency, else `npx --yes @elvisgastelum/configure-env`, from the project root (or `--root <dir>`).
+When the `configure-env` MCP server's tools are available (`list_variables`, `check`, `set_values`, `generate_secret`, `request_secret`…), prefer them to the CLI: they follow the same rules and never return a secret. Relay what `request_secret` answers to the user; never ask them to paste a secret into the chat. Register the server with `install mcp`.
+
+Otherwise invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a dependency, else `npx --yes @elvisgastelum/configure-env`, from the project root (or `--root <dir>`).
 
 ## Hard Rules
 
@@ -65,5 +67,5 @@ Report each file and key with the CLI's status (`created`, `added`, `updated`, `
 
 ## References
 
-- `references/commands.md` — every command and flag (`install skill` included), secrets, rules between variables, protected values, mode drift, JSON output and exit codes.
+- `references/commands.md` — every command and flag (`install skill`, `install mcp` and `mcp` included), secrets, rules between variables, protected values, mode drift, JSON output and exit codes.
 - `references/schema.md` — the schema format, file policies, `mode` and templates.
