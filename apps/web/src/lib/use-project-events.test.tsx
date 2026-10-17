@@ -1,7 +1,7 @@
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { scenarios } from '../mocks/handlers';
 import {
   dropEvents,

@@ -1,5 +1,5 @@
 import type { VariableSpec } from '@configure-env/api-client';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { canGenerate, generateSecret } from './generate';
 
 const secret = (spec: Partial<VariableSpec> = {}) =>

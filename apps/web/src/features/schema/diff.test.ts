@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { type DiffRow, diffLines, foldRows } from './diff';
 
 /** A row as `kind left | right`, for short expectations. */

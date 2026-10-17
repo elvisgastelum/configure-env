@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react';
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { emitChanged, eventClients } from '../mocks/store';
 
 /**
