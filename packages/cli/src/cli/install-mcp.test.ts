@@ -235,6 +235,31 @@ describe('install mcp', () => {
     );
   });
 
+  it('ends the Codex table at an array of tables, keeping it', async () => {
+    const path = join(dirs.root, '.codex/config.toml');
+    await mkdir(dirname(path), { recursive: true });
+    const current =
+      '[mcp_servers.configure-env]\ncommand = "npx"\nargs = ["-y", "@elvisgastelum/configure-env", "mcp"]\n\n[[profiles]]\nname = "a"\n';
+    await writeFile(path, current);
+    const same = await install(['--ci', '--agent', 'codex']);
+    expect(same).toMatchObject({
+      code: 0,
+      out: ['unchanged  .codex/config.toml (codex)'],
+    });
+    const forced = await install([
+      '--ci',
+      '--agent',
+      'codex',
+      '--runner',
+      'global',
+      '--force',
+    ]);
+    expect(forced.code).toBe(0);
+    expect(await readFile(path, 'utf8')).toBe(
+      '[mcp_servers.configure-env]\ncommand = "configure-env"\nargs = ["mcp"]\n\n[[profiles]]\nname = "a"\n',
+    );
+  });
+
   it.each([
     [
       'under [mcp_servers]',

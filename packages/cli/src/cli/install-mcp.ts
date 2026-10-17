@@ -195,8 +195,11 @@ function tomlTable(launch: Launch): string {
 /** The server's name as a TOML key: bare, or in either kind of quotes. */
 const TOML_NAME = `(?:${SERVER_NAME}|"${SERVER_NAME}"|'${SERVER_NAME}')`;
 
-/** A table header line, with its dotted name. */
-const HEADER = /^\s*\[(?!\[)\s*([^\]]+?)\s*\]\s*(?:#.*)?$/;
+/**
+ * A table header line, `[name]` or an array of tables' `[[name]]`, with
+ * its dotted name and whether it is an array.
+ */
+const HEADER = /^\s*\[(\[)?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/;
 
 /** A table name that is the server's, or one of its subtables. */
 const SERVER_TABLE = new RegExp(
@@ -223,8 +226,9 @@ function findServerTable(
   for (const [index, line] of lines.entries()) {
     const header = HEADER.exec(line);
     if (header) {
-      table = header[1]!;
-      const ours = SERVER_TABLE.test(table);
+      table = header[2]!;
+      // An array of tables is never the server's: it ends the block.
+      const ours = !header[1] && SERVER_TABLE.test(table);
       if (ours && start !== undefined && end !== undefined) return 'other';
       if (ours && start === undefined) start = index;
       if (!ours && start !== undefined && end === undefined) end = index;
@@ -252,7 +256,7 @@ function planToml(
   const found = findServerTable(lines);
   if (found === 'other')
     return {
-      conflict: `registers ${SERVER_NAME} in a form install mcp does not edit (under [mcp_servers], a dotted key or inline); change it yourself`,
+      conflict: `registers ${SERVER_NAME} in a form install mcp does not edit (under [mcp_servers], a dotted key, inline, or its tables split across the file); change it yourself`,
     };
   if (!found) {
     const separator =
