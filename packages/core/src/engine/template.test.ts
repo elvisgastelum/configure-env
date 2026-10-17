@@ -80,6 +80,6 @@ describe('template files', () => {
       root: temp.dirs.root,
       values: { ...values, PORT: '9000' },
     });
-    expect(report.files[0]).toMatchObject({ status: 'current', invalid: [] });
+    expect(report.files[0]).toMatchObject({ status: 'current', problems: [] });
   });
 });

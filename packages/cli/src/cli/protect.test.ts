@@ -259,7 +259,7 @@ describe('set', () => {
     expect(r.code).toBe(0);
     expect(await valueIn('.env', 'SM_MASTER_KEY')).toBe(KEY_A);
     // The state follows the file: no mismatch.
-    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+    expect((await cli(['check', '--file', '.env'])).code).toBe(0);
   });
 
   it('keeps the fingerprints of parallel runs', async () => {
@@ -343,7 +343,7 @@ describe('unset', () => {
       'SM_MASTER_KEY_FILE=/run/key',
     ]);
     expect(swap.code).toBe(0);
-    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+    expect((await cli(['check', '--file', '.env'])).code).toBe(0);
   });
 
   it('reports a replacement in JSON as a field of the key', async () => {
@@ -937,7 +937,7 @@ describe('apply', () => {
       env: { SM_MASTER_KEY: old },
     });
     expect(restored.code).toBe(0);
-    expect((await cli(['validate', ...files])).code).toBe(0);
+    expect((await cli(['check', ...files])).code).toBe(0);
     await expectNoValue([first, again, restored], old);
   });
 
@@ -1080,7 +1080,7 @@ describe('apply', () => {
   });
 });
 
-describe('check and validate', () => {
+describe('check and protected values', () => {
   const mismatch = () =>
     `SM_MASTER_KEY no longer matches the value recorded on ${today()}`;
 
@@ -1088,47 +1088,41 @@ describe('check and validate', () => {
     await seedKey();
     await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
     const before = await snapshot();
-    const validate = await cli(['validate', '--file', '.env']);
-    expect(validate).toMatchObject({ code: 1, out: [`.env: ${mismatch()}`] });
-    const json = await cli(['validate', '--json', '--file', '.env']);
-    expect(JSON.parse(json.out[0]!).files[0].errors).toEqual([
-      {
-        kind: 'protected',
-        key: 'SM_MASTER_KEY',
-        message: `no longer matches the value recorded on ${today()}`,
-        reason: REASON,
-      },
-    ]);
     const check = await cli(['check', '--ci', '--file', '.env']);
-    expect(check.code).toBe(1);
-    expect(check.out).toContain(`.env: ${mismatch()}`);
-    const checkJson = await cli(['check', '--ci', '--json', '--file', '.env']);
-    expect(JSON.parse(checkJson.out[0]!).files[0].protected).toEqual([
+    expect(check).toMatchObject({
+      code: 1,
+      out: [`.env: ${mismatch()}`, '1 error, 0 warnings in 1 file'],
+    });
+    const json = await cli(['check', '--ci', '--json', '--file', '.env']);
+    expect(JSON.parse(json.out[0]!).files[0].problems).toEqual([
       {
-        kind: 'protected',
+        severity: 'error',
+        code: 'protected',
         key: 'SM_MASTER_KEY',
         message: `no longer matches the value recorded on ${today()}`,
         reason: REASON,
       },
     ]);
     expect(await snapshot()).toBe(before);
-    await expectNoValue([validate, json, check, checkJson], KEY_A, KEY_B);
+    await expectNoValue([check, json], KEY_A, KEY_B);
   });
 
   it('pass a matching value, an emptied one, and a missing state', async () => {
     await seedKey();
-    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
-    expect((await cli(['check', '--ci', '--file', '.env'])).code).toBe(0);
+    expect((await cli(['check', '--file', '.env'])).code).toBe(0);
+    expect(
+      (await cli(['check', '--ci', '--json', '--file', '.env'])).code,
+    ).toBe(0);
     await rm(path(STATE));
     await writeFile(path('.env'), `SM_MASTER_KEY=${KEY_B}\n`);
-    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
+    expect((await cli(['check', '--file', '.env'])).code).toBe(0);
     expect(await exists(STATE)).toBe(false);
   });
 
   it('exit 1 for a state they cannot read', async () => {
     await mkdir(path('.configure-env'));
     await writeFile(path(LEGACY_STATE), 'nope');
-    const r = await cli(['validate', '--file', '.env']);
+    const r = await cli(['check', '--file', '.env']);
     expect(r.code).toBe(1);
     expect(r.err[0]).toBe(
       `configure-env: invalid state ${path(LEGACY_STATE)}: is not valid JSON`,

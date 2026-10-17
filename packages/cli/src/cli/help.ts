@@ -29,7 +29,8 @@ const GLOBAL = `Global options:
 
 const EXIT_CODES = `Exit codes:
   0    ok
-  1    drift, an invalid value or schema, or a failed write
+  1    a check error (drift, an invalid value or line, a broken rule),
+       an invalid schema, or a failed write
   2    usage error: a bad option, no schema, no terminal without --ci,
        init or install over an existing one without --force, or a
        change to a protected value
@@ -49,13 +50,13 @@ terminal UI or unattended with --ci.
 
 Commands:
   apply     write the env files the schema describes (the default)
-  check     change nothing; report drift and invalid values
+  check     change nothing; report every problem by file: drift, invalid
+            values and lines, broken rules, unknown keys
   init      write a starting env.schema.json, inferred from .env.example
   set       set variables in one file, keeping every other line
   get       print one variable's value
   unset     remove variables from one file
   list      show each file's variables: set, valid, value (secrets masked)
-  validate  check the current values against the schema
   history   list the latest changes the CLI and the portal made
   install   install the agent skill: configure-env install skill
   serve     start the local portal for the project in a browser
@@ -132,13 +133,29 @@ ${EXIT_CODES}`;
 
 export const CHECK_HELP = `Usage: configure-env check [options]
 
-Changes nothing. Reports, per file: a missing file, a generated file that
-differs from the schema, the keys a merge file lacks, a mode other than
-the schema's (apply fixes it when it only removes permissions), values that break their variable's rules (secrets masked),
-lines that are not valid entries, and protected values that no longer
-match the ones the state recorded. With --strict, the keys a merge or
-create-only file holds that the schema does not list for it too, which
-apply --prune removes. Exits 1 when it finds any.
+Changes nothing. Prints one report of every problem, by file in schema
+order, each an error or a warning:
+
+  missing        a file that does not exist (create-only and templates too)
+  differs        a generated file whose content differs from the schema
+  missing key    a key a merge file or a template lacks
+  mode           a mode other than the schema's (apply fixes it when it
+                 only removes permissions)
+  refused        a path that leaves the root
+  invalid line   a line that is not a valid entry
+  invalid value  a value that breaks its variable's rules, a required one
+                 unset or empty included (secrets masked)
+  rule           a broken rule between variables (requiredUnless,
+                 conflictsWith, distinctFrom, within)
+  protected      a protected value that no longer matches the one the
+                 state recorded; the state is read, never written
+  unknown key    a key the schema does not list for the file: a warning,
+                 an error with --strict; apply --prune removes it
+
+Templates hold placeholders, so only their lines and keys are checked.
+Messages never show a value. Without --json, one line per problem,
+\`path: ok\` for a file without any, then the counts. Exits 1 on any
+error; warnings alone exit 0.
 
 Generated files are compared with the --set values and the defaults, so
 the result does not depend on the environment; with --use-env, also with
@@ -147,7 +164,7 @@ the environment variables, as apply --ci would write them.
 Options:
   --set KEY=VALUE  a value to compare with; repeat for more
   --use-env        compare with the environment variables too
-  --strict         report the keys the schema does not list as drift
+  --strict         report the keys the schema does not list as errors
 
 ${GLOBAL}
 
@@ -155,6 +172,7 @@ Examples:
   configure-env check
   configure-env check --use-env
   configure-env check --ci --strict
+  configure-env check --file .env --strict
   configure-env check --ci --json
 
 ${EXIT_CODES}`;
@@ -350,31 +368,6 @@ ${GLOBAL}
 Examples:
   configure-env history
   configure-env history --json
-
-${EXIT_CODES}`;
-
-export const VALIDATE_HELP = `Usage: configure-env validate [options]
-
-Changes nothing. Checks the current values of every schema file (or the
---file paths): a missing file, lines that are not valid entries, required
-keys that are not set, values that break their variable's rules, and
-broken rules between variables (requiredUnless, conflictsWith,
-distinctFrom, within), and protected values that no longer match the
-ones the state recorded. It reads the state, never writes it. A
-key the schema does not list for the file is a warning, an error with
---strict. Template files hold placeholders, so only their lines and the
-presence of each key are checked. Exits 1 on any error; messages never
-show a value.
-
-Options:
-  --strict  treat unknown keys as errors
-
-${GLOBAL}
-
-Examples:
-  configure-env validate
-  configure-env validate --file .env --strict
-  configure-env validate --json
 
 ${EXIT_CODES}`;
 

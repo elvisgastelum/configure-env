@@ -199,19 +199,50 @@ export interface Change {
   undoOf: number | null;
 }
 
-export type FileDriftPolicy =
-  (typeof FileDriftPolicy)[keyof typeof FileDriftPolicy];
+export type CheckCommand = (typeof CheckCommand)[keyof typeof CheckCommand];
 
-export const FileDriftPolicy = {
+export const CheckCommand = {
+  check: 'check',
+} as const;
+
+export type CheckSummary = {
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  errors: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  warnings: number;
+  /**
+   * The files checked.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  files: number;
+  /**
+   * The files with an error.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  failing: number;
+};
+
+export type FileCheckPolicy =
+  (typeof FileCheckPolicy)[keyof typeof FileCheckPolicy];
+
+export const FileCheckPolicy = {
   generate: 'generate',
   merge: 'merge',
   'create-only': 'create-only',
 } as const;
 
-export type FileDriftStatus =
-  (typeof FileDriftStatus)[keyof typeof FileDriftStatus];
+export type FileCheckStatus =
+  (typeof FileCheckStatus)[keyof typeof FileCheckStatus];
 
-export const FileDriftStatus = {
+export const FileCheckStatus = {
   current: 'current',
   missing: 'missing',
   differs: 'differs',
@@ -219,66 +250,80 @@ export const FileDriftStatus = {
   refused: 'refused',
 } as const;
 
-export type RuleProblemRule =
-  (typeof RuleProblemRule)[keyof typeof RuleProblemRule];
+/**
+ * error fails the check; warning (an unknown key without strict) does not.
+ */
+export type ProblemSeverity =
+  (typeof ProblemSeverity)[keyof typeof ProblemSeverity];
 
-export const RuleProblemRule = {
-  requiredUnless: 'requiredUnless',
-  conflictsWith: 'conflictsWith',
-  distinctFrom: 'distinctFrom',
-  within: 'within',
+export const ProblemSeverity = {
+  error: 'error',
+  warning: 'warning',
 } as const;
 
-export interface RuleProblem {
-  rule: RuleProblemRule;
-  key: string;
-  others: string[];
+export type ProblemCode = (typeof ProblemCode)[keyof typeof ProblemCode];
+
+export const ProblemCode = {
+  'missing-file': 'missing-file',
+  differs: 'differs',
+  'missing-key': 'missing-key',
+  mode: 'mode',
+  refused: 'refused',
+  'invalid-line': 'invalid-line',
+  'invalid-value': 'invalid-value',
+  rule: 'rule',
+  protected: 'protected',
+  'unknown-key': 'unknown-key',
+} as const;
+
+/**
+ * What fixes it: apply, apply with prune, or setting a value; absent when a person decides.
+ */
+export type ProblemFix = (typeof ProblemFix)[keyof typeof ProblemFix];
+
+export const ProblemFix = {
+  apply: 'apply',
+  prune: 'prune',
+  set: 'set',
+} as const;
+
+export interface Problem {
+  /** error fails the check; warning (an unknown key without strict) does not. */
+  severity: ProblemSeverity;
+  code: ProblemCode;
+  key?: string;
+  /** Every key a broken rule between variables names, when more than one. */
+  keys?: string[];
+  /**
+   * The 1-based line number.
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  line?: number;
+  /** Never holds a value. */
   message: string;
+  /** An invalid value for display, masked when secret. */
+  shown?: string;
+  /** A protected variable's reason, when it gives one. */
+  reason?: string;
+  /** What fixes it: apply, apply with prune, or setting a value; absent when a person decides. */
+  fix?: ProblemFix;
 }
 
-export type FileDriftProtectedItemKind =
-  (typeof FileDriftProtectedItemKind)[keyof typeof FileDriftProtectedItemKind];
-
-export const FileDriftProtectedItemKind = {
-  protected: 'protected',
-} as const;
-
-export type FileDriftInvalidItem = {
-  key: string;
-  message: string;
-  /** The value for display, masked when secret. */
-  shown: string;
-};
-
-export type FileDriftProtectedItem = {
-  kind: FileDriftProtectedItemKind;
-  key: string;
-  message: string;
-  reason?: string;
-};
-
-export type FileDriftMode = {
+export type FileCheckMode = {
   actual: string;
   expected: string;
 };
 
-export interface FileDrift {
+export interface FileCheck {
   path: string;
-  policy: FileDriftPolicy;
-  status: FileDriftStatus;
-  drift: boolean;
-  missingKeys: string[];
-  unknownKeys: string[];
-  invalid: FileDriftInvalidItem[];
-  rules: RuleProblem[];
-  /**
-   * @items.minimum -9007199254740991
-   * @items.maximum 9007199254740991
-   */
-  invalidLines: number[];
-  protected: FileDriftProtectedItem[];
-  mode?: FileDriftMode;
-  error?: string;
+  policy: FileCheckPolicy;
+  template: boolean;
+  status: FileCheckStatus;
+  mode?: FileCheckMode;
+  /** No error-severity problem. */
+  ok: boolean;
+  problems: Problem[];
 }
 
 export type PlanErrorKind = (typeof PlanErrorKind)[keyof typeof PlanErrorKind];
@@ -297,10 +342,11 @@ export interface PlanError {
 }
 
 export interface Check {
-  /** No drift, no invalid value, no error. */
+  command: CheckCommand;
+  /** No error-severity problem and no plan error. */
   ok: boolean;
-  drift: boolean;
-  files: FileDrift[];
+  summary: CheckSummary;
+  files: FileCheck[];
   errors: PlanError[];
 }
 
@@ -495,39 +541,6 @@ export interface FilePlan {
 
 export interface Files {
   files: FileInfo[];
-}
-
-/**
- * protected: a protected value that no longer matches the one the state recorded.
- */
-export type ProblemKind = (typeof ProblemKind)[keyof typeof ProblemKind];
-
-export const ProblemKind = {
-  protected: 'protected',
-} as const;
-
-export interface Problem {
-  /** protected: a protected value that no longer matches the one the state recorded. */
-  kind?: ProblemKind;
-  key?: string;
-  keys?: string[];
-  /**
-   * @minimum -9007199254740991
-   * @maximum 9007199254740991
-   */
-  line?: number;
-  message: string;
-  /** A protected variable's reason, when it gives one. */
-  reason?: string;
-}
-
-export interface FileValidation {
-  path: string;
-  template: boolean;
-  exists: boolean;
-  ok: boolean;
-  errors: Problem[];
-  warnings: Problem[];
 }
 
 /**
@@ -1047,11 +1060,6 @@ export interface UpdateVariableRequest {
   fingerprint: string;
   /** Fields to set; null removes one. A new `type` drops the options it does not take. */
   changes: UpdateVariableRequestChanges;
-}
-
-export interface Validate {
-  ok: boolean;
-  files: FileValidation[];
 }
 
 export type ValuesEditKeysItemStatus =
@@ -1655,21 +1663,6 @@ export type GetCheckStrict =
   (typeof GetCheckStrict)[keyof typeof GetCheckStrict];
 
 export const GetCheckStrict = {
-  true: 'true',
-  false: 'false',
-} as const;
-
-export type GetValidateParams = {
-  /**
-   * Treat keys the schema does not list for a file as errors.
-   */
-  strict?: GetValidateStrict;
-};
-
-export type GetValidateStrict =
-  (typeof GetValidateStrict)[keyof typeof GetValidateStrict];
-
-export const GetValidateStrict = {
   true: 'true',
   false: 'false',
 } as const;
@@ -3049,7 +3042,7 @@ export const getGetCheckUrl = (params?: GetCheckParams) => {
 };
 
 /**
- * @summary The drift report, as configure-env check gives it
+ * @summary Every problem by file, with a summary, as configure-env check --json gives it
  */
 export const getCheck = async (
   params?: GetCheckParams,
@@ -3164,7 +3157,7 @@ export function useGetCheck<
   queryKey: DataTag<QueryKey, TData, TError>;
 };
 /**
- * @summary The drift report, as configure-env check gives it
+ * @summary Every problem by file, with a summary, as configure-env check --json gives it
  */
 
 export function useGetCheck<
@@ -3183,199 +3176,6 @@ export function useGetCheck<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetCheckQueryOptions(params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
-    TData,
-    TError
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export type getValidateResponse200 = {
-  data: Validate;
-  status: 200;
-};
-
-export type getValidateResponse422 = {
-  data: InvalidSchema;
-  status: 422;
-};
-
-export type getValidateResponse503 = {
-  data: ApiError;
-  status: 503;
-};
-
-export type getValidateResponseSuccess = getValidateResponse200 & {
-  headers: Headers;
-};
-export type getValidateResponseError = (
-  | getValidateResponse422
-  | getValidateResponse503
-) & {
-  headers: Headers;
-};
-
-export type getValidateResponse =
-  | getValidateResponseSuccess
-  | getValidateResponseError;
-
-export const getGetValidateUrl = (params?: GetValidateParams) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value));
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0
-    ? `/api/validate?${stringifiedParams}`
-    : `/api/validate`;
-};
-
-/**
- * @summary Rule and value errors per file, as configure-env validate gives them
- */
-export const getValidate = async (
-  params?: GetValidateParams,
-  options?: RequestInit,
-): Promise<getValidateResponse> => {
-  const res = await fetch(getGetValidateUrl(params), {
-    ...options,
-    method: 'GET',
-  });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getValidateResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getValidateResponse;
-};
-
-export const getGetValidateQueryKey = (params?: GetValidateParams) => {
-  return [`/api/validate`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetValidateQueryOptions = <
-  TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema | ApiError,
->(
-  params?: GetValidateParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getValidate>>, TError, TData>
-    >;
-    fetch?: RequestInit;
-  },
-) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetValidateQueryKey(params);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getValidate>>> = ({
-    signal,
-  }) => getValidate(params, { signal, ...fetchOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getValidate>>,
-    TError,
-    TData
-  > & { queryKey: DataTag<QueryKey, TData, TError> };
-};
-
-export type GetValidateQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getValidate>>
->;
-export type GetValidateQueryError = InvalidSchema | ApiError;
-
-export function useGetValidate<
-  TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema | ApiError,
->(
-  params: undefined | GetValidateParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getValidate>>, TError, TData>
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getValidate>>,
-          TError,
-          Awaited<ReturnType<typeof getValidate>>
-        >,
-        'initialData'
-      >;
-    fetch?: RequestInit;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetValidate<
-  TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema | ApiError,
->(
-  params?: GetValidateParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getValidate>>, TError, TData>
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getValidate>>,
-          TError,
-          Awaited<ReturnType<typeof getValidate>>
-        >,
-        'initialData'
-      >;
-    fetch?: RequestInit;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-export function useGetValidate<
-  TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema | ApiError,
->(
-  params?: GetValidateParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getValidate>>, TError, TData>
-    >;
-    fetch?: RequestInit;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-};
-/**
- * @summary Rule and value errors per file, as configure-env validate gives them
- */
-
-export function useGetValidate<
-  TData = Awaited<ReturnType<typeof getValidate>>,
-  TError = InvalidSchema | ApiError,
->(
-  params?: GetValidateParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getValidate>>, TError, TData>
-    >;
-    fetch?: RequestInit;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & {
-  queryKey: DataTag<QueryKey, TData, TError>;
-} {
-  const queryOptions = getGetValidateQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,

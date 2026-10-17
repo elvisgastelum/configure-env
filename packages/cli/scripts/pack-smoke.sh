@@ -182,7 +182,10 @@ run 2 'set refuses to change a protected value' \
 run 0 'get PORT' cli get PORT --root "$app" --file config/app.env
 expect 'get prints the value that was set' '^9090$'
 run 1 'get a secret without --reveal' cli get TOKEN --root "$app" --file config/app.env
-run 0 'validate' cli validate --root "$app"
+run 0 'check after the edits' cli check --ci --root "$app" \
+  --set PORT=9090 --set TOKEN=smoke-token-1234567890
+expect 'check ends with the summary' '^Everything is current\.$'
+run 2 'validate is no longer a command' cli validate --root "$app"
 run 1 'set rejects an invalid port' cli set PORT=http --root "$app" --file config/app.env
 run 2 'a missing schema is a usage error' cli check --ci --root "$app" --schema missing.json
 run 0 'install skill' cli install skill --ci --root "$app" --scope project --mode copy

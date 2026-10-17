@@ -318,58 +318,7 @@
             }
           }
         },
-        "summary": "The drift report, as configure-env check gives it",
-        "tags": ["project"]
-      }
-    },
-    "/api/validate": {
-      "get": {
-        "operationId": "getValidate",
-        "parameters": [
-          {
-            "name": "strict",
-            "required": false,
-            "in": "query",
-            "description": "Treat keys the schema does not list for a file as errors.",
-            "schema": {
-              "enum": ["true", "false"],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Validate"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "The schema is invalid.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InvalidSchema"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The protected variables' state cannot be read.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Rule and value errors per file, as configure-env validate gives them",
+        "summary": "Every problem by file, with a summary, as configure-env check --json gives it",
         "tags": ["project"]
       }
     },
@@ -1668,17 +1617,47 @@
       "Check": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["check"]
+          },
           "ok": {
             "type": "boolean",
-            "description": "No drift, no invalid value, no error."
+            "description": "No error-severity problem and no plan error."
           },
-          "drift": {
-            "type": "boolean"
+          "summary": {
+            "type": "object",
+            "properties": {
+              "errors": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "warnings": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "files": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "The files checked."
+              },
+              "failing": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "The files with an error."
+              }
+            },
+            "required": ["errors", "warnings", "files", "failing"],
+            "additionalProperties": false
           },
           "files": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FileDrift"
+              "$ref": "#/components/schemas/FileCheck"
             }
           },
           "errors": {
@@ -1688,7 +1667,7 @@
             }
           }
         },
-        "required": ["ok", "drift", "files", "errors"],
+        "required": ["command", "ok", "summary", "files", "errors"],
         "additionalProperties": false
       },
       "DiffLine": {
@@ -1748,6 +1727,50 @@
         "required": ["statusCode", "message", "kind", "errors"],
         "additionalProperties": false
       },
+      "FileCheck": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": ["generate", "merge", "create-only"]
+          },
+          "template": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["current", "missing", "differs", "missing-keys", "refused"]
+          },
+          "mode": {
+            "type": "object",
+            "properties": {
+              "actual": {
+                "type": "string"
+              },
+              "expected": {
+                "type": "string"
+              }
+            },
+            "required": ["actual", "expected"],
+            "additionalProperties": false
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "No error-severity problem."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "required": ["path", "policy", "template", "status", "ok", "problems"],
+        "additionalProperties": false
+      },
       "FileContent": {
         "type": "object",
         "properties": {
@@ -1778,123 +1801,6 @@
           }
         },
         "required": ["file"],
-        "additionalProperties": false
-      },
-      "FileDrift": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string"
-          },
-          "policy": {
-            "type": "string",
-            "enum": ["generate", "merge", "create-only"]
-          },
-          "status": {
-            "type": "string",
-            "enum": ["current", "missing", "differs", "missing-keys", "refused"]
-          },
-          "drift": {
-            "type": "boolean"
-          },
-          "missingKeys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "unknownKeys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "invalid": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string"
-                },
-                "message": {
-                  "type": "string"
-                },
-                "shown": {
-                  "type": "string",
-                  "description": "The value for display, masked when secret."
-                }
-              },
-              "required": ["key", "message", "shown"],
-              "additionalProperties": false
-            }
-          },
-          "rules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RuleProblem"
-            }
-          },
-          "invalidLines": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            }
-          },
-          "protected": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "type": "string",
-                  "enum": ["protected"]
-                },
-                "key": {
-                  "type": "string"
-                },
-                "message": {
-                  "type": "string"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": ["kind", "key", "message"],
-              "additionalProperties": false
-            }
-          },
-          "mode": {
-            "type": "object",
-            "properties": {
-              "actual": {
-                "type": "string"
-              },
-              "expected": {
-                "type": "string"
-              }
-            },
-            "required": ["actual", "expected"],
-            "additionalProperties": false
-          },
-          "error": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "policy",
-          "status",
-          "drift",
-          "missingKeys",
-          "unknownKeys",
-          "invalid",
-          "rules",
-          "invalidLines",
-          "protected"
-        ],
         "additionalProperties": false
       },
       "FileInfo": {
@@ -2070,37 +1976,6 @@
           }
         },
         "required": ["files"],
-        "additionalProperties": false
-      },
-      "FileValidation": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string"
-          },
-          "template": {
-            "type": "boolean"
-          },
-          "exists": {
-            "type": "boolean"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        },
-        "required": ["path", "template", "exists", "ok", "errors", "warnings"],
         "additionalProperties": false
       },
       "FileValue": {
@@ -2454,34 +2329,61 @@
       "Problem": {
         "type": "object",
         "properties": {
-          "kind": {
-            "description": "protected: a protected value that no longer matches the one the state recorded.",
+          "severity": {
             "type": "string",
-            "enum": ["protected"]
+            "enum": ["error", "warning"],
+            "description": "error fails the check; warning (an unknown key without strict) does not."
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "missing-file",
+              "differs",
+              "missing-key",
+              "mode",
+              "refused",
+              "invalid-line",
+              "invalid-value",
+              "rule",
+              "protected",
+              "unknown-key"
+            ]
           },
           "key": {
             "type": "string"
           },
           "keys": {
+            "description": "Every key a broken rule between variables names, when more than one.",
             "type": "array",
             "items": {
               "type": "string"
             }
           },
           "line": {
+            "description": "The 1-based line number.",
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
           },
           "message": {
+            "type": "string",
+            "description": "Never holds a value."
+          },
+          "shown": {
+            "description": "An invalid value for display, masked when secret.",
             "type": "string"
           },
           "reason": {
             "description": "A protected variable's reason, when it gives one.",
             "type": "string"
+          },
+          "fix": {
+            "description": "What fixes it: apply, apply with prune, or setting a value; absent when a person decides.",
+            "type": "string",
+            "enum": ["apply", "prune", "set"]
           }
         },
-        "required": ["message"],
+        "required": ["severity", "code", "message"],
         "additionalProperties": false
       },
       "Project": {
@@ -2622,34 +2524,6 @@
           }
         },
         "required": ["file", "key"],
-        "additionalProperties": false
-      },
-      "RuleProblem": {
-        "type": "object",
-        "properties": {
-          "rule": {
-            "type": "string",
-            "enum": [
-              "requiredUnless",
-              "conflictsWith",
-              "distinctFrom",
-              "within"
-            ]
-          },
-          "key": {
-            "type": "string"
-          },
-          "others": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": ["rule", "key", "others", "message"],
         "additionalProperties": false
       },
       "Schema": {
@@ -3012,22 +2886,6 @@
           }
         },
         "required": ["fingerprint", "changes"],
-        "additionalProperties": false
-      },
-      "Validate": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FileValidation"
-            }
-          }
-        },
-        "required": ["ok", "files"],
         "additionalProperties": false
       },
       "ValuesEdit": {

@@ -1,6 +1,6 @@
-// list and validate: read-only views of the current values.
+// list and check: read-only views of the current values.
 
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { KEY_A, KEY_B, RULES_SCHEMA, run, useProject } from './test-helpers.ts';
@@ -34,6 +34,9 @@ const LONG = 'x'.repeat(50);
 const VALID =
   'PORT=9090\nTOKEN=abcdefghij\nMODE=dev\nGREETING=hi\nDEBUG=true\n';
 const TEMPLATE = 'PORT=<port>\nTOKEN=<token>\nMODE=\nGREETING=\nDEBUG=\n';
+/** The problems of the only file a check --json report holds. */
+const problemsOf = (r: { out: string[] }) =>
+  JSON.parse(r.out.join('')).files[0].problems;
 
 describe('list', () => {
   it('shows a table per file: set, valid, masked value and description', async () => {
@@ -122,61 +125,77 @@ describe('list', () => {
   });
 });
 
-describe('validate', () => {
+describe('check over the current values', () => {
   it('exits 0 when every file is valid', async () => {
     await put('app.env', VALID);
     await put('app.env.example', TEMPLATE);
-    const r = await cli(['validate']);
+    const r = await cli(['check']);
     expect(r).toMatchObject({
       code: 0,
-      out: ['app.env: ok', 'app.env.example: ok'],
+      out: ['app.env: ok', 'app.env.example: ok', 'Everything is current.'],
     });
   });
 
-  it('reports missing required keys, type errors and broken lines', async () => {
-    await put('app.env', 'PORT=http\nGREETING="open\nMODE=dev\n');
+  it('reports missing keys, type errors, required values and broken lines', async () => {
+    await put(
+      'app.env',
+      'PORT=http\nGREETING="open\nMODE=dev\nTOKEN=\nDEBUG=\n',
+    );
     await put('app.env.example', TEMPLATE);
-    const r = await cli(['validate']);
+    const r = await cli(['check']);
     expect(r.code).toBe(1);
     expect(r.out).toEqual([
+      'app.env: GREETING: is missing',
       'app.env: line 2 is not a valid entry',
-      'app.env: PORT: must be a port between 1 and 65535',
+      'app.env: PORT: must be a port between 1 and 65535 (got http)',
       'app.env: TOKEN: is required',
       'app.env.example: ok',
+      '4 errors, 0 warnings in 1 file',
     ]);
   });
 
   it('never prints a secret value', async () => {
-    await put('app.env', 'TOKEN=short\n');
-    const r = await cli(['validate', '--file', 'app.env']);
+    await put('app.env', `${VALID.replace('abcdefghij', 'short')}`);
+    const r = await cli(['check', '--file', 'app.env']);
     expect(r.code).toBe(1);
-    expect(r.out).toEqual(['app.env: TOKEN: must be at least 8 characters']);
+    expect(r.out).toEqual([
+      'app.env: TOKEN: must be at least 8 characters (got •••••)',
+      '1 error, 0 warnings in 1 file',
+    ]);
+    expect(r.out.join('')).not.toContain('short');
   });
 
-  it('warns about unknown keys, an error with --strict', async () => {
+  it('warns about unknown keys and exits 0, an error with --strict', async () => {
     await put('app.env', `${VALID}EXTRA=1\n`);
-    const r = await cli(['validate', '--file', 'app.env']);
+    const r = await cli(['check', '--file', 'app.env']);
     expect(r).toMatchObject({
       code: 0,
-      out: ['app.env: warning: EXTRA: is not in the schema for this file'],
+      out: [
+        'app.env: warning: EXTRA: is not in the schema for this file',
+        '0 errors, 1 warning in 1 file',
+      ],
     });
-    const strict = await cli(['validate', '--file', 'app.env', '--strict']);
+    const strict = await cli(['check', '--file', 'app.env', '--strict']);
     expect(strict).toMatchObject({
       code: 1,
-      out: ['app.env: EXTRA: is not in the schema for this file'],
+      out: [
+        'app.env: EXTRA: is not in the schema for this file',
+        '1 error, 0 warnings in 1 file',
+      ],
     });
   });
 
   it('checks templates only for broken lines and missing keys', async () => {
     await put('app.env', VALID);
     await put('app.env.example', 'PORT=<port>\nBAD LINE\nTOKEN=\n');
-    const r = await cli(['validate', '--file', 'app.env.example']);
+    const r = await cli(['check', '--file', 'app.env.example']);
     expect(r.code).toBe(1);
     expect(r.out).toEqual([
-      'app.env.example: line 2 is not a valid entry',
       'app.env.example: MODE: is missing',
       'app.env.example: GREETING: is missing',
       'app.env.example: DEBUG: is missing',
+      'app.env.example: line 2 is not a valid entry',
+      '4 errors, 0 warnings in 1 file',
     ]);
   });
 
@@ -188,109 +207,164 @@ describe('validate', () => {
         files: [{ ...SCHEMA.files[0], values: { TOKEN: '<token>' } }],
       }),
     );
-    await put('app.env', 'TOKEN=<token>\n');
-    expect(await cli(['validate'])).toMatchObject({
+    await put('app.env', VALID.replace('abcdefghij', '<token>'));
+    expect(await cli(['check'])).toMatchObject({
       code: 0,
-      out: ['app.env: ok'],
+      out: ['app.env: ok', 'Everything is current.'],
     });
   });
 
   it('reports a missing file', async () => {
-    const r = await cli(['validate', '--file', 'app.env']);
-    expect(r).toMatchObject({ code: 1, out: ['app.env: missing'] });
+    const r = await cli(['check', '--file', 'app.env']);
+    expect(r).toMatchObject({
+      code: 1,
+      out: ['app.env: missing', '1 error, 0 warnings in 1 file'],
+    });
   });
 
-  it('prints one JSON document with --json', async () => {
-    await put('app.env', 'PORT=http\nTOKEN=abcdefghij\nEXTRA=1\n');
-    const r = await cli(['validate', '--json', '--file', 'app.env']);
+  it('prints one JSON document with --json: problems by file, with a summary', async () => {
+    await put('app.env', VALID.replace('9090', 'http') + 'EXTRA=1\n');
+    const r = await cli(['check', '--json', '--file', 'app.env']);
     expect(r.code).toBe(1);
     expect(JSON.parse(r.out.join(''))).toEqual({
-      command: 'validate',
+      command: 'check',
       ok: false,
+      summary: { errors: 1, warnings: 1, files: 1, failing: 1 },
       files: [
         {
           path: 'app.env',
+          policy: 'merge',
           template: false,
-          exists: true,
+          status: 'current',
           ok: false,
-          errors: [
-            { key: 'PORT', message: 'must be a port between 1 and 65535' },
-          ],
-          warnings: [
-            { key: 'EXTRA', message: 'is not in the schema for this file' },
+          problems: [
+            {
+              severity: 'error',
+              code: 'invalid-value',
+              key: 'PORT',
+              message: 'must be a port between 1 and 65535',
+              shown: 'http',
+              fix: 'set',
+            },
+            {
+              severity: 'warning',
+              code: 'unknown-key',
+              key: 'EXTRA',
+              message: 'is not in the schema for this file',
+              fix: 'prune',
+            },
           ],
         },
       ],
+      errors: [],
     });
+  });
+
+  it('exits 0 with --json when it finds warnings only', async () => {
+    await put('app.env', `${VALID}EXTRA=1\n`);
+    const r = await cli(['check', '--json', '--file', 'app.env']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out.join(''))).toMatchObject({
+      ok: true,
+      summary: { errors: 0, warnings: 1, files: 1, failing: 0 },
+    });
+  });
+});
+
+describe('validate', () => {
+  it('is no longer a command', async () => {
+    const r = await cli(['validate']);
+    expect(r.code).toBe(2);
+    expect(r.err.join('\n')).toContain('unknown command: validate');
+    expect(r.out).toEqual([]);
+  });
+
+  it('is not in the main help', async () => {
+    expect((await cli(['--help'])).out.join('\n')).not.toContain('validate');
   });
 });
 
 describe('rules between variables', () => {
   const useRules = () =>
     writeFile(join(dirs.root, 'env.schema.json'), JSON.stringify(RULES_SCHEMA));
-  const env = (values: Record<string, string>) =>
-    put(
+  // .env is create-only with mode 600: written so, its mode is current.
+  const env = async (values: Record<string, string>) => {
+    await put(
       '.env',
       Object.entries(values)
         .map(([key, value]) => `${key}=${value}\n`)
         .join(''),
     );
+    await chmod(join(dirs.root, '.env'), 0o600);
+  };
 
-  it('validate reports each broken rule, naming the keys and never a value', async () => {
+  it('check reports each broken rule, naming the keys and never a value', async () => {
     await useRules();
     await env({
       SM_MASTER_KEY: KEY_A,
       SM_MASTER_KEY_FILE: '/run/secrets/key',
       SM_PREVIOUS_MASTER_KEY: KEY_A,
     });
-    const r = await cli(['validate', '--file', '.env']);
+    const r = await cli(['check', '--file', '.env']);
     expect(r.code).toBe(1);
     expect(r.out).toEqual([
       '.env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
       '.env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY',
+      '2 errors, 0 warnings in 1 file',
     ]);
     expect(r.out.join('\n')).not.toContain(KEY_A);
   });
 
-  it('validate reports a variable required unless another is set', async () => {
+  it('check reports a variable required unless another is set', async () => {
     await useRules();
     await env({ SM_MASTER_KEY: '' });
-    const r = await cli(['validate', '--json', '--file', '.env']);
+    const r = await cli(['check', '--json', '--file', '.env']);
     expect(r.code).toBe(1);
-    expect(JSON.parse(r.out.join('')).files[0].errors).toEqual([
+    expect(
+      problemsOf(r).filter((p: { code: string }) => p.code === 'rule'),
+    ).toEqual([
       {
+        severity: 'error',
+        code: 'rule',
         key: 'SM_MASTER_KEY',
         message: 'required unless SM_MASTER_KEY_FILE is set',
+        fix: 'set',
       },
     ]);
     await env({ SM_MASTER_KEY_FILE: '/run/secrets/key' });
-    expect(await cli(['validate', '--file', '.env'])).toMatchObject({
+    expect(await cli(['check', '--file', '.env'])).toMatchObject({
       code: 0,
-      out: ['.env: ok'],
+      out: ['.env: ok', 'Everything is current.'],
     });
   });
 
-  it('validate --json gives a conflict both keys', async () => {
+  it('check --json gives a conflict both keys', async () => {
     await useRules();
     await env({ SM_MASTER_KEY: KEY_A, SM_MASTER_KEY_FILE: '/k' });
-    const r = await cli(['validate', '--json', '--file', '.env']);
-    expect(JSON.parse(r.out.join('')).files[0].errors).toEqual([
+    const r = await cli(['check', '--json', '--file', '.env']);
+    expect(
+      problemsOf(r).filter((p: { code: string }) => p.code === 'rule'),
+    ).toEqual([
       {
+        severity: 'error',
+        code: 'rule',
         key: 'SM_MASTER_KEY',
         keys: ['SM_MASTER_KEY', 'SM_MASTER_KEY_FILE'],
         message: 'set only one of them',
+        fix: 'set',
       },
     ]);
   });
 
-  it('validate checks no rule in a template', async () => {
+  it('check checks no rule in a template', async () => {
     await useRules();
     await put(
       '.env.example',
       'SM_MASTER_KEY=\nSM_MASTER_KEY_FILE=\nSM_PREVIOUS_MASTER_KEY=\nSM_PREVIOUS_MASTER_KEY_FILE=\n',
     );
-    expect((await cli(['validate', '--file', '.env.example'])).out).toEqual([
+    expect((await cli(['check', '--file', '.env.example'])).out).toEqual([
       '.env.example: ok',
+      'Everything is current.',
     ]);
   });
 
@@ -323,7 +397,7 @@ describe('rules between variables', () => {
 });
 
 describe('help', () => {
-  it.each(['list', 'validate'])('prints the help of %s', async (command) => {
+  it.each(['list', 'check'])('prints the help of %s', async (command) => {
     const r = await cli([command, '--help']);
     expect(r.code).toBe(0);
     expect(r.out.join('\n')).toMatch(

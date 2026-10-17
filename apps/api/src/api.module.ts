@@ -20,7 +20,7 @@ import {
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { EnvSchema } from '@configure-env/core';
+import { type EnvSchema, checkDrift } from '@configure-env/core';
 import type { z } from 'zod';
 import {
   checkResponse,
@@ -35,7 +35,6 @@ import {
   revealResponse,
   schemaResponse,
   strictQuery,
-  validateResponse,
   variablesResponse,
 } from './contracts.ts';
 import {
@@ -47,13 +46,11 @@ import {
   requireSchema,
 } from './http.ts';
 import {
-  checkProject,
   fileContent,
   listFiles,
   listGroups,
   listVariables,
   revealValue,
-  validateProject,
 } from './inspect.ts';
 import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
@@ -216,7 +213,7 @@ export class ProjectController {
   @Get('check')
   @Read(
     'getCheck',
-    'The drift report, as configure-env check gives it',
+    'Every problem by file, with a summary, as configure-env check --json gives it',
     checkResponse,
   )
   @StrictQuery()
@@ -226,33 +223,13 @@ export class ProjectController {
     @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
   ) {
     const schema = await this.schema();
-    return checkProject(
+    const state = await protectedState(schema, this.project);
+    return checkDrift({
       schema,
-      this.project.root,
-      isStrict(query),
-      await protectedState(schema, this.project),
-    );
-  }
-
-  @Get('validate')
-  @Read(
-    'getValidate',
-    'Rule and value errors per file, as configure-env validate gives them',
-    validateResponse,
-  )
-  @StrictQuery()
-  @NeedsSchema()
-  @NeedsState()
-  async validate(
-    @Query({ schema: strictQuery }) query: z.output<typeof strictQuery>,
-  ) {
-    const schema = await this.schema();
-    return validateProject(
-      schema,
-      this.project.root,
-      isStrict(query),
-      await protectedState(schema, this.project),
-    );
+      root: this.project.root,
+      strict: isStrict(query),
+      ...(state ? { state } : {}),
+    });
   }
 }
 

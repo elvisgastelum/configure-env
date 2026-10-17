@@ -38,26 +38,19 @@ afterEach(async () => {
 });
 
 const MISMATCH = {
-  kind: 'protected',
+  severity: 'error',
+  code: 'protected',
   key: 'SESSION_KEY',
   message: 'no longer matches the value recorded on 2026-03-04',
   reason: 'signs every session',
 };
 
 describe('protected values that no longer match the state', () => {
-  it('are reported by GET /api/check', async () => {
+  it('are errors of GET /api/check', async () => {
     const response = await get('/api/check');
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(false);
-    expect(response.body.files[0].protected).toEqual([MISMATCH]);
-    expect(JSON.stringify(response.body)).not.toContain(SESSION_KEY);
-  });
-
-  it('are errors of GET /api/validate', async () => {
-    const response = await get('/api/validate');
-    expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(false);
-    expect(response.body.files[0].errors).toContainEqual(MISMATCH);
+    expect(response.body.files[0].problems).toContainEqual(MISMATCH);
     expect(JSON.stringify(response.body)).not.toContain(SESSION_KEY);
   });
 });

@@ -8,7 +8,7 @@ import { MAIN_HELP, VERSION } from './help.ts';
 import { historyCommand } from './history.ts';
 import { initCommand } from './init.ts';
 import { installCommand } from './install.ts';
-import { listCommand, validateCommand } from './inspect.ts';
+import { listCommand } from './inspect.ts';
 import type { Io } from './io.ts';
 import { serveCommand } from './serve.ts';
 
@@ -22,7 +22,6 @@ export const COMMANDS: Record<string, Command> = {
   get: getCommand,
   unset: unsetCommand,
   list: listCommand,
-  validate: validateCommand,
   history: historyCommand,
   install: installCommand,
   serve: serveCommand,

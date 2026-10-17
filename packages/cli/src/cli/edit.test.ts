@@ -920,12 +920,12 @@ describe('set and unset with rules between variables', () => {
     expect(swap.code).toBe(0);
   });
 
-  it('unset may leave a requiredUnless key unsatisfied, for validate to report', async () => {
+  it('unset may leave a requiredUnless key unsatisfied, for check to report', async () => {
     await useRules();
     await env('SM_MASTER_KEY_FILE=/run/key\n');
     const r = await cli(['unset', '--file', '.env', 'SM_MASTER_KEY_FILE']);
     expect(r).toMatchObject({ code: 0, out: ['SM_MASTER_KEY_FILE: removed'] });
-    const v = await cli(['validate', '--file', '.env']);
+    const v = await cli(['check', '--file', '.env']);
     expect(v.code).toBe(1);
     expect(v.out).toContain(
       '.env: SM_MASTER_KEY: required unless SM_MASTER_KEY_FILE is set',

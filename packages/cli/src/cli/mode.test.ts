@@ -291,8 +291,8 @@ describe('apply fixes mode drift', () => {
     expect(before).toMatchObject({
       code: 1,
       out: [
-        '.env: current',
         '.env: mode 644, expected 600 (run configure-env apply to fix it)',
+        '1 error, 0 warnings in 1 file',
       ],
     });
     const json = await cli(['check', '--ci', '--json', '--file', '.env']);
@@ -302,7 +302,10 @@ describe('apply fixes mode drift', () => {
     });
     expect((await cli(['apply', '--ci', '--file', '.env'])).code).toBe(0);
     const after = await cli(['check', '--ci', '--file', '.env']);
-    expect(after).toMatchObject({ code: 0, out: ['.env: current'] });
+    expect(after).toMatchObject({
+      code: 0,
+      out: ['.env: ok', 'Everything is current.'],
+    });
     noSecret(before, json, after);
   });
 });

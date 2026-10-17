@@ -1,15 +1,14 @@
 // Read-only views of the env files against the schema: the values per
-// variable, the files with their drift, a single revealed value, and the
-// check and validate reports, which report the protected values that no
-// longer match the state, as the CLI does. Nothing here writes, and nothing
-// but `revealValue` returns a secret unmasked.
+// variable, the files with their drift and a single revealed value. The
+// check report is core's checkDrift, as the CLI gives it. Nothing here
+// writes, and nothing but `revealValue` returns a secret unmasked.
 
 import {
   type DotenvDocument,
   type EnvSchema,
   type FileSpec,
+  type FileCheck,
   type RuleProblem,
-  type State,
   checkDrift,
   fileKeys,
   fileRules,
@@ -17,9 +16,7 @@ import {
   getValue,
   invalidLineNumbers,
   isTemplate,
-  keysOf,
   maskValue,
-  protectedMismatches,
   readEnvFile,
   ruleKeys,
   unquoteValue,
@@ -27,14 +24,12 @@ import {
 } from '@configure-env/core';
 import type { z } from 'zod';
 import type {
-  checkResponse,
   fileContentResponse,
   fileInfo,
   fileValue,
   filesResponse,
   groupsResponse,
   revealResponse,
-  validateResponse,
   variablesResponse,
 } from './contracts.ts';
 import { maskedLines } from './diff.ts';
@@ -43,8 +38,6 @@ import { ApiError } from './http.ts';
 
 type FileValue = z.output<typeof fileValue>;
 type FileInfo = z.output<typeof fileInfo>;
-type FileValidation = z.output<typeof validateResponse>['files'][number];
-type Problem = FileValidation['errors'][number];
 
 /** Thrown for a file or key the project does not have, or a refused path. */
 export class InspectError extends ApiError {
@@ -185,6 +178,32 @@ export async function listVariables(
   };
 }
 
+const keysWith = (file: FileCheck, code: string) =>
+  file.problems.flatMap((problem) =>
+    problem.code === code && problem.key ? [problem.key] : [],
+  );
+
+/**
+ * A file's drift from its check: whether apply (with --prune) would change
+ * it, the keys a merge file lacks and the keys prune would remove.
+ */
+function driftOf(file: FileCheck): FileInfo['drift'] {
+  const missingKeys =
+    file.status === 'missing-keys' ? keysWith(file, 'missing-key') : [];
+  // A generate file is rewritten whole: its unknown keys are its content.
+  const unknownKeys =
+    file.policy === 'generate' ? [] : keysWith(file, 'unknown-key');
+  const content =
+    file.status !== 'current' &&
+    !(file.status === 'missing' && file.policy === 'create-only');
+  return {
+    status: file.status,
+    drift: content || Boolean(file.mode) || unknownKeys.length > 0,
+    missingKeys,
+    unknownKeys,
+  };
+}
+
 /** Each schema file: its policy, mode, drift and the lines that do not parse. */
 export async function listFiles(
   schema: EnvSchema,
@@ -192,7 +211,7 @@ export async function listFiles(
 ): Promise<z.output<typeof filesResponse>> {
   const [files, report] = await Promise.all([
     readAll(schema, root),
-    checkDrift({ schema, root, strict: true }),
+    checkDrift({ schema, root }),
   ]);
   return {
     files: files.map((file): FileInfo => {
@@ -209,12 +228,7 @@ export async function listFiles(
           actual:
             file.ok && file.mode !== undefined ? formatMode(file.mode) : null,
         },
-        drift: {
-          status: drift.status,
-          drift: drift.drift,
-          missingKeys: drift.missingKeys,
-          unknownKeys: drift.unknownKeys,
-        },
+        drift: driftOf(drift),
         parseErrors: lines.map((line) => ({
           line,
           message: 'is not a valid entry',
@@ -269,78 +283,4 @@ export async function fileContent(
     exists,
     lines: exists ? maskedLines(schema, previous ?? '') : [],
   };
-}
-
-/** Drift and invalid values per file, as `configure-env check` reports them. */
-export async function checkProject(
-  schema: EnvSchema,
-  root: string,
-  strict: boolean,
-  state?: State,
-): Promise<z.output<typeof checkResponse>> {
-  return checkDrift({ schema, root, strict, ...(state ? { state } : {}) });
-}
-
-const UNKNOWN_MESSAGE = 'is not in the schema for this file';
-
-function validateFile(
-  schema: EnvSchema,
-  file: Read,
-  strict: boolean,
-  state: State | undefined,
-): FileValidation {
-  const { spec } = file;
-  const template = isTemplate(spec);
-  const errors: Problem[] = [];
-  const warnings: Problem[] = [];
-  if (!file.ok) errors.push({ message: file.message });
-  else if (!file.exists) errors.push({ message: 'missing' });
-  else {
-    const { doc } = file;
-    for (const line of invalidLineNumbers(doc))
-      errors.push({ line, message: 'is not a valid entry' });
-    for (const key of fileKeys(schema, spec)) {
-      const value = getValue(doc, key);
-      // A template holds placeholders: only whether each key is there counts.
-      const message = template
-        ? value === undefined
-          ? 'is missing'
-          : undefined
-        : valueError(schema, spec, key, value);
-      if (message) errors.push({ key, message });
-    }
-    for (const problem of fileRules(schema, spec, doc)) {
-      const keys = ruleKeys(problem);
-      errors.push({
-        key: problem.key,
-        ...(keys.length > 1 ? { keys } : {}),
-        message: problem.message,
-      });
-    }
-    errors.push(...protectedMismatches(schema, state, spec, doc));
-    const known = new Set(fileKeys(schema, spec));
-    for (const key of keysOf(doc).filter((key) => !known.has(key)))
-      (strict ? errors : warnings).push({ key, message: UNKNOWN_MESSAGE });
-  }
-  return {
-    path: spec.path,
-    template,
-    exists: file.ok && file.exists,
-    ok: !errors.length,
-    errors,
-    warnings,
-  };
-}
-
-/** Rule and value errors per file, as `configure-env validate` reports them. */
-export async function validateProject(
-  schema: EnvSchema,
-  root: string,
-  strict: boolean,
-  state?: State,
-): Promise<z.output<typeof validateResponse>> {
-  const files = (await readAll(schema, root)).map((file) =>
-    validateFile(schema, file, strict, state),
-  );
-  return { ok: files.every((file) => file.ok), files };
 }
