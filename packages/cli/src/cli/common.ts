@@ -85,6 +85,7 @@ export const GLOBAL_OPTIONS = {
   root: { type: 'string' },
   state: { type: 'string' },
   file: { type: 'string', multiple: true },
+  env: { type: 'string' },
   ci: { type: 'boolean' },
   json: { type: 'boolean' },
   'no-color': { type: 'boolean' },
@@ -131,10 +132,20 @@ type GlobalValues = {
   root?: string;
   state?: string;
   file?: string[];
+  env?: string;
   ci?: boolean;
   json?: boolean;
   'no-color'?: boolean;
 };
+
+/** The environment the variable that names one picks when --env is absent. */
+export const ENV_VARIABLE = 'CONFIGURE_ENV_ENV';
+
+/** The environment a run targets: --env, else CONFIGURE_ENV_ENV, else local. */
+export const selectedEnvironment = (
+  io: Io,
+  values: { env?: string | undefined },
+): string => values.env || io.env[ENV_VARIABLE] || 'local';
 
 export interface Context {
   io: Io;
@@ -189,6 +200,16 @@ export async function contextOf(
 ): Promise<Context> {
   // NO_COLOR is what @clack/prompts (node:util styleText) honours.
   if (values['no-color']) io.env.NO_COLOR = '1';
+  // A command that works on this project only must never pass for one that
+  // ran against the environment asked for.
+  const environment = selectedEnvironment(io, values);
+  if (environment !== 'local')
+    throw usageError(
+      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; only check runs against an environment yet`,
+      values.env
+        ? 'drop --env to run it here'
+        : `unset ${ENV_VARIABLE} to run it here`,
+    );
   const root = resolve(io.cwd, values.root ?? '.');
   if (!(await isDirectory(root)))
     throw usageError(`no such directory: ${root}`);

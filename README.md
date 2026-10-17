@@ -308,6 +308,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `history` | lists the latest changes the CLI and the portal made (see "history") |
 | `install` | `install skill` installs the agent skill (see "AI agents")           |
 | `serve` | starts the local portal for the project in a browser (see "Portal (serve)") |
+| `env`   | adds, lists or removes the environments `--env` runs against (see "env") |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -319,6 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another one yet; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -571,6 +573,24 @@ Undo stays in the portal for now: its History page undoes a change while the fil
 configure-env history
 configure-env history --json
 ```
+
+### env
+
+```sh
+configure-env env add staging --url https://envs.example.com --token-env STAGING_TOKEN
+printf %s "$TOKEN" | configure-env env add prod --url https://prod.example.com
+configure-env env list
+configure-env check --env staging
+configure-env env remove staging
+```
+
+An environment is a configure-env server the CLI reaches over HTTP: its URL and its bearer token, stored under a name in `.configure-env/environments.json` in the root. The file is written mode 600, and `.configure-env/.gitignore` names it, so it stays out of git. `local` is this project and is never stored.
+
+- **`env add <name> --url <url>`** reads the token from the variable `--token-env <VAR>` names, else from stdin; it never takes the token as an argument, where the shell history would keep it. A name takes letters, digits, `.`, `_` and `-`; one that exists exits 2 (remove it first). The URL is `http` or `https`, without a user, password, query or fragment; an `http` URL to another machine is stored with a warning, since the token travels in clear text.
+- **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
+- **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
+
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` runs against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
 
 ### JSON output
 
