@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test';
 import { axeViolations } from '../src/axe.ts';
 import { expect, test } from '../src/fixtures.ts';
-import { openDrawer, rowOf, variablesOf } from '../src/portal.ts';
+import { openDrawer, rowOf, useTheme, variablesOf } from '../src/portal.ts';
 
 const ROUTES = [
   '/',
@@ -14,17 +14,6 @@ const ROUTES = [
   '/validate',
   '/history',
 ];
-
-/** Picks a theme in the header, as a person would. */
-async function useTheme(page: Page, theme: 'Light' | 'Dark') {
-  await page
-    .getByRole('group', { name: 'Theme' })
-    .getByRole('button', { name: theme, exact: true })
-    .click();
-  await expect(page.locator('html')).toHaveClass(
-    theme === 'Dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/,
-  );
-}
 
 /** Waits for a page's data to settle, then scans it. */
 async function scan(page: Page) {

@@ -39,3 +39,14 @@ export async function openDrawer(page: Page, name: string): Promise<Locator> {
 /** A toast with this text. */
 export const toast = (page: Page, text: string | RegExp) =>
   page.getByRole('region', { name: /Notifications/ }).getByText(text);
+
+/** Picks a theme in the header, as a person would. */
+export async function useTheme(page: Page, theme: 'Light' | 'Dark') {
+  await page
+    .getByRole('group', { name: 'Theme' })
+    .getByRole('button', { name: theme, exact: true })
+    .click();
+  await expect(page.locator('html')).toHaveClass(
+    theme === 'Dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/,
+  );
+}

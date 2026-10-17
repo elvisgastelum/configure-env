@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../src/fixtures.ts';
 import { REPO } from '../src/serve.ts';
-import { navigate, variablesOf } from '../src/portal.ts';
+import { navigate, useTheme, variablesOf } from '../src/portal.ts';
 
 const OUT = join(REPO, 'docs/portal');
 
@@ -35,13 +35,6 @@ async function shoot(page: Page, dir: string, name: string) {
     [dir, basename(dir), fixture] as const,
   );
   await page.screenshot({ path: join(OUT, `${name}.png`) });
-}
-
-async function useTheme(page: Page, theme: 'Light' | 'Dark') {
-  await page
-    .getByRole('group', { name: 'Theme' })
-    .getByRole('button', { name: theme, exact: true })
-    .click();
 }
 
 test('portal pages', async ({ portal: page, served }) => {

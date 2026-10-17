@@ -171,7 +171,7 @@ export function FileCard({
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <FileDetails file={file} level={level + 1} />
+              <FileDetails file={file} Heading={level === 2 ? 'h3' : 'h4'} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -180,8 +180,14 @@ export function FileCard({
   );
 }
 
-function FileDetails({ file, level }: { file: FileInfo; level: number }) {
-  const Heading = (level === 3 ? 'h3' : 'h4') as 'h3' | 'h4';
+/** `Heading`: the level under the card's title. */
+function FileDetails({
+  file,
+  Heading,
+}: {
+  file: FileInfo;
+  Heading: 'h3' | 'h4';
+}) {
   const { t } = useTranslation();
   const { missingKeys, unknownKeys } = file.drift;
   const empty =
