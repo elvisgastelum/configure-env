@@ -35,6 +35,17 @@ export interface ServerOptions {
   root: string;
   /** The schema file, relative to the root (or absolute inside it). */
   schemaPath: string;
+  /**
+   * The state database, relative to the root or absolute; defaults to
+   * .configure-env/state.db in the root. Its path shows in messages as given.
+   */
+  statePath?: string;
+  /**
+   * Reads the schema wherever schemaPath leads, outside the root or through
+   * a symlink: for the CLI's in-process server, which runs one command on
+   * the paths the person named. Never for a server others reach.
+   */
+  schemaAnywhere?: boolean;
   /** Defaults to 127.0.0.1. */
   host?: string;
   /** 0 picks a free port. */
@@ -217,7 +228,12 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       ? undefined
       : publicOrigin(options.publicUrl);
   const scheme = options.tls ? 'https' : 'http';
-  const project = await resolveProject(options.root, options.schemaPath);
+  const project = await resolveProject(options.root, options.schemaPath, {
+    ...(options.statePath === undefined
+      ? {}
+      : { statePath: options.statePath }),
+    ...(options.schemaAnywhere ? { schemaAnywhere: true } : {}),
+  });
 
   let port = options.port;
   /** The Host values of the address the server listens on. */

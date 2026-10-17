@@ -85,6 +85,7 @@ export const GLOBAL_OPTIONS = {
   root: { type: 'string' },
   state: { type: 'string' },
   file: { type: 'string', multiple: true },
+  env: { type: 'string' },
   ci: { type: 'boolean' },
   json: { type: 'boolean' },
   'no-color': { type: 'boolean' },
@@ -131,10 +132,20 @@ type GlobalValues = {
   root?: string;
   state?: string;
   file?: string[];
+  env?: string;
   ci?: boolean;
   json?: boolean;
   'no-color'?: boolean;
 };
+
+/** The environment the variable that names one picks when --env is absent. */
+export const ENV_VARIABLE = 'CONFIGURE_ENV_ENV';
+
+/** The environment a run targets: --env, else CONFIGURE_ENV_ENV, else local. */
+export const selectedEnvironment = (
+  io: Io,
+  values: { env?: string | undefined },
+): string => values.env || io.env[ENV_VARIABLE] || 'local';
 
 export interface Context {
   io: Io;
@@ -189,6 +200,16 @@ export async function contextOf(
 ): Promise<Context> {
   // NO_COLOR is what @clack/prompts (node:util styleText) honours.
   if (values['no-color']) io.env.NO_COLOR = '1';
+  // A command that works on this project only must never pass for one that
+  // ran against the environment asked for.
+  const environment = selectedEnvironment(io, values);
+  if (environment !== 'local')
+    throw usageError(
+      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; only check runs against an environment yet`,
+      values.env
+        ? 'drop --env to run it here'
+        : `unset ${ENV_VARIABLE} to run it here`,
+    );
   const root = resolve(io.cwd, values.root ?? '.');
   if (!(await isDirectory(root)))
     throw usageError(`no such directory: ${root}`);
@@ -227,10 +248,7 @@ export async function loadContextSchema(context: Context): Promise<EnvSchema> {
       `invalid schema ${schemaPath}:`,
       ...result.errors.map((error) => `  ${error.path}: ${error.message}`),
     ]);
-  for (const path of context.files ?? []) {
-    if (!result.schema.files.some((file) => file.path === path))
-      throw usageError(`${path}: is not in the schema`);
-  }
+  checkSchemaFiles(result.schema, context.files);
   // The state must never land in an env file, or in a template's place.
   for (const file of result.schema.files) {
     if (isInside(resolve(context.root, file.path), context.statePath))
@@ -239,6 +257,17 @@ export async function loadContextSchema(context: Context): Promise<EnvSchema> {
       );
   }
   return result.schema;
+}
+
+/** The --file paths must be the schema's: one that is not exits 2. */
+export function checkSchemaFiles(
+  schema: EnvSchema,
+  files: readonly string[] | undefined,
+): void {
+  for (const path of files ?? []) {
+    if (!schema.files.some((file) => file.path === path))
+      throw usageError(`${path}: is not in the schema`);
+  }
 }
 
 /** `--set KEY=VALUE` pairs as a record; a pair without `=` is a usage error. */

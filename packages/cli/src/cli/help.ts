@@ -21,6 +21,9 @@ const GLOBAL = `Global options:
   --file <path>    only this schema file; repeat for more (set, get and
                    unset take one; it defaults to the only file that is
                    not a template)
+  --env <name>     the environment to run against: local (this project,
+                   the default) or one env add stored; CONFIGURE_ENV_ENV
+                   too. Only check runs against another one yet
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
   --no-color       plain output; NO_COLOR is honoured too
@@ -62,6 +65,7 @@ Commands:
   install   install the agent skill or register the MCP server:
             configure-env install skill, configure-env install mcp
   serve     start the local portal for the project in a browser
+  env       add, list or remove the environments --env runs against
   mcp       serve the env files to an agent over MCP, secrets masked
 
 Run configure-env <command> --help for the command's own options.
@@ -176,6 +180,12 @@ Generated files are compared with the --set values and the defaults, so
 the result does not depend on the environment; with --use-env, also with
 the environment variables, as apply --ci would write them.
 
+It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only,
+on 127.0.0.1. With --env <name> it checks that environment's project on
+its server instead; --root, --schema and --state are then the server's
+and exit 2.
+
 Options:
   --set KEY=VALUE  a value to compare with; repeat for more
   --use-env        compare with the environment variables too
@@ -191,6 +201,7 @@ Examples:
   configure-env check --file .env --strict
   configure-env check --ci --json
   configure-env check --ci --fix
+  configure-env check --env staging --ci
 
 ${EXIT_CODES}`;
 
@@ -530,6 +541,10 @@ then answers that host too, and every other one is still refused.
 Without --port it takes the first free port from 4747. A taken --port
 exits 1.
 
+While it runs, .configure-env/server.json (mode 600, named in that
+folder's .gitignore) holds its URL, pid, version and token, so the
+project's commands run through it; it is removed when serve stops.
+
 In a terminal it opens the URL in the default browser; --open and
 --no-open decide instead. With --json it prints one line,
 {"command":"serve","url":...,"port":...,"pid":...}, where url holds the
@@ -569,6 +584,37 @@ Examples:
   configure-env serve --token-file ~/.config/configure-env/token \\
     --public-url https://env.example.com --no-open
   configure-env serve --host 0.0.0.0 --unsafe-expose
+
+${EXIT_CODES}`;
+
+export const ENV_HELP = `Usage: configure-env env <add|list|remove> [options]
+
+The environments --env runs against: each a configure-env server's URL
+and its token, kept in .configure-env/environments.json under the root,
+mode 600 and named in the folder's .gitignore. local is this project
+and is never stored. No command prints a token.
+
+  env add <name> --url <url>   store an environment; the token comes
+                               from --token-env <VAR>, else from stdin
+  env list                     the names and URLs, local first
+  env remove <name>            forget one
+
+A name takes letters, digits, ., _ and -. An http URL to another machine
+is stored with a warning: the token travels in clear text.
+
+Options:
+  --url <url>        the server, http or https, no user or password
+  --token-env <VAR>  read the token from this environment variable
+  --root <dir>       the project (default: where the command was typed)
+  --json             print one JSON document on stdout
+  -h, --help         show the help
+
+Examples:
+  configure-env env add staging --url https://envs.example.com --token-env STAGING_TOKEN
+  printf %s "$TOKEN" | configure-env env add prod --url https://prod.example.com
+  configure-env env list
+  configure-env check --env staging
+  configure-env env remove staging
 
 ${EXIT_CODES}`;
 

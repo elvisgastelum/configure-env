@@ -21,6 +21,7 @@ import type {
   UseQueryResult,
 } from '@tanstack/react-query';
 
+import { apiFetch } from '../fetcher.ts';
 /**
  * The file, as env.schema.json writes it.
  */
@@ -395,6 +396,23 @@ export interface Check {
   errors: PlanError[];
 }
 
+/**
+ * Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.
+ */
+export type CheckRequestValues = { [key: string]: string };
+
+export interface CheckRequest {
+  /** Treat keys the schema does not list for a file as errors. */
+  strict?: boolean;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Values by key that generated files are compared with, as check --set takes them; defaults fill the rest. */
+  values?: CheckRequestValues;
+}
+
 export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
 
 export const DiffLineKind = {
@@ -624,11 +642,23 @@ export interface FixGitignore {
   check: Check;
 }
 
+/**
+ * Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.
+ */
+export type FixGitignoreRequestValues = { [key: string]: string };
+
 export interface FixGitignoreRequest {
   /** The git-ignore problems to fix, by their path; every one when absent. */
   paths?: string[];
   /** Treat keys the schema does not list for a file as errors in the check it answers. */
   strict?: boolean;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Values by key that generated files are compared with, as check --set takes them; defaults fill the rest. */
+  values?: FixGitignoreRequestValues;
 }
 
 export interface Group {
@@ -1771,6 +1801,8 @@ export const GetHistoryActor = {
   portal: 'portal',
 } as const;
 
+type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
 const withQueryKey = <T extends object, K>(
   query: T,
   queryKey: K,
@@ -1808,21 +1840,12 @@ export const getGetHealthUrl = () => {
  * @summary Whether the server is up
  */
 export const getHealth = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getHealthResponse> => {
-  const res = await fetch(getGetHealthUrl(), {
+  return apiFetch<getHealthResponse>(getGetHealthUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getHealthResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getHealthResponse;
 };
 
 export const getGetHealthQueryKey = () => {
@@ -1836,15 +1859,15 @@ export const getGetHealthQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getHealth>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetHealthQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getHealth>>> = ({
     signal,
-  }) => getHealth({ signal, ...fetchOptions });
+  }) => getHealth({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getHealth>>,
@@ -1874,7 +1897,7 @@ export function useGetHealth<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -1896,7 +1919,7 @@ export function useGetHealth<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -1910,7 +1933,7 @@ export function useGetHealth<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getHealth>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -1928,7 +1951,7 @@ export function useGetHealth<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getHealth>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -1963,21 +1986,12 @@ export const getGetProjectUrl = () => {
  * @summary The project root, schema path and version
  */
 export const getProject = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getProjectResponse> => {
-  const res = await fetch(getGetProjectUrl(), {
+  return apiFetch<getProjectResponse>(getGetProjectUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getProjectResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getProjectResponse;
 };
 
 export const getGetProjectQueryKey = () => {
@@ -1991,15 +2005,15 @@ export const getGetProjectQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getProject>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetProjectQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getProject>>> = ({
     signal,
-  }) => getProject({ signal, ...fetchOptions });
+  }) => getProject({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getProject>>,
@@ -2029,7 +2043,7 @@ export function useGetProject<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -2051,7 +2065,7 @@ export function useGetProject<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2065,7 +2079,7 @@ export function useGetProject<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getProject>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2083,7 +2097,7 @@ export function useGetProject<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getProject>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2118,21 +2132,12 @@ export const getGetSchemaUrl = () => {
  * @summary The schema file and its errors, with JSON paths
  */
 export const getSchema = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getSchemaResponse> => {
-  const res = await fetch(getGetSchemaUrl(), {
+  return apiFetch<getSchemaResponse>(getGetSchemaUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getSchemaResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getSchemaResponse;
 };
 
 export const getGetSchemaQueryKey = () => {
@@ -2146,15 +2151,15 @@ export const getGetSchemaQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getSchema>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetSchemaQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchema>>> = ({
     signal,
-  }) => getSchema({ signal, ...fetchOptions });
+  }) => getSchema({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getSchema>>,
@@ -2184,7 +2189,7 @@ export function useGetSchema<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -2206,7 +2211,7 @@ export function useGetSchema<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2220,7 +2225,7 @@ export function useGetSchema<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getSchema>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2238,7 +2243,7 @@ export function useGetSchema<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getSchema>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2283,21 +2288,12 @@ export const getGetVariablesUrl = () => {
  * @summary Every variable with its spec and value status per file; secrets masked
  */
 export const getVariables = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getVariablesResponse> => {
-  const res = await fetch(getGetVariablesUrl(), {
+  return apiFetch<getVariablesResponse>(getGetVariablesUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getVariablesResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getVariablesResponse;
 };
 
 export const getGetVariablesQueryKey = () => {
@@ -2311,15 +2307,15 @@ export const getGetVariablesQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getVariables>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetVariablesQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getVariables>>> = ({
     signal,
-  }) => getVariables({ signal, ...fetchOptions });
+  }) => getVariables({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getVariables>>,
@@ -2349,7 +2345,7 @@ export function useGetVariables<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -2371,7 +2367,7 @@ export function useGetVariables<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2385,7 +2381,7 @@ export function useGetVariables<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getVariables>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2403,7 +2399,7 @@ export function useGetVariables<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getVariables>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2448,21 +2444,12 @@ export const getGetGroupsUrl = () => {
  * @summary The variables by group heading, with their counts; the ungrouped last
  */
 export const getGroups = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getGroupsResponse> => {
-  const res = await fetch(getGetGroupsUrl(), {
+  return apiFetch<getGroupsResponse>(getGetGroupsUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getGroupsResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getGroupsResponse;
 };
 
 export const getGetGroupsQueryKey = () => {
@@ -2476,15 +2463,15 @@ export const getGetGroupsQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetGroupsQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getGroups>>> = ({
     signal,
-  }) => getGroups({ signal, ...fetchOptions });
+  }) => getGroups({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getGroups>>,
@@ -2514,7 +2501,7 @@ export function useGetGroups<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -2536,7 +2523,7 @@ export function useGetGroups<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2550,7 +2537,7 @@ export function useGetGroups<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2568,7 +2555,7 @@ export function useGetGroups<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2611,17 +2598,12 @@ export const getGetFilesUrl = () => {
  * @summary Every schema file with its policy, mode, drift and parse errors
  */
 export const getFiles = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getFilesResponse> => {
-  const res = await fetch(getGetFilesUrl(), {
+  return apiFetch<getFilesResponse>(getGetFilesUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getFilesResponse['data'] = body ? JSON.parse(body) : {};
-  return { data, status: res.status, headers: res.headers } as getFilesResponse;
 };
 
 export const getGetFilesQueryKey = () => {
@@ -2635,15 +2617,15 @@ export const getGetFilesQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getFiles>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetFilesQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getFiles>>> = ({
     signal,
-  }) => getFiles({ signal, ...fetchOptions });
+  }) => getFiles({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getFiles>>,
@@ -2673,7 +2655,7 @@ export function useGetFiles<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -2695,7 +2677,7 @@ export function useGetFiles<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2709,7 +2691,7 @@ export function useGetFiles<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getFiles>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2727,7 +2709,7 @@ export function useGetFiles<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getFiles>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -2787,7 +2769,7 @@ export const getReadFileContentUrl = () => {
  */
 export const readFileContent = async (
   fileContentRequest: FileContentRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<readFileContentResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -2810,7 +2792,7 @@ export const readFileContent = async (
     }
     return headers;
   };
-  const res = await fetch(getReadFileContentUrl(), {
+  return apiFetch<readFileContentResponse>(getReadFileContentUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -2819,15 +2801,6 @@ export const readFileContent = async (
     },
     body: JSON.stringify(fileContentRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: readFileContentResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as readFileContentResponse;
 };
 
 export const getReadFileContentMutationKey = () => ['readFileContent'] as const;
@@ -2842,7 +2815,7 @@ export const getReadFileContentMutationOptions = <
     ReadFileContentMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof readFileContent>>,
   TError,
@@ -2850,13 +2823,13 @@ export const getReadFileContentMutationOptions = <
   TContext
 > => {
   const mutationKey = getReadFileContentMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof readFileContent>>,
@@ -2864,7 +2837,7 @@ export const getReadFileContentMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return readFileContent(data, fetchOptions);
+    return readFileContent(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -2891,7 +2864,7 @@ export const useReadFileContent = <
       ReadFileContentMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -2947,7 +2920,7 @@ export const getRevealValueUrl = () => {
  */
 export const revealValue = async (
   revealRequest: RevealRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<revealValueResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -2970,7 +2943,7 @@ export const revealValue = async (
     }
     return headers;
   };
-  const res = await fetch(getRevealValueUrl(), {
+  return apiFetch<revealValueResponse>(getRevealValueUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -2979,15 +2952,6 @@ export const revealValue = async (
     },
     body: JSON.stringify(revealRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: revealValueResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as revealValueResponse;
 };
 
 export const getRevealValueMutationKey = () => ['revealValue'] as const;
@@ -3002,7 +2966,7 @@ export const getRevealValueMutationOptions = <
     RevealValueMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof revealValue>>,
   TError,
@@ -3010,13 +2974,13 @@ export const getRevealValueMutationOptions = <
   TContext
 > => {
   const mutationKey = getRevealValueMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof revealValue>>,
@@ -3024,7 +2988,7 @@ export const getRevealValueMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return revealValue(data, fetchOptions);
+    return revealValue(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3051,7 +3015,7 @@ export const useRevealValue = <
       RevealValueMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -3111,17 +3075,12 @@ export const getGetCheckUrl = (params?: GetCheckParams) => {
  */
 export const getCheck = async (
   params?: GetCheckParams,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getCheckResponse> => {
-  const res = await fetch(getGetCheckUrl(params), {
+  return apiFetch<getCheckResponse>(getGetCheckUrl(params), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getCheckResponse['data'] = body ? JSON.parse(body) : {};
-  return { data, status: res.status, headers: res.headers } as getCheckResponse;
 };
 
 export const getGetCheckQueryKey = (params?: GetCheckParams) => {
@@ -3137,16 +3096,16 @@ export const getGetCheckQueryOptions = <
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getCheck>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
 ) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetCheckQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getCheck>>> = ({
     signal,
-  }) => getCheck(params, { signal, ...fetchOptions });
+  }) => getCheck(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getCheck>>,
@@ -3177,7 +3136,7 @@ export function useGetCheck<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -3200,7 +3159,7 @@ export function useGetCheck<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -3215,7 +3174,7 @@ export function useGetCheck<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getCheck>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -3234,7 +3193,7 @@ export function useGetCheck<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getCheck>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -3249,6 +3208,155 @@ export function useGetCheck<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export type runCheckResponse200 = {
+  data: Check;
+  status: 200;
+};
+
+export type runCheckResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type runCheckResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type runCheckResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type runCheckResponseSuccess = runCheckResponse200 & {
+  headers: Headers;
+};
+export type runCheckResponseError = (
+  | runCheckResponse400
+  | runCheckResponse422
+  | runCheckResponse503
+) & {
+  headers: Headers;
+};
+
+export type runCheckResponse = runCheckResponseSuccess | runCheckResponseError;
+
+export const getRunCheckUrl = () => {
+  return `/api/check`;
+};
+
+/**
+ * @summary The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL
+ */
+export const runCheck = async (
+  checkRequest: CheckRequest,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<runCheckResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return apiFetch<runCheckResponse>(getRunCheckUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(checkRequest),
+  });
+};
+
+export const getRunCheckMutationKey = () => ['runCheck'] as const;
+
+export const getRunCheckMutationOptions = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCheck>>,
+    TError,
+    RunCheckMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCheck>>,
+  TError,
+  RunCheckMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRunCheckMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCheck>>,
+    RunCheckMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runCheck(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCheckMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCheck>>
+>;
+export type RunCheckMutationBody = CheckRequest;
+export type RunCheckMutationError = ApiError | InvalidSchema;
+export type RunCheckMutationVariables = { data: CheckRequest };
+
+/**
+ * @summary The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL
+ */
+export const useRunCheck = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof runCheck>>,
+      TError,
+      RunCheckMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof runCheck>>,
+  TError,
+  RunCheckMutationVariables,
+  TContext
+> => {
+  return useMutation(getRunCheckMutationOptions(options), queryClient);
+};
 
 export type fixGitignoreResponse200 = {
   data: FixGitignore;
@@ -3288,7 +3396,7 @@ export const getFixGitignoreUrl = () => {
  */
 export const fixGitignore = async (
   fixGitignoreRequest: FixGitignoreRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<fixGitignoreResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -3311,7 +3419,7 @@ export const fixGitignore = async (
     }
     return headers;
   };
-  const res = await fetch(getFixGitignoreUrl(), {
+  return apiFetch<fixGitignoreResponse>(getFixGitignoreUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -3320,15 +3428,6 @@ export const fixGitignore = async (
     },
     body: JSON.stringify(fixGitignoreRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: fixGitignoreResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as fixGitignoreResponse;
 };
 
 export const getFixGitignoreMutationKey = () => ['fixGitignore'] as const;
@@ -3343,7 +3442,7 @@ export const getFixGitignoreMutationOptions = <
     FixGitignoreMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof fixGitignore>>,
   TError,
@@ -3351,13 +3450,13 @@ export const getFixGitignoreMutationOptions = <
   TContext
 > => {
   const mutationKey = getFixGitignoreMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof fixGitignore>>,
@@ -3365,7 +3464,7 @@ export const getFixGitignoreMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return fixGitignore(data, fetchOptions);
+    return fixGitignore(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3392,7 +3491,7 @@ export const useFixGitignore = <
       FixGitignoreMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -3460,7 +3559,7 @@ export const getSetValuesUrl = () => {
  */
 export const setValues = async (
   setValuesRequest: SetValuesRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<setValuesResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -3483,7 +3582,7 @@ export const setValues = async (
     }
     return headers;
   };
-  const res = await fetch(getSetValuesUrl(), {
+  return apiFetch<setValuesResponse>(getSetValuesUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -3492,15 +3591,6 @@ export const setValues = async (
     },
     body: JSON.stringify(setValuesRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setValuesResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as setValuesResponse;
 };
 
 export const getSetValuesMutationKey = () => ['setValues'] as const;
@@ -3515,7 +3605,7 @@ export const getSetValuesMutationOptions = <
     SetValuesMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof setValues>>,
   TError,
@@ -3523,13 +3613,13 @@ export const getSetValuesMutationOptions = <
   TContext
 > => {
   const mutationKey = getSetValuesMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof setValues>>,
@@ -3537,7 +3627,7 @@ export const getSetValuesMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return setValues(data, fetchOptions);
+    return setValues(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3564,7 +3654,7 @@ export const useSetValues = <
       SetValuesMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -3632,7 +3722,7 @@ export const getUnsetValuesUrl = () => {
  */
 export const unsetValues = async (
   unsetValuesRequest: UnsetValuesRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<unsetValuesResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -3655,7 +3745,7 @@ export const unsetValues = async (
     }
     return headers;
   };
-  const res = await fetch(getUnsetValuesUrl(), {
+  return apiFetch<unsetValuesResponse>(getUnsetValuesUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -3664,15 +3754,6 @@ export const unsetValues = async (
     },
     body: JSON.stringify(unsetValuesRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: unsetValuesResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as unsetValuesResponse;
 };
 
 export const getUnsetValuesMutationKey = () => ['unsetValues'] as const;
@@ -3687,7 +3768,7 @@ export const getUnsetValuesMutationOptions = <
     UnsetValuesMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof unsetValues>>,
   TError,
@@ -3695,13 +3776,13 @@ export const getUnsetValuesMutationOptions = <
   TContext
 > => {
   const mutationKey = getUnsetValuesMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof unsetValues>>,
@@ -3709,7 +3790,7 @@ export const getUnsetValuesMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return unsetValues(data, fetchOptions);
+    return unsetValues(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3736,7 +3817,7 @@ export const useUnsetValues = <
       UnsetValuesMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -3778,7 +3859,7 @@ export const getPlanChangesUrl = () => {
  */
 export const planChanges = async (
   planRequest: PlanRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<planChangesResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -3801,7 +3882,7 @@ export const planChanges = async (
     }
     return headers;
   };
-  const res = await fetch(getPlanChangesUrl(), {
+  return apiFetch<planChangesResponse>(getPlanChangesUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -3810,15 +3891,6 @@ export const planChanges = async (
     },
     body: JSON.stringify(planRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: planChangesResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as planChangesResponse;
 };
 
 export const getPlanChangesMutationKey = () => ['planChanges'] as const;
@@ -3833,7 +3905,7 @@ export const getPlanChangesMutationOptions = <
     PlanChangesMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof planChanges>>,
   TError,
@@ -3841,13 +3913,13 @@ export const getPlanChangesMutationOptions = <
   TContext
 > => {
   const mutationKey = getPlanChangesMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof planChanges>>,
@@ -3855,7 +3927,7 @@ export const getPlanChangesMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return planChanges(data, fetchOptions);
+    return planChanges(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3879,7 +3951,7 @@ export const usePlanChanges = <TError = InvalidSchema, TContext = unknown>(
       PlanChangesMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -3935,7 +4007,7 @@ export const getApplyPlanUrl = () => {
  */
 export const applyPlan = async (
   applyRequest: ApplyRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<applyPlanResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -3958,7 +4030,7 @@ export const applyPlan = async (
     }
     return headers;
   };
-  const res = await fetch(getApplyPlanUrl(), {
+  return apiFetch<applyPlanResponse>(getApplyPlanUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -3967,15 +4039,6 @@ export const applyPlan = async (
     },
     body: JSON.stringify(applyRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: applyPlanResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as applyPlanResponse;
 };
 
 export const getApplyPlanMutationKey = () => ['applyPlan'] as const;
@@ -3990,7 +4053,7 @@ export const getApplyPlanMutationOptions = <
     ApplyPlanMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof applyPlan>>,
   TError,
@@ -3998,13 +4061,13 @@ export const getApplyPlanMutationOptions = <
   TContext
 > => {
   const mutationKey = getApplyPlanMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof applyPlan>>,
@@ -4012,7 +4075,7 @@ export const getApplyPlanMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return applyPlan(data, fetchOptions);
+    return applyPlan(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4039,7 +4102,7 @@ export const useApplyPlan = <
       ApplyPlanMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4089,7 +4152,7 @@ export const getAddVariableUrl = () => {
  */
 export const addVariable = async (
   addVariableRequest: AddVariableRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<addVariableResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4112,7 +4175,7 @@ export const addVariable = async (
     }
     return headers;
   };
-  const res = await fetch(getAddVariableUrl(), {
+  return apiFetch<addVariableResponse>(getAddVariableUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -4121,15 +4184,6 @@ export const addVariable = async (
     },
     body: JSON.stringify(addVariableRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: addVariableResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as addVariableResponse;
 };
 
 export const getAddVariableMutationKey = () => ['addVariable'] as const;
@@ -4144,7 +4198,7 @@ export const getAddVariableMutationOptions = <
     AddVariableMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof addVariable>>,
   TError,
@@ -4152,13 +4206,13 @@ export const getAddVariableMutationOptions = <
   TContext
 > => {
   const mutationKey = getAddVariableMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof addVariable>>,
@@ -4166,7 +4220,7 @@ export const getAddVariableMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return addVariable(data, fetchOptions);
+    return addVariable(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4193,7 +4247,7 @@ export const useAddVariable = <
       AddVariableMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4250,7 +4304,7 @@ export const getUpdateVariableUrl = (name: unknown) => {
 export const updateVariable = async (
   name: unknown,
   updateVariableRequest: UpdateVariableRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<updateVariableResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4273,7 +4327,7 @@ export const updateVariable = async (
     }
     return headers;
   };
-  const res = await fetch(getUpdateVariableUrl(name), {
+  return apiFetch<updateVariableResponse>(getUpdateVariableUrl(name), {
     ...options,
     method: 'PUT',
     headers: {
@@ -4282,15 +4336,6 @@ export const updateVariable = async (
     },
     body: JSON.stringify(updateVariableRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: updateVariableResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as updateVariableResponse;
 };
 
 export const getUpdateVariableMutationKey = () => ['updateVariable'] as const;
@@ -4305,7 +4350,7 @@ export const getUpdateVariableMutationOptions = <
     UpdateVariableMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof updateVariable>>,
   TError,
@@ -4313,13 +4358,13 @@ export const getUpdateVariableMutationOptions = <
   TContext
 > => {
   const mutationKey = getUpdateVariableMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof updateVariable>>,
@@ -4327,7 +4372,7 @@ export const getUpdateVariableMutationOptions = <
   > = (props) => {
     const { name, data } = props ?? {};
 
-    return updateVariable(name, data, fetchOptions);
+    return updateVariable(name, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4360,7 +4405,7 @@ export const useUpdateVariable = <
       UpdateVariableMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4417,7 +4462,7 @@ export const getRemoveVariableUrl = (name: unknown) => {
 export const removeVariable = async (
   name: unknown,
   removeVariableRequest: RemoveVariableRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<removeVariableResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4440,7 +4485,7 @@ export const removeVariable = async (
     }
     return headers;
   };
-  const res = await fetch(getRemoveVariableUrl(name), {
+  return apiFetch<removeVariableResponse>(getRemoveVariableUrl(name), {
     ...options,
     method: 'DELETE',
     headers: {
@@ -4449,15 +4494,6 @@ export const removeVariable = async (
     },
     body: JSON.stringify(removeVariableRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: removeVariableResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as removeVariableResponse;
 };
 
 export const getRemoveVariableMutationKey = () => ['removeVariable'] as const;
@@ -4472,7 +4508,7 @@ export const getRemoveVariableMutationOptions = <
     RemoveVariableMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof removeVariable>>,
   TError,
@@ -4480,13 +4516,13 @@ export const getRemoveVariableMutationOptions = <
   TContext
 > => {
   const mutationKey = getRemoveVariableMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof removeVariable>>,
@@ -4494,7 +4530,7 @@ export const getRemoveVariableMutationOptions = <
   > = (props) => {
     const { name, data } = props ?? {};
 
-    return removeVariable(name, data, fetchOptions);
+    return removeVariable(name, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4527,7 +4563,7 @@ export const useRemoveVariable = <
       RemoveVariableMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4584,7 +4620,7 @@ export const getRenameVariableUrl = (name: unknown) => {
 export const renameVariable = async (
   name: unknown,
   renameVariableRequest: RenameVariableRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<renameVariableResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4607,7 +4643,7 @@ export const renameVariable = async (
     }
     return headers;
   };
-  const res = await fetch(getRenameVariableUrl(name), {
+  return apiFetch<renameVariableResponse>(getRenameVariableUrl(name), {
     ...options,
     method: 'POST',
     headers: {
@@ -4616,15 +4652,6 @@ export const renameVariable = async (
     },
     body: JSON.stringify(renameVariableRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: renameVariableResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as renameVariableResponse;
 };
 
 export const getRenameVariableMutationKey = () => ['renameVariable'] as const;
@@ -4639,7 +4666,7 @@ export const getRenameVariableMutationOptions = <
     RenameVariableMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof renameVariable>>,
   TError,
@@ -4647,13 +4674,13 @@ export const getRenameVariableMutationOptions = <
   TContext
 > => {
   const mutationKey = getRenameVariableMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof renameVariable>>,
@@ -4661,7 +4688,7 @@ export const getRenameVariableMutationOptions = <
   > = (props) => {
     const { name, data } = props ?? {};
 
-    return renameVariable(name, data, fetchOptions);
+    return renameVariable(name, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4694,7 +4721,7 @@ export const useRenameVariable = <
       RenameVariableMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4744,7 +4771,7 @@ export const getReorderVariablesUrl = () => {
  */
 export const reorderVariables = async (
   reorderVariablesRequest: ReorderVariablesRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<reorderVariablesResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4767,7 +4794,7 @@ export const reorderVariables = async (
     }
     return headers;
   };
-  const res = await fetch(getReorderVariablesUrl(), {
+  return apiFetch<reorderVariablesResponse>(getReorderVariablesUrl(), {
     ...options,
     method: 'PUT',
     headers: {
@@ -4776,15 +4803,6 @@ export const reorderVariables = async (
     },
     body: JSON.stringify(reorderVariablesRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: reorderVariablesResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as reorderVariablesResponse;
 };
 
 export const getReorderVariablesMutationKey = () =>
@@ -4800,7 +4818,7 @@ export const getReorderVariablesMutationOptions = <
     ReorderVariablesMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof reorderVariables>>,
   TError,
@@ -4808,13 +4826,13 @@ export const getReorderVariablesMutationOptions = <
   TContext
 > => {
   const mutationKey = getReorderVariablesMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof reorderVariables>>,
@@ -4822,7 +4840,7 @@ export const getReorderVariablesMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return reorderVariables(data, fetchOptions);
+    return reorderVariables(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4851,7 +4869,7 @@ export const useReorderVariables = <
       ReorderVariablesMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -4896,7 +4914,7 @@ export const getAddFileUrl = () => {
  */
 export const addFile = async (
   addFileRequest: AddFileRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<addFileResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -4919,7 +4937,7 @@ export const addFile = async (
     }
     return headers;
   };
-  const res = await fetch(getAddFileUrl(), {
+  return apiFetch<addFileResponse>(getAddFileUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -4928,11 +4946,6 @@ export const addFile = async (
     },
     body: JSON.stringify(addFileRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: addFileResponse['data'] = body ? JSON.parse(body) : {};
-  return { data, status: res.status, headers: res.headers } as addFileResponse;
 };
 
 export const getAddFileMutationKey = () => ['addFile'] as const;
@@ -4947,7 +4960,7 @@ export const getAddFileMutationOptions = <
     AddFileMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof addFile>>,
   TError,
@@ -4955,13 +4968,13 @@ export const getAddFileMutationOptions = <
   TContext
 > => {
   const mutationKey = getAddFileMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof addFile>>,
@@ -4969,7 +4982,7 @@ export const getAddFileMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return addFile(data, fetchOptions);
+    return addFile(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -4996,7 +5009,7 @@ export const useAddFile = <
       AddFileMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -5046,7 +5059,7 @@ export const getUpdateFileUrl = () => {
  */
 export const updateFile = async (
   updateFileRequest: UpdateFileRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<updateFileResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -5069,7 +5082,7 @@ export const updateFile = async (
     }
     return headers;
   };
-  const res = await fetch(getUpdateFileUrl(), {
+  return apiFetch<updateFileResponse>(getUpdateFileUrl(), {
     ...options,
     method: 'PUT',
     headers: {
@@ -5078,15 +5091,6 @@ export const updateFile = async (
     },
     body: JSON.stringify(updateFileRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: updateFileResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as updateFileResponse;
 };
 
 export const getUpdateFileMutationKey = () => ['updateFile'] as const;
@@ -5101,7 +5105,7 @@ export const getUpdateFileMutationOptions = <
     UpdateFileMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof updateFile>>,
   TError,
@@ -5109,13 +5113,13 @@ export const getUpdateFileMutationOptions = <
   TContext
 > => {
   const mutationKey = getUpdateFileMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof updateFile>>,
@@ -5123,7 +5127,7 @@ export const getUpdateFileMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return updateFile(data, fetchOptions);
+    return updateFile(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -5150,7 +5154,7 @@ export const useUpdateFile = <
       UpdateFileMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -5200,7 +5204,7 @@ export const getRemoveFileUrl = () => {
  */
 export const removeFile = async (
   removeFileRequest: RemoveFileRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<removeFileResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -5223,7 +5227,7 @@ export const removeFile = async (
     }
     return headers;
   };
-  const res = await fetch(getRemoveFileUrl(), {
+  return apiFetch<removeFileResponse>(getRemoveFileUrl(), {
     ...options,
     method: 'DELETE',
     headers: {
@@ -5232,15 +5236,6 @@ export const removeFile = async (
     },
     body: JSON.stringify(removeFileRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: removeFileResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as removeFileResponse;
 };
 
 export const getRemoveFileMutationKey = () => ['removeFile'] as const;
@@ -5255,7 +5250,7 @@ export const getRemoveFileMutationOptions = <
     RemoveFileMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof removeFile>>,
   TError,
@@ -5263,13 +5258,13 @@ export const getRemoveFileMutationOptions = <
   TContext
 > => {
   const mutationKey = getRemoveFileMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof removeFile>>,
@@ -5277,7 +5272,7 @@ export const getRemoveFileMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return removeFile(data, fetchOptions);
+    return removeFile(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -5304,7 +5299,7 @@ export const useRemoveFile = <
       RemoveFileMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -5354,7 +5349,7 @@ export const getInitSchemaUrl = () => {
  */
 export const initSchema = async (
   initSchemaRequest: InitSchemaRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<initSchemaResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -5377,7 +5372,7 @@ export const initSchema = async (
     }
     return headers;
   };
-  const res = await fetch(getInitSchemaUrl(), {
+  return apiFetch<initSchemaResponse>(getInitSchemaUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -5386,15 +5381,6 @@ export const initSchema = async (
     },
     body: JSON.stringify(initSchemaRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: initSchemaResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as initSchemaResponse;
 };
 
 export const getInitSchemaMutationKey = () => ['initSchema'] as const;
@@ -5409,7 +5395,7 @@ export const getInitSchemaMutationOptions = <
     InitSchemaMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof initSchema>>,
   TError,
@@ -5417,13 +5403,13 @@ export const getInitSchemaMutationOptions = <
   TContext
 > => {
   const mutationKey = getInitSchemaMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof initSchema>>,
@@ -5431,7 +5417,7 @@ export const getInitSchemaMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return initSchema(data, fetchOptions);
+    return initSchema(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -5458,7 +5444,7 @@ export const useInitSchema = <
       InitSchemaMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -5489,21 +5475,12 @@ export const getGetEventsUrl = () => {
  * @summary Server-Sent Events: `changed`, with the paths, when the schema or an env file changes on disk
  */
 export const getEvents = async (
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getEventsResponse> => {
-  const res = await fetch(getGetEventsUrl(), {
+  return apiFetch<getEventsResponse>(getGetEventsUrl(), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getEventsResponse['data'] = body !== null ? body : '';
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getEventsResponse;
 };
 
 export const getGetEventsQueryKey = () => {
@@ -5517,15 +5494,15 @@ export const getGetEventsQueryOptions = <
   query?: Partial<
     UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetEventsQueryKey();
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getEvents>>> = ({
     signal,
-  }) => getEvents({ signal, ...fetchOptions });
+  }) => getEvents({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getEvents>>,
@@ -5555,7 +5532,7 @@ export function useGetEvents<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -5577,7 +5554,7 @@ export function useGetEvents<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5591,7 +5568,7 @@ export function useGetEvents<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5609,7 +5586,7 @@ export function useGetEvents<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getEvents>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5675,21 +5652,12 @@ export const getGetHistoryUrl = (params?: GetHistoryParams) => {
  */
 export const getHistory = async (
   params?: GetHistoryParams,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<getHistoryResponse> => {
-  const res = await fetch(getGetHistoryUrl(params), {
+  return apiFetch<getHistoryResponse>(getGetHistoryUrl(params), {
     ...options,
     method: 'GET',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getHistoryResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as getHistoryResponse;
 };
 
 export const getGetHistoryQueryKey = (params?: GetHistoryParams) => {
@@ -5705,16 +5673,16 @@ export const getGetHistoryQueryOptions = <
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
 ) => {
-  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+  const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey = queryOptions?.queryKey ?? getGetHistoryQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getHistory>>> = ({
     signal,
-  }) => getHistory(params, { signal, ...fetchOptions });
+  }) => getHistory(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getHistory>>,
@@ -5745,7 +5713,7 @@ export function useGetHistory<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & {
@@ -5768,7 +5736,7 @@ export function useGetHistory<
         >,
         'initialData'
       >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5783,7 +5751,7 @@ export function useGetHistory<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5802,7 +5770,7 @@ export function useGetHistory<
     query?: Partial<
       UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & {
@@ -5874,21 +5842,12 @@ export const getUndoChangeUrl = (id: number) => {
  */
 export const undoChange = async (
   id: number,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<undoChangeResponse> => {
-  const res = await fetch(getUndoChangeUrl(id), {
+  return apiFetch<undoChangeResponse>(getUndoChangeUrl(id), {
     ...options,
     method: 'POST',
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: undoChangeResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as undoChangeResponse;
 };
 
 export const getUndoChangeMutationKey = () => ['undoChange'] as const;
@@ -5903,7 +5862,7 @@ export const getUndoChangeMutationOptions = <
     UndoChangeMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof undoChange>>,
   TError,
@@ -5911,13 +5870,13 @@ export const getUndoChangeMutationOptions = <
   TContext
 > => {
   const mutationKey = getUndoChangeMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof undoChange>>,
@@ -5925,7 +5884,7 @@ export const getUndoChangeMutationOptions = <
   > = (props) => {
     const { id } = props ?? {};
 
-    return undoChange(id, fetchOptions);
+    return undoChange(id, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -5952,7 +5911,7 @@ export const useUndoChange = <
       UndoChangeMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
@@ -6008,7 +5967,7 @@ export const getOpenInEditorUrl = () => {
  */
 export const openInEditor = async (
   openInEditorRequest: OpenInEditorRequest,
-  options?: RequestInit,
+  options?: Parameters<typeof apiFetch>[1],
 ): Promise<openInEditorResponse> => {
   const getHeaders = (
     h?: NonNullable<RequestInit['headers']>,
@@ -6031,7 +5990,7 @@ export const openInEditor = async (
     }
     return headers;
   };
-  const res = await fetch(getOpenInEditorUrl(), {
+  return apiFetch<openInEditorResponse>(getOpenInEditorUrl(), {
     ...options,
     method: 'POST',
     headers: {
@@ -6040,15 +5999,6 @@ export const openInEditor = async (
     },
     body: JSON.stringify(openInEditorRequest),
   });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: openInEditorResponse['data'] = body ? JSON.parse(body) : {};
-  return {
-    data,
-    status: res.status,
-    headers: res.headers,
-  } as openInEditorResponse;
 };
 
 export const getOpenInEditorMutationKey = () => ['openInEditor'] as const;
@@ -6063,7 +6013,7 @@ export const getOpenInEditorMutationOptions = <
     OpenInEditorMutationVariables,
     TContext
   >;
-  fetch?: RequestInit;
+  request?: SecondParameter<typeof apiFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof openInEditor>>,
   TError,
@@ -6071,13 +6021,13 @@ export const getOpenInEditorMutationOptions = <
   TContext
 > => {
   const mutationKey = getOpenInEditorMutationKey();
-  const { mutation: mutationOptions, fetch: fetchOptions } = options
+  const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       'mutationKey' in options.mutation &&
       options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, fetch: undefined };
+    : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof openInEditor>>,
@@ -6085,7 +6035,7 @@ export const getOpenInEditorMutationOptions = <
   > = (props) => {
     const { data } = props ?? {};
 
-    return openInEditor(data, fetchOptions);
+    return openInEditor(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -6109,7 +6059,7 @@ export const useOpenInEditor = <TError = ApiError, TContext = unknown>(
       OpenInEditorMutationVariables,
       TContext
     >;
-    fetch?: RequestInit;
+    request?: SecondParameter<typeof apiFetch>;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<

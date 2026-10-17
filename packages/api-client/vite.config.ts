@@ -9,6 +9,7 @@ const pnpmRunState = {
 export default defineConfig({
   run: {
     tasks: {
+      test: 'vp test run',
       'gen:api:check': {
         command: 'tsx --tsconfig tsconfig.json scripts/gen-api.ts --check',
         cache: {

@@ -26,6 +26,7 @@ const check = process.argv.includes('--check');
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SPEC = 'openapi.json';
 const GENERATED = 'src/generated';
+const MUTATOR = 'src/fetcher.ts';
 
 /** Every file under `dir`, relative to it, sorted. */
 async function listFiles(dir: string): Promise<string[]> {
@@ -53,16 +54,31 @@ async function render(): Promise<Map<string, string>> {
         stdio: 'inherit',
       },
     );
-    await generate({
-      input: { target: spec },
-      output: {
-        target: join(scratch, GENERATED, 'api.ts'),
-        client: 'react-query',
-        httpClient: 'fetch',
-        mode: 'single',
-        clean: true,
-      },
-    });
+    // Every function goes through src/fetcher.ts: relative and same-origin
+    // in the portal, against a target's URL and token in Node. The portal
+    // gets the React Query hooks (api.ts); Node gets the plain functions
+    // (client.ts), which never import React.
+    // A copy beside the output, so the generated import is `../fetcher.ts`.
+    const mutator = { path: join(scratch, MUTATOR), name: 'apiFetch' };
+    await mkdir(dirname(mutator.path), { recursive: true });
+    await writeFile(
+      mutator.path,
+      await readFile(join(packageDir, MUTATOR), 'utf8'),
+    );
+    for (const [file, client] of [
+      ['api.ts', 'react-query'],
+      ['client.ts', 'fetch'],
+    ] as const)
+      await generate({
+        input: { target: spec },
+        output: {
+          target: join(scratch, GENERATED, file),
+          client,
+          httpClient: 'fetch',
+          mode: 'single',
+          override: { mutator },
+        },
+      });
     const files = new Map<string, string>([
       [SPEC, await readFile(spec, 'utf8')],
     ]);

@@ -21,24 +21,45 @@ export interface Project {
   schemaPath: string;
   /** The state database: protected values and the history of edits. */
   statePath: string;
+  /**
+   * The state relative to the root as it was given, for the git-ignore
+   * check, when a statePath was given: through a symlinked root, the real
+   * root and the given path no longer share a prefix.
+   */
+  stateInRoot?: string;
+}
+
+export interface ProjectOptions {
+  /** The state database, relative to the root as given or absolute; used as is. */
+  statePath?: string;
+  /** Read the schema wherever schemaPath leads, outside the root or a symlink. */
+  schemaAnywhere?: boolean;
 }
 
 /** Resolves the root and the schema; throws when the schema leaves the root. */
 export async function resolveProject(
   root: string,
   schemaPath: string,
+  { statePath, schemaAnywhere = false }: ProjectOptions = {},
 ): Promise<Project> {
   const real = await realpath(root);
-  const target = await resolveTarget(real, schemaPath);
-  if (!target.ok)
-    throw new Error(
-      `the schema must be a regular file inside the root: ${schemaPath} ${target.message}`,
-    );
+  let schemaFile: string;
+  if (schemaAnywhere) schemaFile = resolve(root, schemaPath);
+  else {
+    const target = await resolveTarget(real, schemaPath);
+    if (!target.ok)
+      throw new Error(
+        `the schema must be a regular file inside the root: ${schemaPath} ${target.message}`,
+      );
+    schemaFile = target.absolute;
+  }
+  const state = statePath === undefined ? undefined : resolve(root, statePath);
   return {
     root: real,
-    schemaFile: target.absolute,
-    schemaPath: relative(real, target.absolute).split('\\').join('/'),
-    statePath: resolve(real, DEFAULT_STATE_PATH),
+    schemaFile,
+    schemaPath: relative(real, schemaFile).split('\\').join('/'),
+    statePath: state ?? resolve(real, DEFAULT_STATE_PATH),
+    ...(state ? { stateInRoot: relative(resolve(root), state) } : {}),
   };
 }
 

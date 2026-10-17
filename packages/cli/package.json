@@ -55,8 +55,8 @@
     "provenance": true
   },
   "scripts": {
-    "dev": "tsx src/cli.ts",
-    "start": "tsx src/cli.ts",
+    "dev": "tsx --tsconfig ../../apps/api/tsconfig.json src/cli.ts",
+    "start": "tsx --tsconfig ../../apps/api/tsconfig.json src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "schema:generate": "tsx scripts/generate-json-schema.ts",
     "prepack": "vp run build && node scripts/pack-docs.mjs copy",
@@ -81,6 +81,7 @@
   },
   "devDependencies": {
     "@configure-env/api": "workspace:*",
+    "@configure-env/api-client": "workspace:*",
     "@configure-env/core": "workspace:*",
     "@configure-env/web": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",

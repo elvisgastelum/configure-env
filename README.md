@@ -308,6 +308,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `history` | lists the latest changes the CLI and the portal made (see "history") |
 | `install` | `install skill` installs the agent skill (see "AI agents")           |
 | `serve` | starts the local portal for the project in a browser (see "Portal (serve)") |
+| `env`   | adds, lists or removes the environments `--env` runs against (see "env") |
 
 `configure-env <command> --help` shows each command's options and examples.
 
@@ -319,6 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another one yet; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -409,6 +411,8 @@ A project that passed `check` before can fail it now: a state folder written by 
 - **Templates hold placeholders**, so only their file, lines and keys are checked (`missing-file`, `missing-key`, `invalid-line`, `unknown-key` and the drift codes); never their values, rules or protected values. A placeholder a file sets through `values` passes.
 - **`--strict`** makes unknown keys errors, so CI can require pruning.
 - **Deterministic.** Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them.
+
+`check` runs through the configure-env API (`GET /api/check`, `POST /api/check` with `--file` or values, `POST /api/check/gitignore` for the fixes): through the project's running `serve` when there is one (see "Portal (serve)"), else a server of its own, on 127.0.0.1 with a one-time token and `--root`, `--schema` and `--state` applied, closed when the run ends. It leaves no daemon behind. `check --env <name>` checks a stored environment's project on its server instead (see "env").
 
 With `--json` it prints the same report (see "JSON output"):
 
@@ -572,6 +576,24 @@ configure-env history
 configure-env history --json
 ```
 
+### env
+
+```sh
+configure-env env add staging --url https://envs.example.com --token-env STAGING_TOKEN
+printf %s "$TOKEN" | configure-env env add prod --url https://prod.example.com
+configure-env env list
+configure-env check --env staging
+configure-env env remove staging
+```
+
+An environment is a configure-env server the CLI reaches over HTTP: its URL and its bearer token, stored under a name in `.configure-env/environments.json` in the root. The file is written mode 600, and `.configure-env/.gitignore` names it, so it stays out of git. `local` is this project and is never stored.
+
+- **`env add <name> --url <url>`** reads the token from the variable `--token-env <VAR>` names, else from stdin; it never takes the token as an argument, where the shell history would keep it. A name takes letters, digits, `.`, `_` and `-`; one that exists exits 2 (remove it first). The URL is `http` or `https`, without a user, password, query or fragment; an `http` URL to another machine is stored with a warning, since the token travels in clear text.
+- **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
+- **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
+
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` runs against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
+
 ### JSON output
 
 With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`; a run that fails part-way prints `ok: false`, the skills it installed before the failure, and `errors` with one `file` error (exit 1); a previous skill it could not remove adds `warnings`, a list of texts naming it (only when non-empty). `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `serve` prints one line once it listens, `{ "command": "serve", "url", "port", "pid" }`, where `url` is the launch URL with the token; with a persistent token, `url` is the server's address and `token` names where the token is (see "Remote environments"). `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "summary", "files", "gitignore", "errors" }`, with `fixed` after `--fix`: `ok` is false on any error-severity problem, git-ignore problem or run error; `summary` holds `errors`, `warnings`, `files` (the files checked) and `failing` (the files with an error). Each file has `path`, `policy`, `template`, `status` (`current`, `missing`, `differs`, `missing-keys` or `refused`), `mode` (`{ "actual", "expected" }`, only when it differs), `ok` (no error) and `problems`. Each problem has `severity` (`error` or `warning`), `code` (see "check"), `message` (never a value), and, when they apply, `key`, `keys` (every key a broken rule between variables names, when more than one), `line` (for an invalid line), `shown` (the invalid value, masked for a secret), `reason` (the schema's, for a protected value) and `fix` (`apply`, `prune` or `set`; absent when a person decides). Each `gitignore` problem has `severity` (`error`), `code` (`state-not-ignored` or `file-not-ignored`), `path` (the state folder or the env file), `gitignore` (the file the fix writes), `entries` (the lines it adds), `message`, and `blocked: "symlink"` when that `.gitignore` is a symlink it will not write; they count in `summary.errors`. `fixed` lists each `.gitignore` written, `{ "gitignore", "created", "added" }`. `errors` holds the run errors, such as an invalid `--set` value, with `kind`, `key` or `path`, and `message`.
@@ -623,12 +645,13 @@ What the portal does, page by page:
 
 - **A token per run.** Every start makes a new random token, and the API answers only requests that carry it. The launch URL holds it; opened in a browser, it trades the token for an HttpOnly session cookie and redirects to the portal. Anyone with the URL can read and change the project's env files while the server runs, so keep it to yourself. A tab without the session (the bare address, or a link from an earlier run) gets a page saying to open the launch link again, and nothing of the portal. A server on another machine can keep its token across restarts instead (see "Remote environments").
 - **This machine only.** It binds `127.0.0.1` by default. `--host` takes another address, but one that is not loopback (`127.x.x.x`, `::1`, `localhost`) exits 2 unless `--tls-cert` and `--tls-key` serve it over HTTPS or `--unsafe-expose` is given, and then serves plain HTTP with a warning.
+- **Commands run through it.** While it runs, `.configure-env/server.json` holds its URL, pid, version and token (mode 600, named in `.configure-env/.gitignore`), and `check` in the project goes through this server instead of starting one of its own. It is removed when `serve` stops; one a crashed `serve` left is ignored, as its pid no longer runs. So is one that is not your own mode-600 file (a committed one, say) or that names a server off this machine: the run's `--set` values never go to a server the file alone points at.
 - **Port.** Without `--port` it takes the first free port from 4747; `--port 0` takes any free one, and a `--port` that is in use exits 1.
 - **Browser.** It opens the browser only in a terminal; `--open` opens it anyway and `--no-open` never does.
 - **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. With a persistent token, `url` is the server's address without it, and `token` names where the token is (the token file, or `CONFIGURE_ENV_TOKEN`). Stop it with SIGTERM to `pid`.
 
-`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` loads the server (NestJS), so the other commands start as fast as before.
+`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and `check` load the server (NestJS); `check` starts one of its own only when no `serve` of the project runs.
 
 ### Remote environments
 

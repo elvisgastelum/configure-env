@@ -2,6 +2,7 @@
 // the environment, and the prompts. Tests replace all of it.
 
 import type { StateWriter } from '@configure-env/core';
+import type { StartServer } from './connect.ts';
 import type { ServeRuntime } from './serve.ts';
 
 /** One option of a select or multiselect prompt. */
@@ -76,4 +77,9 @@ export interface Io {
   writeState?: StateWriter;
   /** What `serve` starts, waits for and opens; tests stub any of it. */
   serve?: Partial<ServeRuntime>;
+  /**
+   * Starts the API in-process for a local run of a command that goes
+   * through it; tests wrap it to see the starts.
+   */
+  startServer?: StartServer;
 }

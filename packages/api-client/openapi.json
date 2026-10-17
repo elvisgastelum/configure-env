@@ -320,6 +320,64 @@
         },
         "summary": "Every problem by file, with a summary, as configure-env check --json gives it",
         "tags": ["project"]
+      },
+      "post": {
+        "operationId": "runCheck",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Check"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A file the schema does not list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The protected variables' state cannot be read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL",
+        "tags": ["project"]
       }
     },
     "/api/check/gitignore": {
@@ -1734,6 +1792,31 @@
         ],
         "additionalProperties": false
       },
+      "CheckRequest": {
+        "type": "object",
+        "properties": {
+          "strict": {
+            "description": "Treat keys the schema does not list for a file as errors.",
+            "type": "boolean"
+          },
+          "files": {
+            "description": "Only these schema files; every file when absent.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "values": {
+            "description": "Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "DiffLine": {
         "type": "object",
         "properties": {
@@ -2095,6 +2178,21 @@
           "strict": {
             "description": "Treat keys the schema does not list for a file as errors in the check it answers.",
             "type": "boolean"
+          },
+          "files": {
+            "description": "Only these schema files; every file when absent.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "values": {
+            "description": "Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false

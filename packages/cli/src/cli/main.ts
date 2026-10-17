@@ -4,6 +4,7 @@ import { applyCommand } from './apply.ts';
 import { checkCommand } from './check.ts';
 import { CliError, usageError } from './common.ts';
 import { getCommand, setCommand, unsetCommand } from './edit.ts';
+import { envCommand } from './environments.ts';
 import { MAIN_HELP, VERSION } from './help.ts';
 import { historyCommand } from './history.ts';
 import { initCommand } from './init.ts';
@@ -26,6 +27,7 @@ export const COMMANDS: Record<string, Command> = {
   history: historyCommand,
   install: installCommand,
   serve: serveCommand,
+  env: envCommand,
   mcp: mcpCommand,
 };
 

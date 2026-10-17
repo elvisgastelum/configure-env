@@ -427,6 +427,93 @@ describe('shutdown', () => {
   });
 });
 
+describe('server.json', () => {
+  const file = () => join(project.root, '.configure-env', 'server.json');
+  const exists = () =>
+    stat(file()).then(
+      () => true,
+      () => false,
+    );
+  /** The fake server listens before the command writes the file. */
+  const written = async () => {
+    while (!(await exists()))
+      await new Promise((resolve) => setTimeout(resolve, 5));
+  };
+
+  it('holds the url, pid, version and token while it runs, mode 600, and goes on stop', async () => {
+    const runtime = fakeRuntime();
+    let seen: { content: unknown; mode: number } | undefined;
+    const result = await serve(['--port', '5050'], {
+      cwd: project.root,
+      runtime,
+      afterStart: async () => {
+        await written();
+        seen = {
+          content: JSON.parse(await readFile(file(), 'utf8')),
+          mode: (await stat(file())).mode & 0o777,
+        };
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(seen).toEqual({
+      content: {
+        url: 'http://127.0.0.1:5050',
+        pid: process.pid,
+        version: runtime.started[0]!.version,
+        token: runtime.started[0]!.token,
+      },
+      mode: 0o600,
+    });
+    expect(await exists()).toBe(false);
+    // The output never holds it.
+    expect(result.out.join('\n')).not.toContain('server.json');
+  });
+
+  it('goes on stop for a host other machines reach too', async () => {
+    const runtime = fakeRuntime();
+    let during = false;
+    const result = await serve(['--host', '0.0.0.0', '--unsafe-expose'], {
+      cwd: project.root,
+      runtime,
+      afterStart: async () => {
+        await written();
+        during = true;
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(during).toBe(true);
+    expect(await exists()).toBe(false);
+  });
+
+  it('keeps one another serve wrote since', async () => {
+    const runtime = fakeRuntime();
+    const other = JSON.stringify({ url: 'http://127.0.0.1:6000', pid: 1 });
+    await serve(['--port', '5050'], {
+      cwd: project.root,
+      runtime,
+      afterStart: async () => {
+        await written();
+        await writeFile(file(), other);
+      },
+    });
+    expect(await readFile(file(), 'utf8')).toBe(other);
+  });
+
+  it('is never written by a run cancelled before it listens', async () => {
+    const runtime = fakeRuntime({ signalEarly: 'SIGINT' });
+    const code = await main(['serve'], {
+      stdout: () => {},
+      stderr: () => {},
+      env: {},
+      isTTY: false,
+      cwd: project.root,
+      serve: runtime.runtime,
+    });
+    expect(code).toBe(130);
+    expect(await exists()).toBe(false);
+  });
+});
+
 describe('the real server', () => {
   it('answers with the token, refuses without it, and stops on a signal', async () => {
     let stop: (signal: NodeJS.Signals) => void = () => {};
