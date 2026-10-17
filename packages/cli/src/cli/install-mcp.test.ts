@@ -403,6 +403,33 @@ describe('install mcp', () => {
     await expect(stat(join(dirs.root, '.mcp.json'))).rejects.toThrow();
   });
 
+  it('names each file it could not put back in its own --json error', async () => {
+    let claudeTemps = 0;
+    hooks.afterTemp = async (temp) => {
+      if (temp.includes('.cursor')) throw new Error('disk full');
+      // The second .mcp.json temp is the one that would put it back.
+      if (temp.includes('.mcp.json') && ++claudeTemps === 2)
+        throw new Error('disk full');
+    };
+    await writeFile(join(dirs.root, '.mcp.json'), '{}');
+    const result = await install([
+      '--json',
+      '--agent',
+      'claude',
+      '--agent',
+      'cursor',
+    ]);
+    expect(result.code).toBe(1);
+    const { errors } = JSON.parse(result.out[0]!) as {
+      errors: { path: string; message: string }[];
+    };
+    expect(errors.map((error) => error.path)).toEqual([
+      '.cursor/mcp.json',
+      '.mcp.json',
+    ]);
+    expect(errors[1]!.message).toMatch(/could not be put back/);
+  });
+
   it('prints one JSON document with --json', async () => {
     const result = await install(['--json', '--agent', 'cursor']);
     expect(result.code).toBe(0);

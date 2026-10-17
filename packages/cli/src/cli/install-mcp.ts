@@ -453,18 +453,21 @@ export async function installMcp(
             : `cannot write ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`;
         const kept = await restore(written);
         servers.length = 0;
-        const stays = kept.map(
-          (path) => `${show(path)} could not be put back and keeps the server`,
-        );
+        const stays = kept.map((path) => ({
+          path,
+          message: `${show(path)} could not be put back and keeps the server`,
+        }));
         if (context.json) {
           io.stdout(
             JSON.stringify({
               ...document(false),
-              errors: [failure, ...stays].map((message) => ({
-                kind: 'file',
-                path: displayPath(io.cwd, target.path),
-                message,
-              })),
+              errors: [{ path: target.path, message: failure }, ...stays].map(
+                (error) => ({
+                  kind: 'file',
+                  path: displayPath(io.cwd, error.path),
+                  message: error.message,
+                }),
+              ),
             }),
           );
           return 1;
@@ -474,7 +477,7 @@ export async function installMcp(
           ...(written.length > kept.length
             ? ['the configurations written before it were put back']
             : []),
-          ...stays,
+          ...stays.map((error) => error.message),
         ]);
       }
     }
