@@ -2,12 +2,15 @@
 // that changed on disk. Every view refetches, and a toast notes a change
 // made outside the portal. The portal's own writes change the files too;
 // their events refresh quietly. A burst of events refetches once, and a
-// reconnect refetches what changed while the stream was down.
+// reconnect refetches what changed while the stream was down. The stream is
+// the shown environment's: switching reopens it under its base path.
 
+import { apiBasePath } from '@configure-env/api-client';
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useEnvironment } from './environment';
 
 /** How long after one of the portal's writes a change is taken as its own. */
 export const OWN_WRITE_MS = 2_000;
@@ -34,6 +37,7 @@ function pathsOf(data: unknown): string[] {
 export function useProjectEvents() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const environment = useEnvironment();
 
   useEffect(() => {
     if (typeof EventSource === 'undefined') return;
@@ -63,7 +67,7 @@ export function useProjectEvents() {
       );
     };
 
-    const source = new EventSource('/api/events');
+    const source = new EventSource(`${apiBasePath()}/api/events`);
     // An open after the first is a reconnect: what changed while the stream
     // was down sent no event, so the views refetch, quietly.
     let opened = false;
@@ -83,5 +87,5 @@ export function useProjectEvents() {
       clearTimeout(burst);
       source.close();
     };
-  }, [queryClient, t]);
+  }, [queryClient, t, environment]);
 }

@@ -23,6 +23,13 @@
     "search": "Search",
     "searchHint": "Jump to a variable, file or action"
   },
+  "environment": {
+    "label": "Environment",
+    "local": "This project",
+    "unreachable": "Unreachable",
+    "production": "Production",
+    "remote": "Through this server's gateway: {{url}}"
+  },
   "schema": {
     "valid": "Schema valid",
     "invalid_one": "Schema: {{count}} error",

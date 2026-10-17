@@ -62,7 +62,12 @@ import { currentSchema } from './schema.ts';
 import { protectedState } from './state.ts';
 import { EDITOR, EditorController, LOCAL_HOSTS } from './editor.controller.ts';
 import type { EditorLauncher } from './editor.ts';
+import {
+  ENVIRONMENTS,
+  EnvironmentsController,
+} from './environments.controller.ts';
 import { EventsController } from './events.controller.ts';
+import type { EnvironmentsSource } from './gateway.ts';
 import { HistoryController } from './history.controller.ts';
 import { ProjectEvents } from './events.ts';
 import { PlanController } from './plan.controller.ts';
@@ -309,13 +314,18 @@ export class ProjectController {
 
 /**
  * The module for a bound project; `editor` opens a file in the user's
- * editor, and `localHosts` are the Host values of the listening address.
+ * editor, `localHosts` are the Host values of the listening address, and
+ * `environments` the other environments the portal can switch to.
  */
 export function apiModule(
   project: Project,
   version: string,
   editor: EditorLauncher,
   localHosts: () => ReadonlySet<string>,
+  environments: EnvironmentsSource = {
+    read: () => Promise.resolve({}),
+    url: () => '',
+  },
 ) {
   @Module({
     controllers: [
@@ -326,12 +336,14 @@ export function apiModule(
       EventsController,
       HistoryController,
       EditorController,
+      EnvironmentsController,
     ],
     providers: [
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },
       { provide: EDITOR, useValue: editor },
       { provide: LOCAL_HOSTS, useValue: localHosts },
+      { provide: ENVIRONMENTS, useValue: environments },
       { provide: ProjectEvents, useValue: new ProjectEvents(project) },
     ],
   })

@@ -23,6 +23,13 @@
     "search": "Buscar",
     "searchHint": "Ir a una variable, un archivo o una acción"
   },
+  "environment": {
+    "label": "Entorno",
+    "local": "Este proyecto",
+    "unreachable": "No responde",
+    "production": "Producción",
+    "remote": "A través de la pasarela de este servidor: {{url}}"
+  },
   "schema": {
     "valid": "Esquema válido",
     "invalid_one": "Esquema: {{count}} error",

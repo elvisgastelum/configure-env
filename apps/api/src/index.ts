@@ -3,6 +3,7 @@
 
 export {
   type ApiServer,
+  type RemoteEnvironment,
   DEFAULT_HOST,
   OPENAPI_PATH,
   type ServerOptions,

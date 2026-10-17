@@ -7,14 +7,15 @@ import { useQuery } from '@tanstack/react-query';
 import { Menu, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { projectQuery } from '../lib/api';
+import { EnvironmentPicker } from './environment-picker';
 import { LanguageToggle } from './language-toggle';
 import { projectName } from '../lib/schema-status';
 import { SchemaPill } from './schema-pill';
 import { ThemeToggle } from './theme-toggle';
 
 /**
- * The sticky header: the project, its schema's state, search, the language
- * and the theme.
+ * The sticky header: the project, the environment it is in, its schema's
+ * state, search, the language and the theme.
  * Once the page scrolls it lifts off the content with a shadow and a blur.
  */
 export function AppHeader({
@@ -68,6 +69,8 @@ export function AppHeader({
           </div>
         )}
       </div>
+
+      <EnvironmentPicker />
 
       <SchemaPill />
 
