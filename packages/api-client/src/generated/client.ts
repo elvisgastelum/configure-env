@@ -397,6 +397,20 @@ export interface CheckRequest {
   values?: CheckRequestValues;
 }
 
+export type ConfirmReplacementsStatusCode =
+  (typeof ConfirmReplacementsStatusCode)[keyof typeof ConfirmReplacementsStatusCode];
+
+export const ConfirmReplacementsStatusCode = {
+  NUMBER_428: 428,
+} as const;
+
+export interface ConfirmReplacements {
+  statusCode: ConfirmReplacementsStatusCode;
+  message: string;
+  /** The protected keys the edit would replace; nothing was written. */
+  keys: string[];
+}
+
 export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
 
 export const DiffLineKind = {
@@ -1040,6 +1054,8 @@ export interface SetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
   /** Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables. */
   allowUnknown?: boolean;
   /** Generate only the keys the file holds no value for: a value it holds is kept, checked as it is, and reported unchanged. */
@@ -1175,6 +1191,8 @@ export interface UnsetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
 }
 
 /**
@@ -2434,6 +2452,11 @@ export type setValuesResponse422 = {
   status: 422;
 };
 
+export type setValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type setValuesResponse503 = {
   data: StateUnavailable;
   status: 503;
@@ -2447,6 +2470,7 @@ export type setValuesResponseError = (
   | setValuesResponse404
   | setValuesResponse409
   | setValuesResponse422
+  | setValuesResponse428
   | setValuesResponse503
 ) & {
   headers: Headers;
@@ -2524,6 +2548,11 @@ export type unsetValuesResponse422 = {
   status: 422;
 };
 
+export type unsetValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type unsetValuesResponse503 = {
   data: StateUnavailable;
   status: 503;
@@ -2537,6 +2566,7 @@ export type unsetValuesResponseError = (
   | unsetValuesResponse404
   | unsetValuesResponse409
   | unsetValuesResponse422
+  | unsetValuesResponse428
   | unsetValuesResponse503
 ) & {
   headers: Headers;

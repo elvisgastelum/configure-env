@@ -495,6 +495,16 @@
               }
             }
           },
+          "428": {
+            "description": "With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmReplacements"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The protected state cannot be read or used; nothing was written.",
             "content": {
@@ -571,6 +581,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EditRefused"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmReplacements"
                 }
               }
             }
@@ -1817,6 +1837,27 @@
         },
         "additionalProperties": false
       },
+      "ConfirmReplacements": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [428]
+          },
+          "message": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The protected keys the edit would replace; nothing was written."
+          }
+        },
+        "required": ["statusCode", "message", "keys"],
+        "additionalProperties": false
+      },
       "DiffLine": {
         "type": "object",
         "properties": {
@@ -2986,6 +3027,10 @@
               "description": "A variable name, like `API_URL`."
             }
           },
+          "confirmReplacements": {
+            "description": "Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.",
+            "type": "boolean"
+          },
           "allowUnknown": {
             "description": "Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables.",
             "type": "boolean"
@@ -3214,6 +3259,10 @@
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
               "description": "A variable name, like `API_URL`."
             }
+          },
+          "confirmReplacements": {
+            "description": "Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.",
+            "type": "boolean"
           }
         },
         "required": ["file", "fingerprint", "keys"],

@@ -460,6 +460,11 @@ const basedOn = fileFingerprint.meta({
     "The file's fingerprint the edit is based on, from GET /api/files; null when the file did not exist. A file that changed since is not written (409).",
 });
 
+const confirmReplacements = z.boolean().optional().meta({
+  description:
+    'Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.',
+});
+
 const replaceProtected = z.array(variableName).optional().meta({
   description:
     'The protected keys the edit may replace or remove; any other protected change is refused.',
@@ -479,6 +484,7 @@ export const setValuesRequest = named(
           'Secret string variables to set to a new random value, never returned.',
       }),
       replaceProtected,
+      confirmReplacements,
       allowUnknown: z.boolean().optional().meta({
         description:
           "Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables.",
@@ -510,6 +516,7 @@ export const unsetValuesRequest = named(
     fingerprint: basedOn,
     keys: z.array(variableName).min(1),
     replaceProtected,
+    confirmReplacements,
   }),
 );
 
@@ -555,6 +562,18 @@ export const valuesResponse = named(
     stateError: z.array(z.string()).optional().meta({
       description:
         'When the file was written but the protected state was not: why, as the first warnings say it.',
+    }),
+  }),
+);
+
+export const confirmReplacementsResponse = named(
+  'ConfirmReplacements',
+  z.object({
+    statusCode: z.literal(428),
+    message: z.string(),
+    keys: z.array(z.string()).meta({
+      description:
+        'The protected keys the edit would replace; nothing was written.',
     }),
   }),
 );

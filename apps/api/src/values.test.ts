@@ -345,6 +345,53 @@ describe('POST /api/values/set, as the CLI sends it', () => {
   });
 });
 
+describe('a value write with confirmReplacements', () => {
+  it('answers 428 with the keys it would replace, writing nothing, after every other check', async () => {
+    const asked = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { SESSION_KEY: 'another-session-key-0123', PORT: '9090' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(asked.status).toBe(428);
+    expect(asked.body).toMatchObject({
+      statusCode: 428,
+      keys: ['SESSION_KEY'],
+    });
+    expect(await envText()).toBe(protectedEnv);
+    expect(await history()).toEqual([]);
+    // An invalid value is refused first, as it would be without the question.
+    const invalid = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { SESSION_KEY: 'another-session-key-0123', PORT: 'notaport' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.kind).toBe('invalid');
+    const unset = await post('/api/values/unset', {
+      file: '.env',
+      fingerprint: BASE,
+      keys: ['SESSION_KEY'],
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(unset.status).toBe(428);
+    expect(unset.body.keys).toEqual(['SESSION_KEY']);
+    // Nothing to replace: it writes, as without the question.
+    const plain = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { PORT: '9090' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(plain.status).toBe(200);
+  });
+});
+
 describe('a value write whose state write fails', () => {
   it('names the state failure apart from the warnings', async () => {
     await server.close();

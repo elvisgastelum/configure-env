@@ -122,6 +122,37 @@ async function failure(
   }
 }
 
+/**
+ * The edit options of a write: its replacements and, when it asks to
+ * confirm them, the confirmation that refuses them, noting the keys.
+ */
+function replacing(body: {
+  replaceProtected?: string[] | undefined;
+  confirmReplacements?: boolean | undefined;
+}) {
+  const asked: string[] = [];
+  return {
+    asked,
+    options: {
+      replace: new Set(body.replaceProtected ?? []),
+      ...(body.confirmReplacements
+        ? {
+            confirm: async (keys: string[]) => {
+              asked.push(...keys);
+              return false;
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/** A 428: the replacements to confirm before the edit is sent again. */
+const toConfirm = (keys: readonly string[]) =>
+  new ApiError(428, 'confirm the protected values to replace', {
+    keys: [...keys],
+  });
+
 /** The fingerprint of the file after an edit that may have written it. */
 const fingerprintAfter = (file: EnvFile, written: boolean) =>
   contentFingerprint(written ? serialize(file.doc) : file.previous);
@@ -173,10 +204,10 @@ export async function setFileValues(
   if (errors.length) throw refused('invalid', errors);
 
   const context = await editContext(schema, project);
-  const result = await setValues(context, file, pairs, {
-    replace: new Set(body.replaceProtected ?? []),
-    kept,
-  });
+  const { asked, options } = replacing(body);
+  const result = await setValues(context, file, pairs, { ...options, kept });
+  if (!result.ok && result.kind === 'cancelled' && asked.length)
+    throw toConfirm(asked);
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const changed = result.keys.filter((entry) => entry.status !== 'unchanged');
@@ -214,9 +245,10 @@ export async function unsetFileValues(
 ): Promise<ValuesEdit> {
   const file = await openFile(schema, project, body.file, body.fingerprint);
   const context = await editContext(schema, project);
-  const result = await unsetValues(context, file, body.keys, {
-    replace: new Set(body.replaceProtected ?? []),
-  });
+  const { asked, options } = replacing(body);
+  const result = await unsetValues(context, file, body.keys, options);
+  if (!result.ok && result.kind === 'cancelled' && asked.length)
+    throw toConfirm(asked);
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const removed = result.keys.filter((entry) => entry.status === 'removed');

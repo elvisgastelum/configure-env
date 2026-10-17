@@ -15,12 +15,14 @@ import {
   ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiResponse,
   ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { z } from 'zod';
 import {
+  confirmReplacementsResponse,
   editRefusedResponse,
   errorResponse,
   setValuesRequest,
@@ -56,6 +58,12 @@ const ValueWrite = () =>
       description:
         'Values that break their rules, or protected values the edit may not change; nothing was written. Also an invalid schema.',
       schema: ref(editRefusedResponse),
+    }),
+    ApiResponse({
+      status: 428,
+      description:
+        'With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.',
+      schema: ref(confirmReplacementsResponse),
     }),
     ApiServiceUnavailableResponse({
       description:

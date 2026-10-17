@@ -161,8 +161,9 @@ function refused(
 
 /**
  * Sends a write, confirming its replacements first when a person runs it:
- * sent without them, a refusal of only --replace-protected keys asks for
- * those, then it is sent again replacing them. Resolves to the answer, or
+ * the server checks everything else first, then names the protected keys
+ * it would replace and writes nothing (428); once the person confirms
+ * them, it is sent again replacing those only. Resolves to the answer, or
  * to the exit code of a write that wrote nothing.
  */
 async function write(
@@ -172,27 +173,25 @@ async function write(
   command: string,
   file: string,
   replace: ReadonlySet<string>,
-  request: (
-    replaceProtected: string[],
-  ) => Promise<{ status: number; data: unknown }>,
+  request: (options: {
+    replaceProtected?: string[];
+    confirmReplacements?: boolean;
+  }) => Promise<{ status: number; data: unknown }>,
 ): Promise<ValuesEdit | number> {
-  const sent = (keys: string[]) => send(connection, () => request(keys));
-  let response = await sent(confirms(run) ? [] : [...replace]);
-  if (confirms(run) && replace.size && response.status === 422) {
-    const data = response.data as { kind?: string; errors?: EditProblem[] };
-    const problems = data.kind === 'protected' ? (data.errors ?? []) : [];
-    const keys = problems.map((problem) => problem.key ?? '');
-    const refusals = problems.filter(({ key = '' }) => !replace.has(key));
-    if (refusals.length)
-      throw protectedError(
-        protectedProblems(refusals),
-        `nothing was written to ${file}`,
-      );
-    if (problems.length) {
-      if (!(await confirmReplacements({ io, ...run }, keys)))
-        return cancelled(run);
-      response = await sent(keys);
-    }
+  const ask = confirms(run) && replace.size > 0;
+  let response = await send(connection, () =>
+    request({
+      ...(replace.size ? { replaceProtected: [...replace] } : {}),
+      ...(ask ? { confirmReplacements: true } : {}),
+    }),
+  );
+  if (ask && response.status === 428) {
+    const { keys = [] } = response.data as { keys?: string[] };
+    if (!(await confirmReplacements({ io, ...run }, keys)))
+      return cancelled(run);
+    response = await send(connection, () =>
+      request({ replaceProtected: keys }),
+    );
   }
   if (response.status !== 200) return refused(io, run, command, file, response);
   return response.data as ValuesEdit;
@@ -459,7 +458,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
       'set',
       spec.path,
       replace,
-      (replaceProtected) =>
+      (replacing) =>
         setValues(
           {
             file: spec.path,
@@ -468,7 +467,7 @@ export async function setCommand(args: string[], io: Io): Promise<number> {
             ...(generated.length
               ? { generate: generated, keepExisting: true }
               : {}),
-            ...(replaceProtected.length ? { replaceProtected } : {}),
+            ...replacing,
             ...(allowUnknown ? { allowUnknown } : {}),
             // A piped value is masked and never kept in the history, even
             // for a key not marked secret: it came from a secret manager,
@@ -591,13 +590,13 @@ export async function unsetCommand(args: string[], io: Io): Promise<number> {
       'unset',
       spec.path,
       replace,
-      (replaceProtected) =>
+      (replacing) =>
         unsetValues(
           {
             file: spec.path,
             fingerprint: file.fingerprint ?? null,
             keys: positionals,
-            ...(replaceProtected.length ? { replaceProtected } : {}),
+            ...replacing,
           },
           connection.init(),
         ),

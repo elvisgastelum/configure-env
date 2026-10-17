@@ -403,6 +403,36 @@ describe('--replace-protected', () => {
     expect(restored.code).toBe(0);
   });
 
+  it('refuses a broken rule between variables before asking, writing nothing', async () => {
+    await seedKey();
+    const before = await read('.env');
+    const { prompts, calls } = scriptedPrompts({
+      'Type SM_MASTER_KEY': 'SM_MASTER_KEY',
+    });
+    const r = await cli(
+      [
+        'set',
+        '--file',
+        '.env',
+        '--replace-protected',
+        'SM_MASTER_KEY',
+        `SM_MASTER_KEY=${KEY_B}`,
+        'SM_MASTER_KEY_FILE=/run/key',
+      ],
+      { isTTY: true, prompts },
+    );
+    expect(r).toMatchObject({
+      code: 1,
+      out: [],
+      err: [
+        'configure-env: SM_MASTER_KEY, SM_MASTER_KEY_FILE: set only one of them',
+        'nothing was written to .env',
+      ],
+    });
+    expect(calls).toEqual([]);
+    expect(await read('.env')).toBe(before);
+  });
+
   it('writes nothing on a wrong name (exit 2) or a cancel (exit 130)', async () => {
     await seedKey();
     const before = await read('.env');
