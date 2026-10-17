@@ -1,7 +1,7 @@
 // createServer's own lifecycle: a taken port rejects with its error code,
 // so `configure-env serve` can move on to the next port.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { createServer } from './server.ts';
 import {
   type ApiServer,

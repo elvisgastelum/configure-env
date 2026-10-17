@@ -2,7 +2,7 @@
 // constants, which docs cannot import.
 
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   GENERATED_BYTES,
   GENERATED_LENGTH,

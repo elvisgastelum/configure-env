@@ -2,7 +2,7 @@ import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { schemaFingerprint } from '@configure-env/core';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   type ApiServer,
   DB_PASSWORD,

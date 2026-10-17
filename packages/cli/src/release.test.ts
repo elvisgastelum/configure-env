@@ -4,7 +4,7 @@
 // tagged, so pin those settings and the documented format together.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { REPO_ROOT as REPO } from './cli/test-helpers.ts';
 
 const PACKAGE = new URL('../', import.meta.url);

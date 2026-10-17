@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import type { FileSpec } from '../schema/definition.ts';
 import {
   DEFAULT_STATE_PATH,

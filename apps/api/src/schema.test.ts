@@ -7,7 +7,7 @@ import {
   schemaFingerprint,
 } from '@configure-env/core';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   type ApiServer,
   TOKEN,

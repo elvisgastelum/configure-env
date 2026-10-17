@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { LANGUAGE_STORAGE_KEY, createI18n } from '../i18n';
 import { renderWithProviders } from '../test/render';
 import { LanguageToggle } from './language-toggle';

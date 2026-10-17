@@ -3,7 +3,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { everyActionPlan } from '../../mocks/fixtures';
 import { findVariable, mockState } from '../../mocks/store';
 import { renderApp, renderWithProviders } from '../../test/render';

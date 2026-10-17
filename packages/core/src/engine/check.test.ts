@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { applyPlan } from './apply.ts';
 import { checkDrift } from './check.ts';
 import { planChanges } from './plan.ts';

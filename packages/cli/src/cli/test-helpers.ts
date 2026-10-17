@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach } from 'vite-plus/test';
 import {
   DEFAULT_STATE_PATH,
   SALT_BYTES,

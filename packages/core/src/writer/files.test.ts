@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { FILE_POLICIES } from '../schema/definition.ts';
 import type { FileInput } from './document.ts';
 import { addFile, removeFile, updateFile } from './files.ts';

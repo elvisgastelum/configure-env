@@ -14,7 +14,7 @@ import {
   readChanges,
   stateSchemaVersion,
 } from '@configure-env/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { HISTORY_LIMIT } from './history.ts';
 import { run, useProject, writeV1State } from './test-helpers.ts';
 

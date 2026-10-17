@@ -1,7 +1,7 @@
 import { THEME_STORAGE_KEY } from '@configure-env/design-system/theme';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { renderWithProviders } from '../test/render';
 import { ThemeToggle } from './theme-toggle';
 

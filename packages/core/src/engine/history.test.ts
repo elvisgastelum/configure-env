@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import type { VariableSpec } from '../schema/definition.ts';
 import {
   LEGACY_UNDO_REASON,

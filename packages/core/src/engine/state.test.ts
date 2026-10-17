@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { getTableConfig } from 'drizzle-orm/sqlite-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import * as tables from './db-schema.ts';
 import {
   DEFAULT_STATE_PATH,

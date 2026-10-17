@@ -1,5 +1,5 @@
 import * as nodeNet from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { isIP, isIPv4, isIPv6 } from './net.ts';
 
 // Addresses on and around every edge node:net draws: leading zeros, octet

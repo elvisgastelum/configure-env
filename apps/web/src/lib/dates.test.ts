@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { fullDate, relativeDate } from './dates';
 
 const now = new Date('2026-10-16T12:00:00.000Z');

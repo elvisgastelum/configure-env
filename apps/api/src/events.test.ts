@@ -3,7 +3,14 @@ import { type IncomingMessage, get } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vite-plus/test';
 import { ProjectEvents } from './events.ts';
 import { resolveProject } from './project.ts';
 import {
