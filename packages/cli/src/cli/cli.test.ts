@@ -1110,6 +1110,7 @@ describe('check', () => {
       'ok',
       'summary',
       'files',
+      'gitignore',
       'errors',
     ]);
     expect(report).toMatchObject({

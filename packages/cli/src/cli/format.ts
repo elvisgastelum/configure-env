@@ -4,6 +4,8 @@ import {
   type ApplyResult,
   type CheckProblem,
   type CheckReport,
+  type GitignoreFix,
+  type GitignoreProblem,
   type FileCheck,
   type FilePlan,
   formatMode,
@@ -154,11 +156,26 @@ export function checkLines(file: FileCheck): string[] {
   );
 }
 
+/** For check: a git-ignore problem, with what fixes it. */
+export function gitignoreLine(problem: GitignoreProblem): string {
+  const entries = problem.entries.join(', ');
+  const fix = problem.blocked
+    ? `${problem.gitignore} is a symlink; add ${entries} to it yourself`
+    : `check --fix adds ${entries} to ${problem.gitignore}`;
+  return `${problem.path}: ${problem.message} (${fix})`;
+}
+
+/** For check: what a git-ignore fix wrote. */
+export const gitignoreFixLine = (fix: GitignoreFix) =>
+  fix.created
+    ? `Created ${fix.gitignore} with ${fix.added.join(', ')}`
+    : `Added ${fix.added.join(', ')} to ${fix.gitignore}`;
+
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * For check: `N errors, M warnings in K files`, K the files with a
- * problem; `Everything is current.` without any, unless the run itself has
+ * For check: `N errors, M warnings in K files`, K the files (or the state
+ * folder) with a problem; `Everything is current.` without any, unless the run itself has
  * errors (an invalid --set value, an unknown --file path).
  */
 export function checkSummary(report: CheckReport): string {
@@ -167,6 +184,11 @@ export function checkSummary(report: CheckReport): string {
     return report.ok
       ? 'Everything is current.'
       : 'No problem in the files, but the run has errors.';
-  const files = report.files.filter((file) => file.problems.length).length;
+  const files = new Set([
+    ...report.files
+      .filter((file) => file.problems.length)
+      .map((file) => file.path),
+    ...report.gitignore.map((problem) => problem.path),
+  ]).size;
   return `${count(errors, 'error')}, ${count(warnings, 'warning')} in ${count(files, 'file')}`;
 }

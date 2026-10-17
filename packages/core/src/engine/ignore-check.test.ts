@@ -161,6 +161,24 @@ describe('fixGitignore', () => {
     expect(await read('.gitignore')).toBe('/.env\n');
   });
 
+  it('skips a problem whose .gitignore is not one inside the root', async () => {
+    const problem = {
+      severity: 'error' as const,
+      code: 'file-not-ignored' as const,
+      path: '.env',
+      entries: ['/.env'],
+      message: 'not git-ignored; its values could be committed',
+    };
+    const outside = [
+      { ...problem, gitignore: '../.gitignore' },
+      { ...problem, gitignore: 'env.schema.json' },
+    ];
+    expect(await fixGitignore(root(), outside)).toEqual({
+      fixed: [],
+      skipped: outside,
+    });
+  });
+
   it('skips a problem it may not fix, writing nothing for it', async () => {
     await mkdir(stateDir());
     await writeFile(join(root(), 'elsewhere'), 'kept\n');

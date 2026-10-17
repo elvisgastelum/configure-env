@@ -5,7 +5,15 @@
 import { execFile } from 'node:child_process';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { devNull } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import {
   DEFAULT_STATE_PATH,
   STATE_GITIGNORE_COMMENT,
@@ -213,8 +221,9 @@ export interface GitignoreFixResult {
 /**
  * Adds each problem's entries to its .gitignore, a line each, creating the
  * file when it is missing (the state's with its comment line) and leaving
- * out a line it already has. Never writes through a symlink: a blocked
- * problem, or one whose .gitignore is a symlink by now, is skipped.
+ * out a line it already has. Never writes through a symlink, nor a file
+ * that is not a .gitignore inside the root: a blocked problem, or one whose
+ * .gitignore is a symlink by now or lies elsewhere, is skipped.
  */
 export async function fixGitignore(
   root: string,
@@ -233,7 +242,13 @@ export async function fixGitignore(
   const fixed: GitignoreFix[] = [];
   for (const [gitignore, group] of byFile) {
     const path = resolve(root, gitignore);
-    const file = await existing(path);
+    const inside = relative(root, path);
+    // Only a .gitignore inside the root, whoever built the problem.
+    const ours =
+      basename(path) === '.gitignore' &&
+      !inside.startsWith('..') &&
+      !isAbsolute(inside);
+    const file = ours ? await existing(path) : { kind: 'symlink' as const };
     if (file.kind === 'symlink') {
       skipped.push(...group);
       continue;
