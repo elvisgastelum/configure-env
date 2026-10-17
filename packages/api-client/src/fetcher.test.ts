@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getCheck, fixGitignore } from './client.ts';
+import { getCheck, getEvents, fixGitignore } from './client.ts';
 import { CLIENT_HEADER, apiFetch } from './fetcher.ts';
 
 const TARGET = {
@@ -9,11 +9,18 @@ const TARGET = {
 };
 
 /** Stubs fetch with one answer; returns the calls it got. */
-function stubFetch(status = 200, body = '{"ok":true}') {
+function stubFetch(
+  status = 200,
+  body = '{"ok":true}',
+  type = 'application/json; charset=utf-8',
+) {
   const calls: { url: string; init: RequestInit }[] = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    return new Response(body || null, { status });
+    return new Response(body || null, {
+      status,
+      headers: body ? { 'content-type': type } : {},
+    });
   });
   return calls;
 }
@@ -55,5 +62,11 @@ describe('apiFetch', () => {
       status: 204,
       data: {},
     });
+  });
+
+  it('answers a body that is not JSON as its text, such as the event stream', async () => {
+    const stream = 'event: changed\ndata: {"files":[]}\n\n';
+    stubFetch(200, stream, 'text/event-stream');
+    expect(await getEvents()).toMatchObject({ status: 200, data: stream });
   });
 });

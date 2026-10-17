@@ -27,8 +27,9 @@ export function targetUrl(url: string, target?: ApiTarget): string {
 }
 
 /**
- * Sends the request and answers what orval's fetch client expects: the
- * parsed body (empty for a body-less status) with the status and headers.
+ * Sends the request and answers what orval's fetch client expects: the body
+ * (parsed when it is JSON, as text otherwise, such as the event stream; empty
+ * for a body-less status) with the status and headers.
  */
 export async function apiFetch<T>(
   url: string,
@@ -46,7 +47,9 @@ export async function apiFetch<T>(
     ...(target ? { redirect: 'error' as const } : {}),
   });
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-  const data: unknown = body ? JSON.parse(body) : {};
+  const json = /\bjson\b/i.test(res.headers.get('content-type') ?? '');
+  const data: unknown =
+    body === null ? {} : json ? (body ? JSON.parse(body) : {}) : body;
   return { data, status: res.status, headers: res.headers } as T;
 }
 
