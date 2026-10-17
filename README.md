@@ -639,6 +639,7 @@ What the portal does, page by page:
 - **Schema**: add, edit, rename (with every reference rewritten) and remove variables and files, each change reviewed as a diff before it is written. [Screenshot](docs/portal/schema.png).
 - **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. Its **What git could commit** section lists the git-ignore problems, each with the lines its fix adds, and fixes one (**Fix**) or all (**Fix all**) as `check --fix` does; a `.gitignore` that is a symlink is named, never written. [Screenshot](docs/portal/check.png).
 - **History**: every change made through the CLI or the portal, with undo.
+- **Environments**: the header's picker switches the portal between `local` and the environments `env add` stored, such as dev, stage and prod (see [Switching environments](#switching-environments)).
 - A file changed outside the portal (by an editor, `git checkout` or another command) shows up without a reload.
 
 ![The overview of a project without a schema: the "No schema yet" card with its Init from .env.example button](docs/portal/init.png)
@@ -695,6 +696,10 @@ Caddy passes the Host on and adds `X-Forwarded-For`. Read the token once with `s
 ### Switching environments
 
 The environments `configure-env env add` stored are open in your local portal too: `serve` reads `.configure-env/environments.json` on every request, so one added or removed while it runs applies at once. `GET /api/environments` lists `local` (this server) first, then each environment with its URL, whether its server answers `GET /api/project` within 3 seconds, and its version; it never holds a token.
+
+![The portal showing prod: the header's environment picker in red with a Production tag, open on local, dev, an unreachable stage and prod](docs/portal/environments.png)
+
+The header of the portal then has an **Environment** picker: `local`, then each environment with its URL (one that does not answer is shown as unreachable and cannot be picked). The active one is always in the header, and `prod` (or `production`) stands apart in red with a **Production** tag. Picking one refetches every view from that environment, the live updates included; **Open in editor** is not offered there, since its files are on another machine. The pick lasts for the tab.
 
 Your browser never talks to the other server, and never holds its token. The local `serve` is a gateway: `/env/<name>/api/*` is forwarded to that environment's `/api/*` with its bearer token, so the portal stays same-origin with its session cookie. A path prefix names the environment, rather than a header, because `EventSource` cannot send headers; `GET /env/<name>/api/events` is streamed through as it comes.
 

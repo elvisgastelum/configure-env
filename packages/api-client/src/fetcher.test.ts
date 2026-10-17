@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getCheck, getEvents, fixGitignore } from './client.ts';
-import { CLIENT_HEADER, apiFetch } from './fetcher.ts';
+import {
+  getCheck,
+  getEnvironments,
+  getEvents,
+  fixGitignore,
+} from './client.ts';
+import {
+  CLIENT_HEADER,
+  apiBasePath,
+  apiFetch,
+  environmentBasePath,
+  setApiBasePath,
+} from './fetcher.ts';
 
 const TARGET = {
   baseUrl: 'https://envs.example.com/prefix/',
@@ -27,6 +38,7 @@ function stubFetch(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setApiBasePath('');
 });
 
 describe('apiFetch', () => {
@@ -68,5 +80,47 @@ describe('apiFetch', () => {
     const stream = 'event: changed\ndata: {"files":[]}\n\n';
     stubFetch(200, stream, 'text/event-stream');
     expect(await getEvents()).toMatchObject({ status: 200, data: stream });
+  });
+});
+
+describe('the base path', () => {
+  it('is empty by default: the server that serves the portal', () => {
+    expect(apiBasePath()).toBe('');
+  });
+
+  it('prefixes every relative request, still same-origin and without a token header', async () => {
+    const calls = stubFetch();
+    setApiBasePath('/env/dev');
+    await getCheck({ strict: 'true' });
+    expect(calls[0]!.url).toBe('/env/dev/api/check?strict=true');
+    const headers = new Headers(calls[0]!.init.headers);
+    expect(headers.has('authorization')).toBe(false);
+    expect(headers.has(CLIENT_HEADER)).toBe(false);
+  });
+
+  it('leaves a request marked local on the serving server', async () => {
+    const calls = stubFetch();
+    setApiBasePath('/env/dev');
+    await getEnvironments({ local: true });
+    expect(calls[0]!.url).toBe('/api/environments');
+    expect(calls[0]!.init).not.toHaveProperty('local');
+  });
+
+  it("never applies to a target's request", async () => {
+    const calls = stubFetch();
+    setApiBasePath('/env/dev');
+    await getCheck({}, { target: TARGET });
+    expect(calls[0]!.url).toBe('https://envs.example.com/prefix/api/check');
+  });
+
+  it('is /env/<name> for an environment, encoded, and empty for local', () => {
+    expect(environmentBasePath('local')).toBe('');
+    expect(environmentBasePath('dev')).toBe('/env/dev');
+    expect(environmentBasePath('a b')).toBe('/env/a%20b');
+  });
+
+  it('refuses a path that is not an absolute one without a trailing slash', () => {
+    for (const path of ['env/dev', '/env/dev/', 'https://evil.example.com'])
+      expect(() => setApiBasePath(path), path).toThrow();
   });
 });

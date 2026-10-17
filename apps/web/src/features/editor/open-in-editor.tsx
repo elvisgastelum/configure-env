@@ -1,5 +1,7 @@
 // The Open in editor button: an icon button that opens a target (see
 // editor.ts) in the person's editor, its tooltip showing the `o` shortcut.
+// It is not there for another environment: its files are on another
+// machine, and the gateway never forwards the request.
 
 import { Button } from '@configure-env/design-system/components/atoms/button';
 import { Kbd } from '@configure-env/design-system/components/atoms/kbd';
@@ -10,6 +12,7 @@ import {
 } from '@configure-env/design-system/components/atoms/tooltip';
 import { SquareArrowOutUpRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { isRemote, useEnvironment } from '../../lib/environment';
 import {
   EDITOR_BUTTON,
   type EditorTarget,
@@ -30,6 +33,8 @@ export function OpenInEditorButton({
   label?: string;
 }) {
   const { t } = useTranslation();
+  const environment = useEnvironment();
+  if (isRemote(environment)) return null;
   const name = label ?? editorLabel(t, target);
   return (
     <Tooltip>
