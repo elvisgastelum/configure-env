@@ -30,8 +30,14 @@ afterEach(async () => {
   await removeProject(root);
 });
 
-/** Opens the event stream; resolves once the server says it is watching. */
-function subscribe(): Promise<{
+/**
+ * Opens the event stream. It resolves once the server says it is watching,
+ * or, with `ready: 'response'`, as soon as the response arrives: all a
+ * browser's EventSource sees (its `open`), as it never shows comments.
+ */
+function subscribe({
+  ready = 'watching',
+}: { ready?: 'watching' | 'response' } = {}): Promise<{
   response: IncomingMessage;
   next: () => Promise<{ event: string; data: unknown }>;
 }> {
@@ -52,7 +58,8 @@ function subscribe(): Promise<{
             const frame = buffer.slice(0, end);
             buffer = buffer.slice(end + 2);
             if (frame.startsWith(':') || frame.startsWith('retry:')) {
-              if (frame === ': watching') resolve({ response, next });
+              if (frame === ': watching' && ready === 'watching')
+                resolve({ response, next });
               continue;
             }
             const take = waiting.shift();
@@ -74,10 +81,11 @@ function subscribe(): Promise<{
                 data: JSON.parse(fields.data ?? 'null'),
               });
             };
-            const ready = frames.shift();
-            if (ready) parse(ready);
+            const queued = frames.shift();
+            if (queued) parse(queued);
             else waiting.push(parse);
           });
+        if (ready === 'response') resolve({ response, next });
       },
     );
     req.on('error', reject);
@@ -95,6 +103,15 @@ describe('GET /api/events', () => {
     expect(event).toBe('changed');
     expect((data as { paths: string[] }).paths).toContain('.env');
     expect((data as { paths: string[] }).paths).not.toContain('unrelated.txt');
+  });
+
+  it('sends changed for a change made as soon as the stream opens', async () => {
+    const { next } = await subscribe({ ready: 'response' });
+    await writeFile(join(root, '.env'), 'PORT=1\n');
+    expect(await next()).toEqual({
+      event: 'changed',
+      data: { paths: expect.arrayContaining(['.env']) },
+    });
   });
 
   it('sends changed when the schema changes', async () => {
@@ -135,8 +152,12 @@ describe('ProjectEvents', () => {
   const fakeResponse = () => {
     const res = Object.assign(new EventEmitter(), {
       writableEnded: false,
+      headersSent: false,
       sent: '',
-      writeHead: () => res,
+      writeHead: () => {
+        res.headersSent = true;
+        return res;
+      },
       write: (text: string) => {
         res.sent += text;
         return true;
@@ -170,6 +191,50 @@ describe('ProjectEvents', () => {
     await events.subscribe(late as never);
     expect(late.writableEnded).toBe(true);
     expect(events.watching).toBe(0);
+  });
+
+  it('ends a stream still waiting to be answered as an event stream when the server closes', async () => {
+    const events = new ProjectEvents(
+      await resolveProject(root, 'env.schema.json'),
+    );
+    const res = Object.assign(fakeResponse(), { head: 0 });
+    const writeHead = res.writeHead;
+    res.writeHead = () => {
+      res.head++;
+      return writeHead();
+    };
+    const subscribed = events.subscribe(res as never);
+    events.onModuleDestroy();
+    await subscribed;
+    // EventSource gives up for good on a response that is not an event
+    // stream; with the headers it can reconnect to the next server.
+    expect(res.head).toBe(1);
+    expect(res.writableEnded).toBe(true);
+  });
+
+  it('answers a listener that joins while the first arms only once it watches', async () => {
+    const events = new ProjectEvents(
+      await resolveProject(root, 'env.schema.json'),
+    );
+    const first = fakeResponse();
+    const second = fakeResponse();
+    // How many directories were watched when each stream got its first byte.
+    const watchingAtFirstWrite = (res: ReturnType<typeof fakeResponse>) =>
+      new Promise<number>((done) => {
+        const write = res.write;
+        res.write = (text: string) => {
+          if (!res.sent) done(events.watching);
+          return write(text);
+        };
+      });
+    const firstSaw = watchingAtFirstWrite(first);
+    const secondSaw = watchingAtFirstWrite(second);
+    await Promise.all([
+      events.subscribe(first as never),
+      events.subscribe(second as never),
+    ]);
+    expect(await firstSaw).toBe(1);
+    expect(await secondSaw).toBe(1);
   });
 
   it('stops watching when the last listener leaves', async () => {
