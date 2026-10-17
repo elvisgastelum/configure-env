@@ -67,6 +67,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@nestjs/common": "12.1.2",
     "@nestjs/core": "12.1.2",
     "@nestjs/platform-express": "12.1.2",

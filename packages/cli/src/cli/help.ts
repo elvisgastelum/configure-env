@@ -61,6 +61,7 @@ Commands:
   history   list the latest changes the CLI and the portal made
   install   install the agent skill: configure-env install skill
   serve     start the local portal for the project in a browser
+  mcp       serve the env files to an agent over MCP, secrets masked
 
 Run configure-env <command> --help for the command's own options.
 
@@ -494,5 +495,28 @@ Examples:
   configure-env serve --port 5000 --no-open
   configure-env serve --json --no-open
   configure-env serve --host 0.0.0.0 --unsafe-expose
+
+${EXIT_CODES}`;
+
+export const MCP_HELP = `Usage: configure-env mcp [options]
+
+Runs a Model Context Protocol server for the project on stdin and stdout,
+for an agent (Claude Code, Cursor, VS Code, Codex, Gemini CLI) to start.
+It stops when the client closes the connection.
+
+Its tools run the configure-env commands with --ci --json, so they keep
+their checks and guards: list_variables, get_value, check, history and
+get_schema read the project.
+
+No tool returns a secret's value: they mask it, and none reveals one.
+
+Register it with configure-env install mcp, or in an agent's MCP
+configuration as the command configure-env with the argument mcp.
+
+${GLOBAL}
+
+Examples:
+  configure-env mcp
+  configure-env mcp --root ./service --schema ./service/env.schema.json
 
 ${EXIT_CODES}`;

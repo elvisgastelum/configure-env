@@ -10,6 +10,7 @@ import { initCommand } from './init.ts';
 import { installCommand } from './install.ts';
 import { listCommand } from './inspect.ts';
 import type { Io } from './io.ts';
+import { mcpCommand } from './mcp.ts';
 import { serveCommand } from './serve.ts';
 
 type Command = (args: string[], io: Io) => Promise<number>;
@@ -25,6 +26,7 @@ export const COMMANDS: Record<string, Command> = {
   history: historyCommand,
   install: installCommand,
   serve: serveCommand,
+  mcp: mcpCommand,
 };
 
 const has = (args: readonly string[], ...flags: string[]) =>
