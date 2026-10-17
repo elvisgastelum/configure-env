@@ -110,6 +110,7 @@ export const missingSchema: Schema = {
   valid: false,
   document: null,
   errors: [{ path: '(root)', message: 'cannot read env.schema.json: ENOENT' }],
+  initFrom: '.env.example',
 };
 
 export const invalidSchema: Schema = {

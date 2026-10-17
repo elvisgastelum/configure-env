@@ -345,6 +345,30 @@ describe('files', () => {
 
 describe('POST /api/schema/init', () => {
   const EXAMPLE = '# Where to listen.\nPORT=8080\nDEBUG=true\n';
+  const getSchema = () =>
+    request(server.url).get('/api/schema').set('Authorization', bearer);
+
+  it('names the example init reads while the schema is missing', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const missing = await getSchema();
+    expect(missing.body.valid).toBe(false);
+    expect(missing.body.initFrom).toBe('.env.example');
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect((await getSchema()).body).not.toHaveProperty('initFrom');
+  });
+
+  it('names none without an example, or with one init would refuse', async () => {
+    await start({});
+    expect((await getSchema()).body).not.toHaveProperty('initFrom');
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'example'), EXAMPLE);
+      await symlink(join(outside, 'example'), join(root, '.env.example'));
+      expect((await getSchema()).body).not.toHaveProperty('initFrom');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 
   it('infers a schema from .env.example when there is none', async () => {
     await start({ '.env.example': EXAMPLE });

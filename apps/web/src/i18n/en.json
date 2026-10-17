@@ -139,7 +139,9 @@
       "copied": "Copied",
       "docs": "How init works",
       "init": "Init from {{file}}",
-      "initHint": "Writes {{path}} as configure-env init does: the variables of {{file}}; without one, it starts an empty schema.",
+      "initHint": "Writes {{path}} as configure-env init does, with the variables of {{file}}.",
+      "initEmpty": "Init an empty schema",
+      "initEmptyHint": "Writes {{path}} as configure-env init does: the project has no {{file}}, so the schema starts with no variables.",
       "initDone_one": "Wrote {{path}}: {{count}} variable",
       "initDone_other": "Wrote {{path}}: {{count}} variables",
       "initFailed": "Could not init the schema: {{message}}"

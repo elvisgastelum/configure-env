@@ -80,6 +80,10 @@ export const schemaResponse = named(
       description:
         'After a write: what went wrong once the file was written, such as the history not recorded.',
     }),
+    initFrom: z.string().optional().meta({
+      description:
+        'While the schema file is missing: the example env file POST /api/schema/init would read. Absent when there is none it may read, and init then writes an empty schema.',
+    }),
   }),
 );
 

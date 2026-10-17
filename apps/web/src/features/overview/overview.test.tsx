@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import * as fixtures from '../../mocks/fixtures';
 import { passingCheck } from '../../mocks/fixtures';
 import { scenarios } from '../../mocks/handlers';
 import { renderApp } from '../../test/render';
@@ -122,7 +123,9 @@ describe('the overview', () => {
       name: 'Init from .env.example',
     });
     expect(
-      screen.getByText(/without one, it starts an empty schema/),
+      screen.getByText(
+        'Writes env.schema.json as configure-env init does, with the variables of .env.example.',
+      ),
     ).toBeInTheDocument();
     await user.click(init);
 
@@ -131,6 +134,27 @@ describe('the overview', () => {
     ).toBeInTheDocument();
     await waitFor(() => expect(stat('Variables')).toHaveTextContent('5'));
     expect(screen.queryByRole('heading', { name: 'No schema yet' })).toBeNull();
+  });
+
+  it('offers an empty schema when there is no example to read', async () => {
+    const withoutExample = { ...fixtures.missingSchema, initFrom: undefined };
+    server.use(
+      http.get('/api/schema', () => HttpResponse.json(withoutExample)),
+      ...scenarios.noSchema,
+    );
+    await renderApp();
+
+    expect(
+      await screen.findByRole('button', { name: 'Init an empty schema' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Writes env.schema.json as configure-env init does: the project has no .env.example, so the schema starts with no variables.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Init from .env.example' }),
+    ).toBeNull();
   });
 
   it('says why init failed and keeps the card', async () => {

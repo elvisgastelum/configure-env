@@ -101,13 +101,20 @@ export function NoSchema({ schema }: { schema: Schema }) {
             aria-busy={init.isPending}
           >
             <WandSparkles aria-hidden="true" data-icon="inline-start" />
-            {t('overview.noSchema.init', { file: INIT_EXAMPLE })}
+            {schema.initFrom
+              ? t('overview.noSchema.init', { file: schema.initFrom })
+              : t('overview.noSchema.initEmpty')}
           </Button>
           <p className="text-sm text-muted-foreground">
-            {t('overview.noSchema.initHint', {
-              file: INIT_EXAMPLE,
-              path: schema.path,
-            })}
+            {schema.initFrom
+              ? t('overview.noSchema.initHint', {
+                  file: schema.initFrom,
+                  path: schema.path,
+                })
+              : t('overview.noSchema.initEmptyHint', {
+                  file: INIT_EXAMPLE,
+                  path: schema.path,
+                })}
           </p>
         </div>
         <CodeBlock

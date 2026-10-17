@@ -6,7 +6,7 @@
 // A write is recorded in the history with the schema's text before and
 // after, so it can be undone.
 
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import {
   DEFAULT_EXAMPLE,
   STATE_IGNORE,
@@ -34,13 +34,29 @@ type SchemaView = z.output<typeof schemaResponse>;
 /** The schema file as GET /api/schema shows it. */
 export async function currentSchema(project: Project): Promise<SchemaView> {
   const read = await readSchema(project);
+  const initFrom = read.fingerprint ? undefined : await initSource(project);
   return {
     path: project.schemaPath,
     valid: Boolean(read.schema),
     document: read.document,
     errors: read.errors,
     ...(read.fingerprint ? { fingerprint: read.fingerprint } : {}),
+    ...(initFrom ? { initFrom } : {}),
   };
+}
+
+/**
+ * While the schema file is missing: the example init would read, when it
+ * exists and init may read it (inside the root, not a symlink).
+ */
+async function initSource(project: Project): Promise<string | undefined> {
+  const missing = await lstat(project.schemaFile).then(
+    () => false,
+    (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+  );
+  if (!missing) return undefined;
+  const target = await resolveTarget(project.root, DEFAULT_EXAMPLE);
+  return target.ok && target.exists ? DEFAULT_EXAMPLE : undefined;
 }
 
 /**

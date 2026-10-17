@@ -575,7 +575,7 @@ What the portal does, page by page:
 - **This machine only.** It binds `127.0.0.1` by default. `--host` takes another address, but one that is not loopback (`127.x.x.x`, `::1`, `localhost`) exits 2 unless `--unsafe-expose` is given, and then serves with a warning.
 - **Port.** Without `--port` it takes the first free port from 4747; `--port 0` takes any free one, and a `--port` that is in use exits 1.
 - **Browser.** It opens the browser only in a terminal; `--open` opens it anyway and `--no-open` never does.
-- **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or empty without one, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
+- **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. Stop it with SIGTERM to `pid`.
 
 `--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` loads the server (NestJS), so the other commands start as fast as before.
@@ -718,7 +718,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `GET /api/health`    | `{ "status": "ok" }`                                                                              |
 | `GET /api/project`   | the root, the schema path and the version                                                       |
-| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`                |
+| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`; while the schema file is missing, `initFrom` names the example `POST /api/schema/init` would read |
 | `GET /api/variables` | each variable's spec and its status in every file: `set`, `missing`, `invalid` or `masked`      |
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
