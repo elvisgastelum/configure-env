@@ -1,14 +1,17 @@
 // `configure-env serve`: starts the local API with the portal for the
 // project, prints the token-bearing launch URL, and runs until SIGINT or
-// SIGTERM. The server (@configure-env/api, NestJS) is imported only here and
+// SIGTERM. For a server other machines reach, the token can persist (a
+// token file or CONFIGURE_ENV_TOKEN), and it serves HTTPS or names the
+// public URL of the reverse proxy in front of it. The server (@configure-env/api, NestJS) is imported only here and
 // only when the command runs, so no other command pays for loading it.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { createServer as createNetServer, isIP } from 'node:net';
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
+import { createSecureContext } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import {
   CliError,
@@ -30,6 +33,10 @@ export const DEFAULT_HOST = '127.0.0.1';
 const PORT_SEARCH = 100;
 /** How many times a start races another process for a free port. */
 const START_ATTEMPTS = 5;
+/** The shortest token the API takes. */
+export const MIN_TOKEN_LENGTH = 32;
+/** The environment variable that holds a persistent token. */
+export const TOKEN_ENV = 'CONFIGURE_ENV_TOKEN';
 
 /**
  * What `serve` passes to the API's createServer. Declared here,
@@ -43,6 +50,8 @@ export interface ServerOptions {
   token: string;
   staticDir?: string;
   version?: string;
+  publicUrl?: string;
+  tls?: { cert: Buffer; key: Buffer };
 }
 
 /** The running server createServer resolves to. */
@@ -70,6 +79,10 @@ const OPTIONS = {
   open: { type: 'boolean' },
   'no-open': { type: 'boolean' },
   'unsafe-expose': { type: 'boolean' },
+  'token-file': { type: 'string' },
+  'public-url': { type: 'string' },
+  'tls-cert': { type: 'string' },
+  'tls-key': { type: 'string' },
 } as const;
 
 /** Whether a host only ever reaches this machine. */
@@ -121,6 +134,119 @@ function parsePort(value: string | undefined): number | undefined {
   if (!(port >= 0 && port <= 65_535))
     throw usageError(`--port takes a port from 0 to 65535, got ${value}`);
   return port;
+}
+
+/** Refuses a --public-url that is not an http(s) origin without a path. */
+function checkPublicUrl(value: string): void {
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  if (
+    !url ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  )
+    throw usageError(
+      `--public-url takes an http or https origin without a path, such as https://env.example.com; got ${value}`,
+    );
+}
+
+/** Where a persistent token comes from, as the output names it. */
+type TokenSource =
+  | { kind: 'run' }
+  | { kind: 'env'; token: string }
+  | { kind: 'file'; path: string; display: string };
+
+/**
+ * The token: CONFIGURE_ENV_TOKEN's, the --token-file's (written with a new
+ * random one, mode 600, when missing), else a fresh one for this run. A
+ * token is never printed, not even in an error.
+ */
+async function resolveToken(
+  source: TokenSource,
+  io: Io,
+): Promise<{ token: string; name?: string }> {
+  if (source.kind === 'run') return { token: newToken() };
+  if (source.kind === 'env') {
+    if (source.token.length < MIN_TOKEN_LENGTH)
+      throw usageError(
+        `${TOKEN_ENV} must be at least ${MIN_TOKEN_LENGTH} characters`,
+      );
+    return { token: source.token, name: TOKEN_ENV };
+  }
+  const { path, display } = source;
+  let text: string | undefined;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT')
+      throw new CliError(1, [
+        `cannot read the token file ${display}: ${errorCode(error) ?? (error as Error).message}`,
+      ]);
+  }
+  if (text === undefined) {
+    const token = newToken();
+    try {
+      await writeFile(path, `${token}\n`, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      throw new CliError(1, [
+        `cannot create the token file ${display}: ${errorCode(error) ?? (error as Error).message}`,
+      ]);
+    }
+    io.stderr(`configure-env: created ${display} with a new token (mode 600)`);
+    return { token, name: display };
+  }
+  const token = text.trim();
+  if (token.length < MIN_TOKEN_LENGTH)
+    throw usageError(
+      `the token in ${display} must be at least ${MIN_TOKEN_LENGTH} characters`,
+    );
+  if (process.platform !== 'win32') {
+    const mode = (await stat(path)).mode & 0o777;
+    if (mode & 0o077)
+      io.stderr(
+        `configure-env: warning: the token file ${display} has mode ${mode.toString(8)}: others on this machine can read it; chmod 600 it`,
+      );
+  }
+  return { token, name: display };
+}
+
+const newToken = () => randomBytes(32).toString('base64url');
+
+/** The --tls-cert and --tls-key files, checked to make a usable pair. */
+async function readTls(
+  certPath: string,
+  keyPath: string,
+  io: Io,
+): Promise<{ cert: Buffer; key: Buffer }> {
+  const read = async (option: string, path: string) => {
+    try {
+      return await readFile(resolve(io.cwd, path));
+    } catch (error) {
+      throw new CliError(1, [
+        `cannot read ${option} ${path}: ${errorCode(error) ?? (error as Error).message}`,
+      ]);
+    }
+  };
+  const tls = {
+    cert: await read('--tls-cert', certPath),
+    key: await read('--tls-key', keyPath),
+  };
+  try {
+    createSecureContext(tls);
+  } catch (error) {
+    throw new CliError(1, [
+      `--tls-cert ${certPath} and --tls-key ${keyPath} are not a usable certificate and key: ${(error as Error).message}`,
+    ]);
+  }
+  return tls;
 }
 
 /**
@@ -223,8 +349,31 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
   const host = options.host ?? DEFAULT_HOST;
   if (!host) throw usageError('--host takes an address');
   const port = parsePort(options.port);
+  const certPath = options['tls-cert'];
+  const keyPath = options['tls-key'];
+  if ((certPath === undefined) !== (keyPath === undefined))
+    throw usageError('--tls-cert and --tls-key go together');
+  const withTls = certPath !== undefined;
+  const publicUrl = options['public-url'];
+  if (publicUrl !== undefined) checkPublicUrl(publicUrl);
+  const envToken = io.env[TOKEN_ENV] || undefined;
+  const tokenFile = options['token-file'];
+  if (tokenFile === '') throw usageError('--token-file takes a path');
+  if (tokenFile !== undefined && envToken !== undefined)
+    throw usageError(`--token-file and ${TOKEN_ENV} exclude each other`);
+  const tokenSource: TokenSource =
+    tokenFile !== undefined
+      ? {
+          kind: 'file',
+          path: resolve(io.cwd, tokenFile),
+          display: displayPath(io.cwd, resolve(io.cwd, tokenFile)),
+        }
+      : envToken !== undefined
+        ? { kind: 'env', token: envToken }
+        : { kind: 'run' };
   const exposed = !isLoopback(host);
-  if (exposed && !options['unsafe-expose'])
+  // Over HTTPS the token never crosses the network in the clear.
+  if (exposed && !withTls && !options['unsafe-expose'])
     throw usageError(
       `--host ${host} is not a loopback address: the portal would be reachable from other machines`,
       'pass --unsafe-expose to bind it anyway',
@@ -238,8 +387,10 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
   );
   if (hasSchema) await loadContextSchema(context);
+  const tls = withTls ? await readTls(certPath, keyPath!, io) : undefined;
+  const { token, name: tokenName } = await resolveToken(tokenSource, io);
   const runtime: ServeRuntime = { ...defaultRuntime, ...io.serve };
-  if (exposed)
+  if (exposed && !withTls)
     io.stderr(
       `configure-env: warning: serving on ${host}: anyone who can reach it and holds the token can read and change this project's env files`,
     );
@@ -252,9 +403,11 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
       root: context.root,
       schemaPath: relative(context.root, context.schemaPath),
       host,
-      token: randomBytes(32).toString('base64url'),
+      token,
       version: VERSION,
       ...(staticDir ? { staticDir } : {}),
+      ...(publicUrl !== undefined ? { publicUrl } : {}),
+      ...(tls ? { tls } : {}),
     },
     port,
   );
@@ -265,20 +418,26 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     return 130;
   }
 
+  // A persistent token is never printed: the output names where it is.
   if (context.json) {
     io.stdout(
       JSON.stringify({
         command: 'serve',
-        url: server.launchUrl,
+        url: tokenName === undefined ? server.launchUrl : server.url,
         port: server.port,
         pid: process.pid,
+        ...(tokenName === undefined ? {} : { token: tokenName }),
       }),
     );
   } else {
     io.stdout(
       `configure-env serve · ${displayPath(io.cwd, context.schemaPath)} on ${server.url} · Ctrl-C to stop`,
     );
-    io.stdout(`Open ${server.launchUrl}`);
+    io.stdout(
+      tokenName === undefined
+        ? `Open ${server.launchUrl}`
+        : `Open ${server.url}/launch?token=<token>, where <token> is the one in ${tokenName}`,
+    );
   }
   if (!hasSchema)
     io.stderr(

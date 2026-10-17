@@ -511,12 +511,21 @@ the API: the printed URL holds it and, opened in a browser, trades it for
 a session cookie. Anyone with that URL can read and change the project's
 env files while the server runs, so do not share it.
 
+A token that survives restarts, for a server on another machine, comes
+from CONFIGURE_ENV_TOKEN or --token-file (they exclude each other), at
+least 32 characters either way (else exit 2). A missing --token-file is
+created with a new random token, mode 600. Such a token is never
+printed: the output names where it is instead.
+
 It runs without a schema too: the portal then offers to init one from
 .env.example, as configure-env init does. An invalid schema exits 1.
 
 It binds 127.0.0.1 by default. A host that is not a loopback address
-(127.x.x.x, ::1, localhost) is refused (exit 2) unless --unsafe-expose is
-given, and then serves with a warning.
+(127.x.x.x, ::1, localhost) is refused (exit 2) unless --tls-cert and
+--tls-key serve it over HTTPS, or --unsafe-expose is given, and then it
+serves plain HTTP with a warning. Behind a reverse proxy, keep the
+loopback host and pass the proxy's address as --public-url: the server
+then answers that host too, and every other one is still refused.
 
 Without --port it takes the first free port from 4747. A taken --port
 exits 1.
@@ -524,13 +533,24 @@ exits 1.
 In a terminal it opens the URL in the default browser; --open and
 --no-open decide instead. With --json it prints one line,
 {"command":"serve","url":...,"port":...,"pid":...}, where url holds the
-token, and does not open a browser unless --open is given.
+token, and does not open a browser unless --open is given. With a
+persistent token, url is the server's address and "token" names where
+the token is.
 
 Options:
   --port <port>    the port (default: the first free one from 4747;
                    0: any free port)
   --host <host>    the address to bind (default: 127.0.0.1)
-  --unsafe-expose  allow a --host that other machines can reach
+  --unsafe-expose  allow a --host that other machines can reach over
+                   plain HTTP
+  --token-file <path>
+                   read the token from this file, created when missing
+  --public-url <url>
+                   the address clients use, such as a reverse proxy's
+                   https://env.example.com
+  --tls-cert <path>
+                   a PEM certificate: serve HTTPS (with --tls-key)
+  --tls-key <path> the certificate's PEM private key
   --open           open the browser, also without a terminal
   --no-open        never open the browser
 
@@ -546,6 +566,8 @@ Examples:
   configure-env serve
   configure-env serve --port 5000 --no-open
   configure-env serve --json --no-open
+  configure-env serve --token-file ~/.config/configure-env/token \\
+    --public-url https://env.example.com --no-open
   configure-env serve --host 0.0.0.0 --unsafe-expose
 
 ${EXIT_CODES}`;
