@@ -689,10 +689,7 @@ function maskJson(
     return value.map((item) => maskJson(item, hidden, values));
   if (typeof value !== 'object' || value === null) return value;
   const entry = value as Record<string, unknown>;
-  const masked =
-    typeof entry.key === 'string' &&
-    hidden(entry.key) &&
-    typeof entry.value === 'string';
+  const ownHidden = typeof entry.key === 'string' && hidden(entry.key);
   const record = Object.fromEntries(
     Object.entries(entry).map(([name, item]) => [
       name,
@@ -700,12 +697,17 @@ function maskJson(
       NAME_FIELDS.has(name) ? item : maskJson(item, hidden, values),
     ]),
   );
-  if (masked) {
-    delete record.value;
-    return { ...record, masked: MASK };
-  }
-  return record;
+  if (!ownHidden) return record;
+  // The entry's own values: a list's or get's `value`, history's previews.
+  for (const name of PREVIEW_FIELDS)
+    if (typeof record[name] === 'string') record[name] = MASK;
+  if (typeof record.value !== 'string') return record;
+  delete record.value;
+  return { ...record, masked: MASK };
 }
+
+/** The fields a history entry previews its key's values in. */
+const PREVIEW_FIELDS = ['before', 'after'];
 
 /** The fields that name a key or a file, left as they are. */
 const NAME_FIELDS = new Set(['key', 'file', 'path']);

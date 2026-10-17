@@ -570,6 +570,27 @@ describe('the masking of every answer', () => {
     expect(rows.find((row) => row.key === 'DEBUG_PORT')?.value).toBeUndefined();
   });
 
+  it('masks the history previews of a key the schema no longer declares', async () => {
+    const legacy = ['legacy', 'v'.repeat(12)].join('-');
+    await writeFile(
+      join(dirs.root, 'env.schema.json'),
+      JSON.stringify({
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, LEGACY: { type: 'string' } },
+      }),
+    );
+    await writeEnv('HOST=a.test\n');
+    const set = await run(['set', '--ci', `LEGACY=${legacy}`], {
+      cwd: dirs.root,
+    });
+    expect(set.code).toBe(0);
+    await writeFile(join(dirs.root, 'env.schema.json'), JSON.stringify(SCHEMA));
+    const client = await connect();
+    const result = await call(client, 'history');
+    expect(result.text).toMatch(/LEGACY/);
+    expect(result.text).not.toContain(legacy);
+  });
+
   it('withholds the output when the schema cannot be read to mask it', async () => {
     await writeEnv(`HOST=a.test\nAPI_KEY=${SECRET}\n`);
     const client = await connect();
