@@ -24,7 +24,7 @@ import {
   validateDocument,
   writeSchemaFile,
 } from '@configure-env/core';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import {
   CliError,
@@ -328,17 +328,33 @@ export function createMcpServer(options: McpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) => {
-      const schema = await loadContextSchema(await contextFor(options));
+      const context = await contextFor(options);
+      const schema = await loadContextSchema(context);
       if (!Object.hasOwn(schema.variables, input.key))
         return textResult(`${input.key}: is not in the schema`, true);
+      if (
+        input.file !== undefined &&
+        !schema.files.some((spec) => spec.path === input.file)
+      )
+        return textResult(`${input.file}: is not in the schema`, true);
+      // The user runs it in their own terminal, from any folder: every path
+      // is absolute, and the state is the one this server's commands use.
+      const exists =
+        input.file === undefined ||
+        (await stat(resolve(context.root, input.file)).then(
+          () => true,
+          () => false,
+        ));
       const flags = [
-        ...(options.root === undefined
-          ? []
-          : [`--root ${quote(options.root)}`]),
+        `--root ${quote(context.root)}`,
         ...(options.schema === undefined
           ? []
-          : [`--schema ${quote(options.schema)}`]),
+          : [`--schema ${quote(context.schemaPath)}`]),
+        ...(options.state === undefined
+          ? []
+          : [`--state ${quote(context.statePath)}`]),
         ...(input.file === undefined ? [] : [`--file ${quote(input.file)}`]),
+        ...(exists ? [] : ['--create']),
       ];
       const command = [
         'configure-env set',
@@ -493,6 +509,9 @@ export function createMcpServer(options: McpOptions): McpServer {
           }),
           true,
         );
+      // The history's actors are `cli` and `portal`, a constraint of the
+      // state database: the server runs the CLI's commands, so its schema
+      // edits are recorded as the CLI's too, as every other tool's writes.
       const history = await recordHistory(
         context.statePath,
         'cli',

@@ -264,12 +264,45 @@ describe('the MCP write tools', () => {
       file: '.env',
     });
     expect(result.isError).toBe(false);
+    const root = dirs.root;
     expect(JSON.parse(result.text)).toMatchObject({
       key: 'API_KEY',
-      command: 'configure-env set --file .env --prompt API_KEY',
-      npx: 'npx @elvisgastelum/configure-env set --file .env --prompt API_KEY',
+      command: `configure-env set --root ${root} --file .env --prompt API_KEY`,
+      npx: `npx @elvisgastelum/configure-env set --root ${root} --file .env --prompt API_KEY`,
     });
     expect(await readEnv()).toBe('HOST=a.test\n');
+  });
+
+  it('hands a command that runs from any folder, with the state the server uses', async () => {
+    const server = createMcpServer({
+      cwd: dirs.root,
+      env: {},
+      version: '0',
+      state: 'custom/state.db',
+    });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    clients.push(client);
+    const result = await call(client, 'request_secret', {
+      key: 'API_KEY',
+      file: '.env',
+    });
+    const { command } = JSON.parse(result.text) as { command: string };
+    const root = dirs.root;
+    expect(command).toBe(
+      `configure-env set --root ${root} --state ${join(root, 'custom/state.db')} --file .env --create --prompt API_KEY`,
+    );
+  });
+
+  it('refuses to request a secret for a file that is not in the schema', async () => {
+    const client = await connect();
+    const result = await call(client, 'request_secret', {
+      key: 'API_KEY',
+      file: '.env.other',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/\.env\.other: is not in the schema/);
   });
 
   it('refuses to request a variable the schema does not declare', async () => {
