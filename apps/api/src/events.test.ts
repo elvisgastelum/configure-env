@@ -237,7 +237,7 @@ describe('ProjectEvents', () => {
     expect(await secondSaw).toBe(1);
   });
 
-  it('answers even when watching fails, and the next listener tries again', async () => {
+  it('ends the stream when watching fails, so the listener reconnects and tries again', async () => {
     const events = new ProjectEvents(
       await resolveProject(root, 'env.schema.json'),
     );
@@ -246,11 +246,16 @@ describe('ProjectEvents', () => {
       .mockRejectedValueOnce(new Error('EMFILE'));
     const first = fakeResponse();
     await events.subscribe(first as never);
-    // Still an event stream, so EventSource reconnects and tries again.
+    // An event stream that ends: EventSource reconnects after `retry`.
     expect(first.headersSent).toBe(true);
-    const second = fakeResponse();
-    await events.subscribe(second as never);
+    expect(first.sent).toBe('retry: 1000\n\n');
+    expect(first.writableEnded).toBe(true);
+    expect(events.watching).toBe(0);
+    const again = fakeResponse();
+    await events.subscribe(again as never);
     expect(watch).toHaveBeenCalledTimes(2);
+    expect(again.sent).toContain(': watching');
+    expect(again.writableEnded).toBe(false);
     expect(events.watching).toBe(1);
   });
 

@@ -32,8 +32,11 @@ export class ProjectEvents implements OnModuleDestroy {
   private readonly pending = new Set<string>();
   private timer: NodeJS.Timeout | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
-  /** Watching the files for the first listener; the others wait for it too. */
-  private arming: Promise<void> | undefined;
+  /**
+   * Watching the files for the first listener, the others wait for it too;
+   * false when it failed.
+   */
+  private arming: Promise<boolean> | undefined;
   private closed = false;
 
   constructor(private readonly project: Project) {}
@@ -52,16 +55,27 @@ export class ProjectEvents implements OnModuleDestroy {
     this.clients.add(res);
     res.on('close', () => this.unsubscribe(res));
     if (!this.arming) {
-      // A failure still answers, as before; the next listener tries again.
-      const arming: Promise<void> = this.arm().catch(() => {
-        if (this.arming === arming) this.arming = undefined;
-      });
+      const arming: Promise<boolean> = this.arm().then(
+        () => true,
+        () => {
+          // The next listener tries again.
+          if (this.arming === arming) this.arming = undefined;
+          return false;
+        },
+      );
       this.arming = arming;
     }
-    await this.arming;
+    const watching = await this.arming;
     // It left, or the server closed, while the files were being watched.
     if (!this.clients.has(res) || res.writableEnded) return;
     res.writeHead(200, STREAM_HEADERS);
+    if (!watching) {
+      // Nothing is watched: the stream ends, and EventSource reconnects
+      // after `retry`, which watches again.
+      res.write('retry: 1000\n\n');
+      res.end();
+      return;
+    }
     res.write('retry: 1000\n\n: watching\n\n');
   }
 
