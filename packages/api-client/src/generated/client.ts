@@ -397,6 +397,20 @@ export interface CheckRequest {
   values?: CheckRequestValues;
 }
 
+export type ConfirmReplacementsStatusCode =
+  (typeof ConfirmReplacementsStatusCode)[keyof typeof ConfirmReplacementsStatusCode];
+
+export const ConfirmReplacementsStatusCode = {
+  NUMBER_428: 428,
+} as const;
+
+export interface ConfirmReplacements {
+  statusCode: ConfirmReplacementsStatusCode;
+  message: string;
+  /** The protected keys the edit would replace; nothing was written. */
+  keys: string[];
+}
+
 export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
 
 export const DiffLineKind = {
@@ -758,6 +772,49 @@ export interface InvalidSchema {
 }
 
 /**
+ * Whether the file holds a value for it, or holds it empty.
+ */
+export type ListedKeySet = (typeof ListedKeySet)[keyof typeof ListedKeySet];
+
+export const ListedKeySet = {
+  yes: 'yes',
+  no: 'no',
+  empty: 'empty',
+} as const;
+
+export interface ListedKey {
+  key: string;
+  /** Whether the file holds a value for it, or holds it empty. */
+  set: ListedKeySet;
+  /**
+   * Whether it passes its rules, a missing value included; null when it is not checked: a key the schema does not list for the file, or a template's placeholder.
+   * @nullable
+   */
+  valid: boolean | null;
+  /** Why it is not valid; never holds the value. */
+  error?: string;
+  /** The value, masked when secret; absent when it is not set. */
+  value?: string;
+  /** A key the schema does not list for the file. */
+  unknown?: true;
+}
+
+export interface ListedFile {
+  path: string;
+  template: boolean;
+  exists: boolean;
+  /**
+   * Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.
+   * @nullable
+   */
+  fingerprint?: string | null;
+  /** Why the path was refused. */
+  error?: string;
+  /** The file's variables in schema order, then the keys it holds that the schema does not list for it; empty when its path was refused. */
+  keys: ListedKey[];
+}
+
+/**
  * When not opened: no-editor: none is set or running; terminal-editor: the editor found runs only in a terminal, which the server has none of, so it is not started; failed: the editor command failed.
  */
 export type OpenInEditorReason =
@@ -1054,6 +1111,17 @@ export interface SetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
+  /** Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables. */
+  allowUnknown?: boolean;
+  /** Generate only the keys the file holds no value for: a value it holds is kept, checked as it is, and reported unchanged. */
+  keepExisting?: boolean;
+  /**
+   * Keys treated as secret whatever their spec, such as a value piped in: masked in the answer, their values never kept in the history.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  masked?: string[];
 }
 
 export type StaleFileStatusCode =
@@ -1082,6 +1150,22 @@ export interface StaleSchema {
   message: string;
   /** The schema as it is now. */
   schema: Schema;
+}
+
+export type StateUnavailableStatusCode =
+  (typeof StateUnavailableStatusCode)[keyof typeof StateUnavailableStatusCode];
+
+export const StateUnavailableStatusCode = {
+  NUMBER_503: 503,
+} as const;
+
+export interface StateUnavailable {
+  statusCode: StateUnavailableStatusCode;
+  message: string;
+  /** When the write could not get or use the state: the state database, as the lines show it. */
+  path?: string;
+  /** Why, a line each; the message joins them. */
+  lines?: string[];
 }
 
 export type UndoConflictStatusCode =
@@ -1164,6 +1248,8 @@ export interface UnsetValuesRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /** Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those. */
+  confirmReplacements?: boolean;
 }
 
 /**
@@ -1212,6 +1298,8 @@ export const ValuesEditKeysItemStatus = {
 export type ValuesEditKeysItem = {
   key: string;
   status: ValuesEditKeysItemStatus;
+  /** For a set: the value the file holds for it, masked when secret or `masked`. */
+  value?: string;
 };
 
 export interface ValuesEdit {
@@ -1234,6 +1322,8 @@ export interface ValuesEdit {
   changes: number[];
   /** What went wrong after the file was written: the protected state or the history not recorded. */
   warnings: string[];
+  /** When the file was written but the protected state was not: why, as the first warnings say it. */
+  stateError?: string[];
 }
 
 export type VariableSpec =
@@ -1786,6 +1876,8 @@ export interface Variable {
 
 export interface Variables {
   variables: Variable[];
+  /** Every schema file with its keys as `configure-env list` shows them, the keys the schema does not list for it included. */
+  files?: ListedFile[];
 }
 
 export type GetCheckParams = {
@@ -2501,8 +2593,13 @@ export type setValuesResponse422 = {
   status: 422;
 };
 
+export type setValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type setValuesResponse503 = {
-  data: ApiError;
+  data: StateUnavailable;
   status: 503;
 };
 
@@ -2514,6 +2611,7 @@ export type setValuesResponseError = (
   | setValuesResponse404
   | setValuesResponse409
   | setValuesResponse422
+  | setValuesResponse428
   | setValuesResponse503
 ) & {
   headers: Headers;
@@ -2591,8 +2689,13 @@ export type unsetValuesResponse422 = {
   status: 422;
 };
 
+export type unsetValuesResponse428 = {
+  data: ConfirmReplacements;
+  status: 428;
+};
+
 export type unsetValuesResponse503 = {
-  data: ApiError;
+  data: StateUnavailable;
   status: 503;
 };
 
@@ -2604,6 +2707,7 @@ export type unsetValuesResponseError = (
   | unsetValuesResponse404
   | unsetValuesResponse409
   | unsetValuesResponse422
+  | unsetValuesResponse428
   | unsetValuesResponse503
 ) & {
   headers: Headers;

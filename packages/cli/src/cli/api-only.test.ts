@@ -15,10 +15,9 @@ const DIRECT = new Set(['install', 'serve', 'mcp']);
 
 /**
  * The commands still on the core directly, until their move to the API
- * lands: list, get, set, unset and history (PV-40), apply (PV-41). Each
- * ticket takes its commands off this list.
+ * lands: apply (PV-41), which takes itself off this list.
  */
-const PENDING = new Set(['list', 'get', 'set', 'unset', 'history', 'apply']);
+const PENDING = new Set(['apply']);
 
 /**
  * What a command may still take from the core: types, and these values,
@@ -27,7 +26,10 @@ const PENDING = new Set(['list', 'get', 'set', 'unset', 'history', 'apply']);
 const PURE = new Set([
   'DEFAULT_EXAMPLE',
   'STATE_IGNORE',
+  'VARIABLE_NAME',
   'VARIABLE_TYPES',
+  'isTemplate',
+  'parsePairs',
   'validateValue',
 ]);
 

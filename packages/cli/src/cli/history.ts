@@ -1,20 +1,12 @@
 // `configure-env history`: the latest changes the CLI and the portal made,
 // from the state database's history of edits. Values are previews: a
 // secret's is masked, and no value is ever stored for it. Undo stays in the
-// portal.
+// portal. It runs through the configure-env API (connect.ts): GET
+// /api/history.
 
-import {
-  type ChangeRecord,
-  queryChanges,
-  undoBlocker,
-} from '@configure-env/core';
-import {
-  CliError,
-  contextOf,
-  displayPath,
-  parseCommand,
-  usageError,
-} from './common.ts';
+import { type Change, getHistory } from '@configure-env/api-client/client';
+import { CliError, displayPath, parseCommand, usageError } from './common.ts';
+import { answerMessage, openTarget, send } from './connect.ts';
 import { HISTORY_HELP } from './help.ts';
 import { table } from './inspect.ts';
 import type { Io } from './io.ts';
@@ -32,8 +24,8 @@ const cut = (text: string) => {
 };
 
 /** A change as `--json` prints it: previews only, never a fingerprint. */
-function changeJson(change: ChangeRecord) {
-  const blocker = undoBlocker(change);
+function changeJson(change: Change) {
+  const blocker = change.undoBlocker;
   return {
     id: change.id,
     at: change.at,
@@ -59,18 +51,28 @@ export async function historyCommand(args: string[], io: Io): Promise<number> {
     return 0;
   }
   if (options.file?.length) throw usageError('history takes no --file');
-  const context = await contextOf(io, options);
-  let page: Awaited<ReturnType<typeof queryChanges>>;
+  const run = await openTarget(io, options);
+  const connection = await run.connect();
+  let response: Awaited<ReturnType<typeof getHistory>>;
   try {
-    page = await queryChanges(context.statePath, { limit: HISTORY_LIMIT });
-  } catch (error) {
-    const shown = displayPath(io.cwd, context.statePath);
+    response = await send(connection, () =>
+      getHistory({ limit: HISTORY_LIMIT }, connection.init()),
+    );
+  } finally {
+    await connection.close();
+  }
+  if (response.status !== 200) {
+    const message = answerMessage(response);
+    const { statePath } = run;
     throw new CliError(1, [
-      (error as Error).message.replaceAll(context.statePath, shown),
+      statePath
+        ? message.replaceAll(statePath, displayPath(io.cwd, statePath))
+        : message,
     ]);
   }
+  const page = response.data;
 
-  if (context.json) {
+  if (run.json) {
     io.stdout(
       JSON.stringify({
         command: 'history',

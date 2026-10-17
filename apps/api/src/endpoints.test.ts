@@ -95,6 +95,48 @@ describe('GET /api/variables', () => {
   });
 });
 
+describe('GET /api/variables, by file', () => {
+  it("lists each file's keys as configure-env list shows them, secrets masked", async () => {
+    const response = await get('/api/variables');
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain(DB_PASSWORD);
+    const [env, example, app] = response.body.files;
+    expect(env).toEqual({
+      path: '.env',
+      template: false,
+      exists: true,
+      fingerprint: schemaFingerprint(fixtureEnv),
+      keys: [
+        {
+          key: 'API_URL',
+          set: 'yes',
+          valid: false,
+          error: expect.any(String),
+          value: 'not-a-url',
+        },
+        { key: 'PORT', set: 'yes', valid: true, value: '8080' },
+        { key: 'DB_PASSWORD', set: 'yes', valid: true, value: '••••le' },
+        { key: 'API_KEY', set: 'no', valid: true },
+        { key: 'LOG_LEVEL', set: 'yes', valid: true, value: 'debug' },
+        { key: 'EXTRA', set: 'yes', valid: null, value: '1', unknown: true },
+      ],
+    });
+    // A missing required value is reported, as list reports it.
+    expect(example).toMatchObject({
+      path: '.env.example',
+      template: true,
+      exists: false,
+      fingerprint: null,
+    });
+    expect(example.keys[0]).toEqual({ key: 'API_URL', set: 'no', valid: null });
+    expect(app).toMatchObject({ path: 'config/app.env', exists: false });
+    expect(app.keys).toEqual([
+      { key: 'PORT', set: 'no', valid: true },
+      { key: 'LOG_LEVEL', set: 'no', valid: true },
+    ]);
+  });
+});
+
 describe('GET /api/groups', () => {
   let grouped: string;
   let groupedServer: ApiServer;

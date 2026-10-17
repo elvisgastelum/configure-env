@@ -6,6 +6,7 @@ import {
   schemaFingerprint,
 } from '@configure-env/core';
 import request from 'supertest';
+import { createServer } from './server.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   type ApiServer,
@@ -51,8 +52,8 @@ describe('POST /api/values/set', () => {
       file: '.env',
       fingerprint: schemaFingerprint(text),
       keys: [
-        { key: 'PORT', status: 'updated' },
-        { key: 'NAME', status: 'unchanged' },
+        { key: 'PORT', status: 'updated', value: '9090' },
+        { key: 'NAME', status: 'unchanged', value: 'app' },
       ],
       replaced: [],
       generated: [],
@@ -255,6 +256,165 @@ describe('POST /api/values/set', () => {
       }),
     ]);
     expect(JSON.stringify(rows)).not.toContain(SESSION_KEY);
+  });
+});
+
+describe('POST /api/values/set, as the CLI sends it', () => {
+  const cli = (path: string, body: object) =>
+    post(path, body).set('X-Configure-Env-Client', 'cli');
+
+  it('records the actor cli for a request from the CLI, portal otherwise', async () => {
+    const first = await cli('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { PORT: '9090' },
+    });
+    expect(first.status).toBe(200);
+    const second = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: first.body.fingerprint,
+      values: { PORT: '9091' },
+    });
+    expect(second.status).toBe(200);
+    const unset = await cli('/api/values/unset', {
+      file: '.env',
+      fingerprint: second.body.fingerprint,
+      keys: ['NAME'],
+    });
+    expect(unset.status).toBe(200);
+    expect((await history()).map((change) => change.actor)).toEqual([
+      'cli',
+      'portal',
+      'cli',
+    ]);
+  });
+
+  it('sets a key the file does not list with allowUnknown, as a plain string', async () => {
+    const refused = await cli('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { EXTRA: 'one two' },
+    });
+    expect(refused.status).toBe(422);
+    const response = await cli('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { EXTRA: 'one two' },
+      allowUnknown: true,
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.keys).toEqual([
+      { key: 'EXTRA', status: 'added', value: 'one two' },
+    ]);
+    expect(await envText()).toBe(`${protectedEnv}EXTRA="one two"\n`);
+  });
+
+  it('keeps a value the file holds with keepExisting, generating only a missing one', async () => {
+    await writeFile(
+      join(root, '.env'),
+      `${protectedEnv}TOKEN=${'ab'.repeat(16)}\n`,
+    );
+    const kept = await cli('/api/values/set', {
+      file: '.env',
+      fingerprint: schemaFingerprint(await envText()),
+      generate: ['TOKEN'],
+      keepExisting: true,
+    });
+    expect(kept.status).toBe(200);
+    expect(kept.body).toMatchObject({
+      keys: [{ key: 'TOKEN', status: 'unchanged', value: '••••ab' }],
+      generated: [],
+      changes: [],
+    });
+    expect(await envText()).toContain(`TOKEN=${'ab'.repeat(16)}`);
+  });
+
+  it('masks a masked key in the answer and never keeps its value in the history', async () => {
+    const response = await cli('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { NAME: 'piped-in-value' },
+      masked: ['NAME'],
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.keys).toEqual([
+      { key: 'NAME', status: 'updated', value: '••••ue' },
+    ]);
+    expect(JSON.stringify(response.body)).not.toContain('piped-in-value');
+    expect(JSON.stringify(await history())).not.toContain('piped-in-value');
+  });
+});
+
+describe('a value write with confirmReplacements', () => {
+  it('answers 428 with the keys it would replace, writing nothing, after every other check', async () => {
+    const asked = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { SESSION_KEY: 'another-session-key-0123', PORT: '9090' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(asked.status).toBe(428);
+    expect(asked.body).toMatchObject({
+      statusCode: 428,
+      keys: ['SESSION_KEY'],
+    });
+    expect(await envText()).toBe(protectedEnv);
+    expect(await history()).toEqual([]);
+    // An invalid value is refused first, as it would be without the question.
+    const invalid = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { SESSION_KEY: 'another-session-key-0123', PORT: 'notaport' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.kind).toBe('invalid');
+    const unset = await post('/api/values/unset', {
+      file: '.env',
+      fingerprint: BASE,
+      keys: ['SESSION_KEY'],
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(unset.status).toBe(428);
+    expect(unset.body.keys).toEqual(['SESSION_KEY']);
+    // Nothing to replace: it writes, as without the question.
+    const plain = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { PORT: '9090' },
+      replaceProtected: ['SESSION_KEY'],
+      confirmReplacements: true,
+    });
+    expect(plain.status).toBe(200);
+  });
+});
+
+describe('a value write whose state write fails', () => {
+  it('names the state failure apart from the warnings', async () => {
+    await server.close();
+    server = await createServer({
+      root,
+      schemaPath: 'env.schema.json',
+      port: 0,
+      token: TOKEN,
+      writeState: async () => {
+        throw new Error('disk full');
+      },
+    });
+    const written = await post('/api/values/set', {
+      file: '.env',
+      fingerprint: BASE,
+      values: { PORT: '9090' },
+    });
+    expect(written.status).toBe(200);
+    expect(written.body.stateError).toEqual([
+      `${DEFAULT_STATE_PATH}: not written: disk full`,
+      '.env was written; its protected values are not recorded',
+    ]);
+    expect(written.body.warnings).toEqual(written.body.stateError);
   });
 });
 

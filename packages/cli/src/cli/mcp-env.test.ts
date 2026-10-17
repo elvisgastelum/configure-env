@@ -80,6 +80,21 @@ describe('the MCP tools with env', () => {
       expect(Object.keys(tool.inputSchema.properties ?? {})).toContain('env');
   });
 
+  it("lists and sets the environment's values on its server", async () => {
+    const client = await connect();
+    const listed = await call(client, 'list_variables', { env: 'staging' });
+    expect(listed.isError).toBe(false);
+    expect(listed.text).toContain('remote.test');
+    const set = await call(client, 'set_values', {
+      env: 'staging',
+      values: { HOST: 'set.test' },
+    });
+    expect(set.isError).toBe(false);
+    expect(await readFile(join(remote.root, '.env'), 'utf8')).toBe(
+      'HOST=set.test\n',
+    );
+  });
+
   it("checks the environment's project on its server", async () => {
     const result = await call(await connect(), 'check', { env: 'staging' });
     expect(result.isError).toBe(true);

@@ -10,10 +10,13 @@ import {
   type EditContext,
   type EditFailure,
   type EnvFile,
+  type ChangeActor,
   type EnvSchema,
   type ProtectedProblem,
   generatableProblem,
   generateValue,
+  getValue,
+  maskValue,
   readEnvFile,
   recordHistory,
   serialize,
@@ -76,7 +79,8 @@ export async function editContext(
   return {
     schema,
     run: state && { path: project.statePath, state },
-    cwd: project.root,
+    cwd: project.cwd ?? project.root,
+    ...(project.writeState ? { writeState: project.writeState } : {}),
   };
 }
 
@@ -105,7 +109,10 @@ async function failure(
     case 'cancelled':
       return new ApiError(500, 'the edit was cancelled');
     case 'state':
-      return new ApiError(503, result.lines.join('; '));
+      return new ApiError(503, result.lines.join('; '), {
+        path: result.path,
+        lines: result.lines,
+      });
     case 'write': {
       // The core refuses to write over a file that changed since it read it.
       const now = await readFile(file.absolute, 'utf8').catch(() => undefined);
@@ -115,25 +122,73 @@ async function failure(
   }
 }
 
+/**
+ * The edit options of a write: its replacements and, when it asks to
+ * confirm them, the confirmation that refuses them, noting the keys.
+ */
+function replacing(body: {
+  replaceProtected?: string[] | undefined;
+  confirmReplacements?: boolean | undefined;
+}) {
+  const asked: string[] = [];
+  return {
+    asked,
+    options: {
+      replace: new Set(body.replaceProtected ?? []),
+      ...(body.confirmReplacements
+        ? {
+            confirm: async (keys: string[]) => {
+              asked.push(...keys);
+              return false;
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/** A 428: the replacements to confirm before the edit is sent again. */
+const toConfirm = (keys: readonly string[]) =>
+  new ApiError(428, 'confirm the protected values to replace', {
+    keys: [...keys],
+  });
+
 /** The fingerprint of the file after an edit that may have written it. */
 const fingerprintAfter = (file: EnvFile, written: boolean) =>
   contentFingerprint(written ? serialize(file.doc) : file.previous);
+
+/** The history's actor of a request: its X-Configure-Env-Client header's. */
+export const actorOf = (client: string | undefined): ChangeActor =>
+  client === 'cli' ? 'cli' : 'portal';
 
 /** Sets values (given or generated) in one file: POST /api/values/set. */
 export async function setFileValues(
   schema: EnvSchema,
   project: Project,
   body: z.output<typeof setValuesRequest>,
+  actor: ChangeActor = 'portal',
 ): Promise<ValuesEdit> {
   const file = await openFile(schema, project, body.file, body.fingerprint);
   const listed = variablesOf(schema, file.spec);
   const pairs = new Map(Object.entries(body.values ?? {}));
-  const generate = [...new Set(body.generate ?? [])];
+  const masked = new Set(body.masked ?? []);
+  const kept = new Set<string>();
+  const generate: string[] = [];
   const errors: EditProblem[] = [];
-  for (const key of pairs.keys())
-    if (!listed.has(key))
-      errors.push({ key, message: `is not one of ${body.file}'s variables` });
-  for (const key of generate) {
+  if (!body.allowUnknown)
+    for (const key of pairs.keys())
+      if (!listed.has(key))
+        errors.push({ key, message: `is not one of ${body.file}'s variables` });
+  for (const key of new Set(body.generate ?? [])) {
+    // A generated value never replaces one that is set, when asked so: no
+    // rotation by accident.
+    const current = body.keepExisting ? getValue(file.doc, key) : undefined;
+    if (current && listed.has(key)) {
+      kept.add(key);
+      pairs.set(key, current);
+      continue;
+    }
+    generate.push(key);
     const declared = Object.hasOwn(schema.variables, key);
     const problem = listed.has(key)
       ? generatableProblem(schema.variables[key], declared)
@@ -149,26 +204,35 @@ export async function setFileValues(
   if (errors.length) throw refused('invalid', errors);
 
   const context = await editContext(schema, project);
-  const result = await setValues(context, file, pairs, {
-    replace: new Set(body.replaceProtected ?? []),
-  });
+  const { asked, options } = replacing(body);
+  const result = await setValues(context, file, pairs, { ...options, kept });
+  if (!result.ok && result.kind === 'cancelled' && asked.length)
+    throw toConfirm(asked);
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const changed = result.keys.filter((entry) => entry.status !== 'unchanged');
   const history = await recordHistory(
     project.statePath,
-    'portal',
-    setChanges(schema, file, result),
+    actor,
+    setChanges(schema, file, result, { masked }),
   );
   const warnings = [...(result.stateError ?? []), ...history.warnings];
   return {
     file: body.file,
     fingerprint: fingerprintAfter(file, changed.length > 0),
-    keys: result.keys.map(({ key, status }) => ({ key, status })),
+    keys: result.keys.map(({ key, status, spec, plain }) => ({
+      key,
+      status,
+      value: maskValue(
+        masked.has(key) ? { ...spec, secret: true } : spec,
+        plain,
+      ),
+    })),
     replaced: result.replaced,
     generated: generate,
     changes: history.ids,
     warnings,
+    ...(result.stateError ? { stateError: result.stateError } : {}),
   };
 }
 
@@ -177,18 +241,20 @@ export async function unsetFileValues(
   schema: EnvSchema,
   project: Project,
   body: z.output<typeof unsetValuesRequest>,
+  actor: ChangeActor = 'portal',
 ): Promise<ValuesEdit> {
   const file = await openFile(schema, project, body.file, body.fingerprint);
   const context = await editContext(schema, project);
-  const result = await unsetValues(context, file, body.keys, {
-    replace: new Set(body.replaceProtected ?? []),
-  });
+  const { asked, options } = replacing(body);
+  const result = await unsetValues(context, file, body.keys, options);
+  if (!result.ok && result.kind === 'cancelled' && asked.length)
+    throw toConfirm(asked);
   if (!result.ok) throw await failure(schema, project, file, result);
 
   const removed = result.keys.filter((entry) => entry.status === 'removed');
   const history = await recordHistory(
     project.statePath,
-    'portal',
+    actor,
     unsetChanges(schema, file, result),
   );
   const warnings = [...(result.stateError ?? []), ...history.warnings];
@@ -200,5 +266,6 @@ export async function unsetFileValues(
     generated: [],
     changes: history.ids,
     warnings,
+    ...(result.stateError ? { stateError: result.stateError } : {}),
   };
 }
