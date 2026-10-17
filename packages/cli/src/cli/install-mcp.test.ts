@@ -413,7 +413,23 @@ describe('install mcp', () => {
     expect(result.err.join('\n')).toMatch(/cannot write \.cursor\/mcp\.json/);
     expect(result.err.join('\n')).toMatch(/were put back/);
     expect(await readFile(claude, 'utf8')).toBe('{"mine":1}');
-    await expect(stat(join(dirs.root, '.cursor/mcp.json'))).rejects.toThrow();
+    await expect(stat(join(dirs.root, '.cursor'))).rejects.toThrow();
+  });
+
+  it('takes away the folders a rolled-back run made', async () => {
+    hooks.afterTemp = async (temp) => {
+      if (temp.includes('.gemini')) throw new Error('disk full');
+    };
+    const result = await install([
+      '--ci',
+      '--agent',
+      'cursor',
+      '--agent',
+      'gemini',
+    ]);
+    expect(result.code).toBe(1);
+    await expect(stat(join(dirs.root, '.cursor'))).rejects.toThrow();
+    await expect(stat(join(dirs.root, '.gemini'))).rejects.toThrow();
   });
 
   it('prints ok: false with --json when a write fails', async () => {

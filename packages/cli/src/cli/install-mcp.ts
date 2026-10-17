@@ -10,6 +10,7 @@ import {
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -380,8 +381,9 @@ async function writeAtomically(
   path: string,
   text: string,
   expected: string | undefined,
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
+): Promise<string | undefined> {
+  // The first folder it had to make, to take away again on a rollback.
+  const made = await mkdir(dirname(path), { recursive: true });
   const mode = await stat(path).then(
     (stats) => stats.mode & 0o777,
     () => undefined,
@@ -391,9 +393,27 @@ async function writeAtomically(
     await writeFile(temp, text, mode === undefined ? {} : { mode });
     if ((await readText(path)) !== expected) throw new Changed();
     await rename(temp, path);
+    return made;
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined);
+    await removeEmpty(dirname(path), made);
     throw error;
+  }
+}
+
+/**
+ * Removes `dir` and the folders above it up to `made`, the first one a
+ * write made, while they are empty; nothing when the write made none.
+ */
+async function removeEmpty(dir: string, made: string | undefined) {
+  if (made === undefined) return;
+  for (let at = dir; isInside(made, at); at = dirname(at)) {
+    try {
+      await rmdir(at);
+    } catch {
+      return;
+    }
+    if (at === made) return;
   }
 }
 
@@ -413,6 +433,8 @@ interface Written {
   previous?: string;
   /** The text the run wrote. */
   text: string;
+  /** The first folder the write made, when it made any. */
+  made?: string;
 }
 
 export interface InstalledServer {
@@ -555,12 +577,13 @@ export async function installMcp(
   } of planned) {
     if ('text' in plan && !shared) {
       try {
-        await writeAtomically(file, plan.text, current);
+        const made = await writeAtomically(file, plan.text, current);
         written.push({
           path: target.path,
           file,
           text: plan.text,
           ...(current === undefined ? {} : { previous: current }),
+          ...(made === undefined ? {} : { made }),
         });
       } catch (error) {
         const failure =
@@ -625,11 +648,13 @@ export async function installMcp(
  */
 async function restore(written: readonly Written[]): Promise<string[]> {
   const kept: string[] = [];
-  for (const { path, file, previous, text } of [...written].reverse()) {
+  for (const { path, file, previous, text, made } of [...written].reverse()) {
     try {
       if ((await readText(file)) !== text) throw new Changed();
-      if (previous === undefined) await rm(file);
-      else await writeAtomically(file, previous, text);
+      if (previous === undefined) {
+        await rm(file);
+        await removeEmpty(dirname(file), made);
+      } else await writeAtomically(file, previous, text);
     } catch {
       kept.push(path);
     }
