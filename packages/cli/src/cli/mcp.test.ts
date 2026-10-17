@@ -516,11 +516,13 @@ describe('the masking of every answer', () => {
     expect(JSON.parse(host.text)).toMatchObject({ value: 'a.test' });
   });
 
-  it('masks a short secret only where it is a whole value', async () => {
-    await writeEnv('HOST=localhost\nAPI_KEY=host\n');
+  it('masks a value under 4 characters, or a short undeclared one, only where it is whole', async () => {
+    await writeEnv('HOST=localhost\nAPI_KEY=loc\nMODE_X=host\n');
     const client = await connect();
     const host = await call(client, 'get_value', { key: 'HOST' });
     expect(JSON.parse(host.text)).toMatchObject({ value: 'localhost' });
+    const mode = await call(client, 'get_value', { key: 'MODE_X' });
+    expect(JSON.parse(mode.text)).toMatchObject({ masked: '••••' });
     const rows = JSON.parse((await call(client, 'list_variables')).text) as {
       key: string;
       value?: string;
@@ -528,6 +530,17 @@ describe('the masking of every answer', () => {
     }[];
     expect(rows.find((row) => row.key === 'HOST')?.value).toBe('localhost');
     expect(rows.find((row) => row.key === 'API_KEY')?.value).toBeUndefined();
+  });
+
+  it('masks a short secret inside a non-secret value', async () => {
+    await writeEnv('HOST=http://u:zq7Kx@h/\nAPI_KEY=zq7Kx\n');
+    const client = await connect();
+    for (const name of ['list_variables', 'check']) {
+      const result = await call(client, name);
+      expect(result.text, name).not.toContain('zq7Kx');
+    }
+    const host = await call(client, 'get_value', { key: 'HOST' });
+    expect(JSON.parse(host.text)).toMatchObject({ value: 'http://u:••••@h/' });
   });
 
   it('withholds the output when the schema cannot be read to mask it', async () => {

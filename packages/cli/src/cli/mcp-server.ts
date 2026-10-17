@@ -639,8 +639,8 @@ async function unmaskedKeys(
 async function hiddenValues(
   context: Context,
   schema: EnvSchema,
-): Promise<string[]> {
-  const values = new Set<string>();
+): Promise<Hidden[]> {
+  const values = new Map<string, boolean>();
   for (const spec of schema.files) {
     const text = await readFile(resolve(context.root, spec.path), 'utf8').catch(
       () => undefined,
@@ -650,31 +650,46 @@ async function hiddenValues(
     for (const name of keysOf(doc).filter((key) => isHidden(schema, key))) {
       const raw = getValue(doc, name);
       if (raw === undefined) continue;
+      const min = isSecret(schema, name) ? SECRET_MIN : UNDECLARED_MIN;
       for (const value of [raw, unquoteValue(raw)])
-        if (value) values.add(value);
+        if (value) values.set(value, values.get(value) || value.length >= min);
     }
   }
-  return [...values].sort((a, b) => b.length - a.length);
+  return [...values]
+    .map(([text, inside]) => ({ text, inside }))
+    .sort((a, b) => b.text.length - a.text.length);
+}
+
+/** A hidden value, and whether it is masked inside longer text too. */
+interface Hidden {
+  text: string;
+  inside: boolean;
 }
 
 /**
- * The shortest hidden value replaced where it appears inside longer text:
- * a shorter one is masked only where it is a whole JSON string, so a
- * common word that happens to be a secret does not garble the rest.
+ * The shortest secret masked inside longer text too, such as a password in
+ * a non-secret URL: any shorter one only where it is a whole value.
  */
-const SUBSTRING_MIN = 8;
+const SECRET_MIN = 4;
+
+/**
+ * The same for an undeclared key, whose value may be any common word: a
+ * shorter one is masked only where it is a whole value, so it does not
+ * garble the rest of the answer.
+ */
+const UNDECLARED_MIN = 8;
 
 /**
  * `value` with nothing hidden left in it, at any depth: an entry whose
  * `key` is hidden trades its `value` for a mask, and a string that is a
- * hidden value, or holds one of 8 characters or more, is masked.
+ * hidden value, or holds one (see {@link Hidden}), is masked.
  */
 function maskJson(
   value: unknown,
   hidden: (name: string) => boolean,
-  values: readonly string[],
+  values: readonly Hidden[],
 ): unknown {
-  if (typeof value === 'string') return maskText(value, values, true);
+  if (typeof value === 'string') return maskText(value, values);
   if (Array.isArray(value))
     return value.map((item) => maskJson(item, hidden, values));
   if (typeof value !== 'object' || value === null) return value;
@@ -695,16 +710,12 @@ function maskJson(
   return record;
 }
 
-/** `text` with the hidden values masked; `whole` masks an exact match too. */
-function maskText(
-  text: string,
-  values: readonly string[],
-  whole: boolean,
-): string {
-  if (whole && values.includes(text)) return MASK;
+/** `text` with the hidden values masked: a whole match, or one inside it. */
+function maskText(text: string, values: readonly Hidden[]): string {
+  if (values.some((value) => value.text === text)) return MASK;
   let masked = text;
   for (const value of values)
-    if (value.length >= SUBSTRING_MIN) masked = masked.replaceAll(value, MASK);
+    if (value.inside) masked = masked.replaceAll(value.text, MASK);
   return masked;
 }
 
@@ -743,7 +754,7 @@ async function maskSecrets(
     try {
       parsed = JSON.parse(line);
     } catch {
-      return maskText(line, values, false);
+      return maskText(line, values);
     }
     return JSON.stringify(maskJson(parsed, hidden, values));
   };
