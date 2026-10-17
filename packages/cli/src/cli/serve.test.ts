@@ -469,6 +469,22 @@ describe('server.json', () => {
     expect(result.out.join('\n')).not.toContain('server.json');
   });
 
+  it('goes on stop for a host other machines reach too', async () => {
+    const runtime = fakeRuntime();
+    let during = false;
+    const result = await serve(['--host', '0.0.0.0', '--unsafe-expose'], {
+      cwd: project.root,
+      runtime,
+      afterStart: async () => {
+        await written();
+        during = true;
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(during).toBe(true);
+    expect(await exists()).toBe(false);
+  });
+
   it('keeps one another serve wrote since', async () => {
     const runtime = fakeRuntime();
     const other = JSON.stringify({ url: 'http://127.0.0.1:6000', pid: 1 });

@@ -3,7 +3,14 @@
 // environment's server, which owns its project.
 
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -149,6 +156,30 @@ describe('check, local', () => {
     expect((await cli(['check', '--state', 'other.db'])).starts).toHaveLength(
       1,
     );
+  });
+
+  it('ignores a server.json others could have written, or one naming another machine', async () => {
+    const server = await runningServe();
+    const file = join(dirs.root, '.configure-env', 'server.json');
+    const content = {
+      url: server.url,
+      pid: process.pid,
+      version: VERSION,
+      token: SERVER_TOKEN,
+    };
+    // As a clone would hold a committed one: mode 644.
+    await writeServerFile(dirs.root, content);
+    await chmod(file, 0o644);
+    const loose = await cli(['check']);
+    expect(loose).toMatchObject({ code: 1, out: DRIFT, err: [] });
+    expect(loose.starts).toHaveLength(1);
+    await writeServerFile(dirs.root, {
+      ...content,
+      url: server.url.replace('127.0.0.1', 'example.invalid'),
+    });
+    const elsewhere = await cli(['check']);
+    expect(elsewhere).toMatchObject({ code: 1, out: DRIFT, err: [] });
+    expect(elsewhere.starts).toHaveLength(1);
   });
 
   it('ignores a server.json whose pid is dead, or whose server is gone', async () => {
