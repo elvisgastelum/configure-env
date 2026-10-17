@@ -218,7 +218,9 @@ export function generateFor(schema: EnvSchema, key: string): string {
  * already holds a non-empty value for the key, that value goes to the files
  * that lack it, so every file keeps one secret; else `make` makes one, only
  * when a file of the run will write the key. Files holding different
- * values are refused, naming the files and never a value.
+ * values are refused, naming the files and never a value, and so is a key
+ * whose file would also hold a value it conflicts with, unless `prompted`
+ * holds that value's key.
  */
 export function withGenerated(
   schema: EnvSchema,
@@ -226,6 +228,7 @@ export function withGenerated(
   values: Readonly<Record<string, string>>,
   keys: readonly string[],
   make: (key: string) => string,
+  prompted: ReadonlySet<string> = new Set(),
 ): Record<string, string> {
   const result = { ...values };
   const needed = neededKeys(schema, plans);
@@ -248,7 +251,11 @@ export function withGenerated(
       );
     if (distinct[0] !== undefined) result[key] = distinct[0];
     else if (needed.includes(key)) {
-      checkConflicts(schema, plans, values, keys, key);
+      // A prompted value is left to the rules between variables.
+      const given = Object.fromEntries(
+        Object.entries(values).filter(([name]) => !prompted.has(name)),
+      );
+      checkConflicts(schema, plans, given, keys, key);
       result[key] = make(key);
     }
   }

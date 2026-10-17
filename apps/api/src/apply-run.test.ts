@@ -1,7 +1,7 @@
 // The plan inputs `configure-env apply` sends: keys to generate on the
 // server and keys to defer, which also turn on apply's checks of a run.
 
-import { readFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DEFAULT_STATE_PATH, readChanges } from '@configure-env/core';
 import request from 'supertest';
@@ -146,6 +146,95 @@ describe('generate', () => {
     expect(short.body.message).toBe(
       'SHORT: maxLength 8 is too short for a generated secret; set it with --prompt or --stdin',
     );
+  });
+
+  it('forgets the generated value once an apply names its plan', async () => {
+    await open();
+    const inputs = {
+      values: { API_URL: 'https://x.test' },
+      generate: ['SECRET'],
+    };
+    const plan = await post('/api/plan', inputs);
+    const named = { ...inputs, fingerprint: plan.body.fingerprint };
+    expect((await post('/api/apply', named)).status).toBe(200);
+    // The files back as the plan saw them: its value is gone, so the same
+    // apply makes a new one and the plan differs.
+    await rm(join(root, '.env'));
+    await rm(join(root, 'app.env'));
+    expect((await post('/api/apply', named)).status).toBe(409);
+    expect(await read('.env')).toBeUndefined();
+  });
+
+  it('forgets it after a refused apply too', async () => {
+    await open();
+    const inputs = { generate: ['SECRET'], defer: [] };
+    const plan = await post('/api/plan', inputs);
+    expect(plan.body.ok).toBe(false);
+    const named = { ...inputs, fingerprint: plan.body.fingerprint };
+    expect((await post('/api/apply', named)).status).toBe(422);
+    // Kept, the same apply would be refused again (422); the value is gone,
+    // so a new one makes the plan differ.
+    expect((await post('/api/apply', named)).status).toBe(409);
+    expect(await read('.env')).toBeUndefined();
+  });
+
+  it('reuses a value a file of generateFiles holds, planning only files', async () => {
+    await open({ 'app.env': 'SECRET=held-secret-value-123\nNAME=x\n' });
+    const inputs = {
+      values: { API_URL: 'https://x.test' },
+      files: ['.env'],
+      generateFiles: ['.env', 'app.env'],
+      generate: ['SECRET'],
+      defer: [],
+    };
+    const plan = await post('/api/plan', inputs);
+    expect(plan.body.ok).toBe(true);
+    expect(plan.body.files.map((file: { path: string }) => file.path)).toEqual([
+      '.env',
+    ]);
+    await post('/api/apply', { ...inputs, fingerprint: plan.body.fingerprint });
+    expect(valueIn(await read('.env'), 'SECRET')).toBe('held-secret-value-123');
+  });
+
+  it('leaves a prompted value that conflicts with a generated key to the rules', async () => {
+    await open();
+    const conflicting = {
+      version: 1,
+      variables: {
+        GEN: { type: 'string', secret: true, conflictsWith: ['B'] },
+        B: { type: 'string' },
+      },
+      files: [{ path: '.env', policy: 'merge', variables: '*' }],
+    };
+    await writeFile(join(root, 'env.schema.json'), JSON.stringify(conflicting));
+    const given = await post('/api/plan', {
+      values: { B: 'b' },
+      generate: ['GEN'],
+      defer: [],
+    });
+    expect(given.status).toBe(422);
+    expect(given.body.errors).toEqual([
+      {
+        kind: 'usage',
+        key: 'GEN',
+        message: '--generate would set it while B is set; set only one of them',
+      },
+    ]);
+    const prompted = await post('/api/plan', {
+      values: { B: 'b' },
+      prompted: ['B'],
+      generate: ['GEN'],
+      defer: [],
+    });
+    expect(prompted.status).toBe(200);
+    expect(prompted.body.errors).toEqual([
+      {
+        kind: 'value',
+        key: 'GEN',
+        keys: ['GEN', 'B'],
+        message: 'set only one of them',
+      },
+    ]);
   });
 
   it('answers 409 to an apply whose generated value was never planned', async () => {

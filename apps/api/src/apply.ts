@@ -7,7 +7,8 @@
 // CLI's when the CLI sends the request. With `generate` or `defer` they run
 // apply's checks too (src/run.ts); a value generated for a plan is kept in
 // memory for a while by the plan's fingerprint, so the apply writes the
-// value the plan showed.
+// value the plan showed. It is never answered or logged, and the apply that
+// names the plan takes it, whatever it answers.
 
 import { createHash } from 'node:crypto';
 import {
@@ -150,8 +151,14 @@ function keepGenerated(
     generatedFor.delete(generatedFor.keys().next().value!);
 }
 
-function keptGenerated(project: Project, fingerprint: string) {
-  const entry = generatedFor.get(generatedKey(project, fingerprint));
+/**
+ * Takes the values generated for the plan an apply names, once: whatever
+ * the apply answers, they are gone after it.
+ */
+function takeGenerated(project: Project, fingerprint: string) {
+  const key = generatedKey(project, fingerprint);
+  const entry = generatedFor.get(key);
+  generatedFor.delete(key);
   return entry && Date.now() - entry.at <= GENERATED_TTL_MS
     ? entry.values
     : undefined;
@@ -223,19 +230,31 @@ async function runValues(
   if (!generate.length && !checks) return { values, errors: [], made: {} };
   const defer = unique(inputs.defer);
   checkInputs(schema, values, generate, defer);
-  checkGenerated(schema, inputs.files, generate);
-  const first = await planChanges({
-    schema,
-    root: project.root,
-    values: {},
-    ...(inputs.files ? { files: inputs.files } : {}),
-    prune: Boolean(inputs.prune),
-  });
+  const generateFiles = inputs.generateFiles ?? inputs.files;
+  checkGenerated(schema, generateFiles, generate);
+  const firstOf = (files: readonly string[] | undefined) =>
+    planChanges({
+      schema,
+      root: project.root,
+      values: {},
+      ...(files ? { files: [...files] } : {}),
+      prune: Boolean(inputs.prune),
+    });
+  const first = await firstOf(inputs.files);
+  // The files a generated key looks at: the picked ones, planned or not.
+  const held = inputs.generateFiles ? await firstOf(generateFiles) : first;
   const made: Record<string, string> = {};
-  const given = withGenerated(schema, first.files, values, generate, (key) => {
-    made[key] = kept?.[key] ?? generateFor(schema, key);
-    return made[key];
-  });
+  const given = withGenerated(
+    schema,
+    held.files,
+    values,
+    generate,
+    (key) => {
+      made[key] = kept?.[key] ?? generateFor(schema, key);
+      return made[key];
+    },
+    new Set(inputs.prompted ?? []),
+  );
   const generated = Object.fromEntries(
     generate
       .filter((key) => given[key] !== undefined)
@@ -257,7 +276,11 @@ async function runValues(
   };
 }
 
-/** Plans the run and shows it: POST /api/plan, and the first step of apply. */
+/**
+ * Plans the run and shows it: POST /api/plan, and the first step of apply.
+ * An apply passes the values generated for its plan as `kept`; only a
+ * plan without them keeps the values it generates, for its apply.
+ */
 async function plan(
   read: ReadSchema,
   project: Project,
@@ -309,7 +332,7 @@ async function plan(
     replaced: verdicts.flatMap(({ replaced }) => replaced),
     ...(run.generated ? { generated: run.generated } : {}),
   };
-  if (Object.keys(run.made).length)
+  if (!kept && Object.keys(run.made).length)
     keepGenerated(project, view.fingerprint, run.made);
   return { plan, view, ...state };
 }
@@ -352,7 +375,9 @@ export async function applyProject(
   actor: ChangeActor = 'portal',
 ): Promise<z.output<typeof applyResponse>> {
   const { schema } = read;
-  const kept = keptGenerated(project, inputs.fingerprint);
+  // Without values kept for its plan, the apply makes new ones, so its
+  // fingerprint differs (409); it keeps none of them either way.
+  const kept = takeGenerated(project, inputs.fingerprint) ?? {};
   const planned = await plan(read, project, inputs, kept);
   const { view } = planned;
   if (view.fingerprint !== inputs.fingerprint)
@@ -414,7 +439,6 @@ export async function applyProject(
       { plan: (await plan(read, project, inputs, kept)).view },
     );
   }
-  if (kept) generatedFor.delete(generatedKey(project, inputs.fingerprint));
 
   const results = guarded.value;
   const warnings = [

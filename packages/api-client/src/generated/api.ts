@@ -145,6 +145,16 @@ export interface ApplyRequest {
    */
   generate?: string[];
   /**
+   * The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.
+   * @items.minLength 1
+   */
+  generateFiles?: string[];
+  /**
+   * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  prompted?: string[];
+  /**
    * Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
@@ -961,6 +971,16 @@ export interface PlanRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   generate?: string[];
+  /**
+   * The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.
+   * @items.minLength 1
+   */
+  generateFiles?: string[];
+  /**
+   * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  prompted?: string[];
   /**
    * Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$

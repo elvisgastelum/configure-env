@@ -535,6 +535,14 @@ const planInputs = {
     description:
       'Secret string keys to give a random value, as `apply --generate` takes them: a value a file of the run holds is used instead, and a key no file of the run takes is not generated. The value is never answered; POST /api/apply with the fingerprint writes the one the plan was made with.',
   }),
+  generateFiles: z.array(z.string().min(1)).optional().meta({
+    description:
+      'The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.',
+  }),
+  prompted: z.array(variableName).optional().meta({
+    description:
+      "Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.",
+  }),
   defer: z.array(variableName).optional().meta({
     description:
       'Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.',
