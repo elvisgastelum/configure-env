@@ -10,7 +10,7 @@ import {
   SECRET_UNDO_REASON,
   UNDECLARED_UNDO_REASON,
 } from '@configure-env/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { run, useProject } from './test-helpers.ts';
 
 const SCHEMA = {

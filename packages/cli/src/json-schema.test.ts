@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   JSON_SCHEMA_PATH,
   SCHEMA_ID,

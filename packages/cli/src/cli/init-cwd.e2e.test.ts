@@ -7,7 +7,7 @@ import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { REPO_ROOT, useProject } from './test-helpers.ts';
 
 const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));

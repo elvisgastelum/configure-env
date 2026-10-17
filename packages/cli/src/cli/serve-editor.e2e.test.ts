@@ -8,7 +8,7 @@ import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { useProject } from './test-helpers.ts';
 
 const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));

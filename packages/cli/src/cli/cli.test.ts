@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { getValue, parseDotenv } from '@configure-env/core';
 import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import {

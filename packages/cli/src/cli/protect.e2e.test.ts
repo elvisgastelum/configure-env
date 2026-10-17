@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it } from 'vite-plus/test';
 import { STATE, holdState, readState, useProject } from './test-helpers.ts';
 
 const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));

@@ -6,7 +6,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { STDIN_MAX_BYTES } from './stdin.ts';
 import { useProject } from './test-helpers.ts';
 

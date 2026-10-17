@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { CliError } from './common.ts';
 import { MIN_GENERATED_BYTES, MIN_GENERATED_LENGTH } from './generate.ts';
 import { readStream } from './stdin.ts';

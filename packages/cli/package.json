@@ -90,7 +90,6 @@
     "tsdown": "0.23.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vite-plus": "catalog:",
-    "vitest": "catalog:"
+    "vite-plus": "catalog:"
   }
 }

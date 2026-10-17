@@ -13,7 +13,14 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vite-plus/test';
 import { run, scriptedPrompts, useProject } from './test-helpers.ts';
 
 // Failures the file system is made to raise, to test what a failed install
