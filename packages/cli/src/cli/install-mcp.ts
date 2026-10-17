@@ -394,6 +394,10 @@ export async function installMcp(
     /** The file written: the path, or the file its symlink points to. */
     file: string;
     current: string | undefined;
+    /** What the agent's configuration holds for the server, to compare. */
+    entry: string;
+    /** Another agent's configuration is the same file and writes it. */
+    shared: boolean;
   }[] = [];
   for (const agent of choices.agents) {
     const target = targetOf(agent, choices.scope, base, io.env);
@@ -407,13 +411,38 @@ export async function installMcp(
         `cannot read ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
       ]);
     }
+    const entry =
+      target.format === 'toml'
+        ? tomlTable(launch)
+        : JSON.stringify([target.key, jsonEntry(agent, launch)]);
+    // Two agents whose configurations are one file, through a symlink: it
+    // is written once, when both would register the same server.
+    const same = planned.find((other) => other.file === file);
+    if (same && same.entry !== entry)
+      throw usageError(
+        `${show(target.path)} and ${show(same.target.path)} are the same file, which ${agent} and ${same.agent} would register differently`,
+        `pass only one of --agent ${same.agent} and --agent ${agent}`,
+      );
+    if (same) {
+      planned.push({ ...same, agent, target, launch, shared: true });
+      continue;
+    }
     const plan =
       target.format === 'toml'
         ? planToml(current, launch, force)
         : planJson(target, current, jsonEntry(agent, launch), force);
     if ('conflict' in plan)
       throw usageError(`${show(target.path)} ${plan.conflict}`);
-    planned.push({ agent, target, launch, plan, file, current });
+    planned.push({
+      agent,
+      target,
+      launch,
+      plan,
+      file,
+      current,
+      entry,
+      shared: false,
+    });
   }
 
   const servers: InstalledServer[] = [];
@@ -436,8 +465,16 @@ export async function installMcp(
     })),
   });
 
-  for (const { agent, target, launch, plan, file, current } of planned) {
-    if ('text' in plan) {
+  for (const {
+    agent,
+    target,
+    launch,
+    plan,
+    file,
+    current,
+    shared,
+  } of planned) {
+    if ('text' in plan && !shared) {
       try {
         await writeAtomically(file, plan.text, current);
         written.push({

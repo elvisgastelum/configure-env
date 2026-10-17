@@ -430,6 +430,57 @@ describe('install mcp', () => {
     expect(errors[1]!.message).toMatch(/could not be put back/);
   });
 
+  it('writes a configuration two agents share through a symlink once', async () => {
+    await mkdir(join(dirs.root, '.gemini'), { recursive: true });
+    await mkdir(join(dirs.root, '.cursor'), { recursive: true });
+    await writeFile(join(dirs.root, '.cursor/mcp.json'), '{}');
+    await symlink(
+      join(dirs.root, '.cursor/mcp.json'),
+      join(dirs.root, '.gemini/settings.json'),
+    );
+    const result = await install([
+      '--ci',
+      '--agent',
+      'cursor',
+      '--agent',
+      'gemini',
+    ]);
+    expect(result).toMatchObject({
+      code: 0,
+      out: [
+        'added      .cursor/mcp.json (cursor)',
+        'added      .gemini/settings.json (gemini)',
+      ],
+    });
+    expect(await readJson(join(dirs.root, '.cursor/mcp.json'))).toEqual({
+      mcpServers: { 'configure-env': NPX },
+    });
+  });
+
+  it('refuses agents that share a file but register the server differently', async () => {
+    await mkdir(join(dirs.root, '.cursor'), { recursive: true });
+    await writeFile(join(dirs.root, '.mcp.json'), '{}');
+    await symlink(
+      join(dirs.root, '.mcp.json'),
+      join(dirs.root, '.cursor/mcp.json'),
+    );
+    const result = await install([
+      '--ci',
+      '--agent',
+      'claude',
+      '--agent',
+      'cursor',
+    ]);
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(
+      /\.cursor\/mcp\.json and \.mcp\.json are the same file/,
+    );
+    expect(result.err.join('\n')).toMatch(
+      /pass only one of --agent claude and --agent cursor/,
+    );
+    expect(await readFile(join(dirs.root, '.mcp.json'), 'utf8')).toBe('{}');
+  });
+
   it('prints one JSON document with --json', async () => {
     const result = await install(['--json', '--agent', 'cursor']);
     expect(result.code).toBe(0);
