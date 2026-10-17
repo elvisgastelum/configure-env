@@ -5,7 +5,7 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cp, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -147,3 +147,31 @@ export async function startServe(dir: string): Promise<Served> {
 /** Removes a fixture copy. */
 export const removeFixture = (dir: string) =>
   rm(dir, { recursive: true, force: true });
+
+/**
+ * Stores `served` as environment `name` of the project in `dir`, as
+ * `configure-env env add` does: .configure-env/environments.json, mode 600.
+ */
+export async function addEnvironment(
+  dir: string,
+  name: string,
+  served: Pick<Served, 'origin' | 'token'>,
+  others: Record<string, { url: string; token: string }> = {},
+) {
+  await mkdir(join(dir, '.configure-env'), { recursive: true });
+  await writeFile(
+    join(dir, '.configure-env', 'environments.json'),
+    `${JSON.stringify(
+      {
+        version: 1,
+        environments: {
+          ...others,
+          [name]: { url: served.origin, token: served.token },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+}

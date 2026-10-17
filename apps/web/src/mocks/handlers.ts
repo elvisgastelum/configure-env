@@ -216,6 +216,7 @@ export const handlers = [
   ...events,
   http.get('/api/health', () => json({ status: 'ok' })),
   http.get('/api/project', () => json(fixtures.project)),
+  http.get('/api/environments', () => json(fixtures.localEnvironments)),
   http.get('/api/schema', () => json(mockState.schema)),
   ...schemaWrites,
   http.get('/api/variables', () => json(mockState.variables)),
@@ -414,7 +415,52 @@ const schemaNeeded = () =>
 const missing = () => mockState.schemaWrites === 0;
 
 /** Overrides for named situations; put them before `handlers`. */
+/** Marks the gateway mock's own inner request, which tests leave out. */
+export const GATEWAY_HOP = 'x-mock-gateway-hop';
+
+/**
+ * The local gateway to another environment, `/env/<name>/api/*`: answered by
+ * the same handlers as `/api/*` (msw intercepts the inner fetch), with the
+ * project's root under `/srv/<name>`, so a test sees which one it reads.
+ */
+const gateway = [
+  ...(typeof EventSource === 'undefined'
+    ? []
+    : [
+        sse<{ changed: { paths: string[] } }>(
+          '/env/:name/api/events',
+          ({ client }) => {
+            eventClients.add(client);
+          },
+        ),
+      ]),
+  http.all('/env/:name/api/*', async ({ request, params }) => {
+    const url = new URL(request.url);
+    url.pathname = url.pathname.replace(/^\/env\/[^/]+/, '');
+    const response = await fetch(
+      new Request(url, {
+        method: request.method,
+        headers: { ...Object.fromEntries(request.headers), [GATEWAY_HOP]: '1' },
+        ...(request.method === 'GET' || request.method === 'HEAD'
+          ? {}
+          : { body: await request.text() }),
+      }),
+    );
+    if (url.pathname !== '/api/project') return response;
+    const project = (await response.json()) as typeof fixtures.project;
+    return json({
+      ...project,
+      root: `/srv/${String(params.name)}/billing-service`,
+    });
+  }),
+];
+
 export const scenarios = {
+  /** serve lists dev, stage (unreachable) and prod, reached through its gateway. */
+  remoteEnvironments: [
+    http.get('/api/environments', () => json(fixtures.remoteEnvironments)),
+    ...gateway,
+  ],
   /** Nothing was changed yet: the history is empty. */
   noHistory: [
     http.get('/api/history', () =>

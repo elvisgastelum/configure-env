@@ -37,6 +37,10 @@ The overview shows one Check card with the counts, and the palette's only report
 
 While the portal is open it listens on `GET /api/events`. A `changed` event (the API watches the schema and every env file it lists) makes every view fetch again, and a toast names the paths that changed outside the portal. Events that arrive together (one save, a checkout) refetch once and raise at most one toast naming every path. The portal's own writes change the files too: an event within two seconds of one of its writes (a write starting or settling, not other cache activity) refreshes quietly. When the stream drops and reconnects, every view fetches again, quietly, since what changed meanwhile sent no event.
 
+## Environments
+
+When `configure-env serve` has other environments (`configure-env env add`), the header shows an **Environment** picker listing `local` and each of them from `GET /api/environments`, with its URL; one that does not answer is shown as unreachable and cannot be picked. The active one is always in the header, and `prod` (or `production`) stands apart in the destructive color with a **Production** tag. Picking one sets the api-client's base path to `/env/<name>`, so every request, the event stream included, goes through the local server's gateway, still same-origin with the session cookie; every view fetches again from that environment, and **Open in editor** is not shown for it, since its files are on another machine. The pick lasts for the tab (session storage); an environment removed since goes back to `local`. Without other environments the picker is not shown.
+
 ## Schema editor (`/schema`)
 
 The schema page adds, changes, reorders and removes the variables and files of `env.schema.json`. Nothing is written until you have seen the diff, and an invalid schema is never written: the browser checks the edit with the core's own code, and the API checks it again before it writes.
@@ -95,7 +99,7 @@ Every change to the env files or the schema, from the portal or the CLI (`set`, 
 
 ## Open in editor
 
-Every item that points at a place in a file has an **Open in editor** button (an arrow out of a square; its tooltip shows the shortcut `o`). It sends `POST /api/open-in-editor`, and the API starts the editor on this machine (`$LAUNCH_EDITOR`, else a running VS Code, Cursor, Zed or JetBrains IDE, else `$VISUAL`, else `$EDITOR`) at the line it resolves.
+Every item that points at a place in a file has an **Open in editor** button, for the `local` environment only (an arrow out of a square; its tooltip shows the shortcut `o`). It sends `POST /api/open-in-editor`, and the API starts the editor on this machine (`$LAUNCH_EDITOR`, else a running VS Code, Cursor, Zed or JetBrains IDE, else `$VISUAL`, else `$EDITOR`) at the line it resolves.
 
 - **Variables:** a row of the table opens the variable's entry in the file the value column shows. In the drawer, **Definition** opens its definition in the schema file, and each file of the value table opens its entry there.
 - **Env files:** the file detail opens the file, and each of its entries at its line.

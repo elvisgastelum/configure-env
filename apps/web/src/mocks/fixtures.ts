@@ -5,6 +5,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import type {
   Change,
   Check,
+  Environments,
   Files,
   GitignoreProblem,
   Plan,
@@ -17,6 +18,47 @@ export const project: Project = {
   root: '/home/ada/code/billing-service',
   schemaPath: 'env.schema.json',
   version: '0.4.0',
+};
+
+/** GET /api/environments of a serve that has no other environment. */
+export const localEnvironments: Environments = {
+  environments: [
+    {
+      name: 'local',
+      url: 'http://127.0.0.1:4747',
+      local: true,
+      reachable: true,
+      version: '0.4.0',
+    },
+  ],
+};
+
+/** GET /api/environments with dev, prod, and a stage that does not answer. */
+export const remoteEnvironments: Environments = {
+  environments: [
+    ...localEnvironments.environments,
+    {
+      name: 'dev',
+      url: 'https://dev.example.com',
+      local: false,
+      reachable: true,
+      version: '0.4.0',
+    },
+    {
+      name: 'stage',
+      url: 'https://stage.example.com',
+      local: false,
+      reachable: false,
+      message: 'ECONNREFUSED',
+    },
+    {
+      name: 'prod',
+      url: 'https://prod.example.com',
+      local: false,
+      reachable: true,
+      version: '0.4.0',
+    },
+  ],
 };
 
 /**

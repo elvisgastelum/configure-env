@@ -2,8 +2,10 @@
 // project, prints the token-bearing launch URL, and runs until SIGINT or
 // SIGTERM. For a server other machines reach, the token can persist (a
 // token file or CONFIGURE_ENV_TOKEN), and it serves HTTPS or names the
-// public URL of the reverse proxy in front of it. The server (@configure-env/api, NestJS) is imported only here and
-// only when the command runs, so no other command pays for loading it.
+// public URL of the reverse proxy in front of it. The portal switches to
+// the environments `env add` stored, through the server's gateway. The
+// server (@configure-env/api, NestJS) is imported only here and only when
+// the command runs, so no other command pays for loading it.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -22,6 +24,7 @@ import {
   printWarnings,
   usageError,
 } from './common.ts';
+import { readEnvironments } from './environments.ts';
 import { SERVE_HELP, VERSION } from './help.ts';
 import type { Io } from './io.ts';
 import { loadServer } from './load-server.js';
@@ -54,6 +57,11 @@ export interface ServerOptions {
   version?: string;
   publicUrl?: string;
   tls?: { cert: Buffer; key: Buffer };
+  /**
+   * The environments `env add` stored, read on every request: the portal
+   * switches to them, through the server's /env/<name>/api/ gateway.
+   */
+  environments?: () => Promise<Record<string, { url: string; token: string }>>;
 }
 
 /** The running server createServer resolves to. */
@@ -407,6 +415,7 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
       host,
       token,
       version: VERSION,
+      environments: () => readEnvironments(context.root),
       ...(staticDir ? { staticDir } : {}),
       ...(publicUrl !== undefined ? { publicUrl } : {}),
       ...(tls ? { tls } : {}),

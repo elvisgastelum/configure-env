@@ -4,7 +4,14 @@
 import { basename, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../src/fixtures.ts';
-import { REPO } from '../src/serve.ts';
+import {
+  REPO,
+  type Served,
+  addEnvironment,
+  copyFixture,
+  removeFixture,
+  startServe,
+} from '../src/serve.ts';
 import { navigate, useTheme, variablesOf } from '../src/portal.ts';
 
 const OUT = join(REPO, 'docs/portal');
@@ -62,4 +69,53 @@ test.describe('a project without a schema', () => {
     ).toBeVisible();
     await shoot(page, served.dir, 'init');
   });
+});
+
+test('the environment picker', async ({ portal: page, served }) => {
+  // A second serve stands in for dev and prod; stage answers nothing.
+  const otherDir = await copyFixture('portfolio');
+  let other: Served | undefined;
+  try {
+    other = await startServe(otherDir);
+    await addEnvironment(served.dir, 'prod', other, {
+      dev: { url: other.origin, token: other.token },
+      stage: {
+        url: 'http://127.0.0.1:9',
+        token: 'unused-token-for-the-screenshot',
+      },
+    });
+    await useTheme(page, 'Light');
+    await page.reload();
+    const picker = page
+      .getByTestId('app-header')
+      .getByRole('combobox', { name: 'Environment' });
+    await picker.click();
+    await page.getByRole('option', { name: /prod/ }).click();
+    await expect(picker).toHaveAttribute('data-production', 'true');
+    await variablesOf(page, '.env');
+    await picker.click();
+    await expect(page.getByRole('option', { name: /stage/ })).toBeVisible();
+    // The other server's folder reads as the same fixture.
+    await page.evaluate(
+      ([path, origin]) => {
+        const walker = document.createTreeWalker(
+          document.body,
+          NodeFilter.SHOW_TEXT,
+        );
+        for (let node = walker.nextNode(); node; node = walker.nextNode())
+          node.nodeValue = node
+            .nodeValue!.replaceAll(path, '/srv/portfolio')
+            .replaceAll(basenameOf(path), 'portfolio')
+            .replaceAll(origin, 'https://env.example.com');
+        function basenameOf(text: string) {
+          return text.slice(text.lastIndexOf('/') + 1);
+        }
+      },
+      [otherDir, other.origin] as const,
+    );
+    await shoot(page, served.dir, 'environments');
+  } finally {
+    await other?.stop();
+    await removeFixture(otherDir);
+  }
 });

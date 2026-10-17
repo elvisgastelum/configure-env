@@ -5,8 +5,10 @@
 import {
   getCheck,
   getFiles,
+  getEnvironments,
   getGroups,
   getGetCheckQueryKey,
+  getGetEnvironmentsQueryKey,
   getGetFilesQueryKey,
   getGetGroupsQueryKey,
   getGetProjectQueryKey,
@@ -52,6 +54,15 @@ export const projectQuery = queryOptions({
   queryKey: getGetProjectQueryKey(),
   queryFn: ({ signal }) => unwrap(getProject({ signal })),
   staleTime: Infinity,
+});
+
+/**
+ * The environments to switch to: always asked of the serving server, whichever
+ * one the portal shows.
+ */
+export const environmentsQuery = queryOptions({
+  queryKey: getGetEnvironmentsQueryKey(),
+  queryFn: ({ signal }) => unwrap(getEnvironments({ signal, local: true })),
 });
 
 export const schemaQuery = queryOptions({

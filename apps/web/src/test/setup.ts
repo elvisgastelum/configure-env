@@ -8,15 +8,19 @@ import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vite-plus/test';
+import { LOCAL, selectEnvironment } from '../lib/environment';
 import { resetMockState } from '../mocks/store';
 import { server } from './server';
 
 // Motion's animations finish at once, so tests see final states.
 MotionGlobalConfig.skipAnimations = true;
 
-// Every test starts with no remembered choices and the system theme.
+// Every test starts with no remembered choices, the local environment and
+// the system theme.
 beforeEach(() => {
   window.localStorage.clear();
+  selectEnvironment(LOCAL);
+  window.sessionStorage.clear();
   forgetSessionThemePreference();
   applyThemePreference('system');
 });

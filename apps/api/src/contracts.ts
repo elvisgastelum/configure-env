@@ -1109,3 +1109,41 @@ export const openInEditorResponse = named(
     column: z.int(),
   }),
 );
+
+export const environmentStatus = named(
+  'Environment',
+  z.object({
+    name: z.string().meta({
+      description:
+        'The name `configure-env env add` stored, or `local` for this server.',
+    }),
+    url: z.string().meta({
+      description:
+        "The environment's server; for `local`, this server's own URL.",
+    }),
+    local: z.boolean().meta({
+      description:
+        "Whether it is this server's own project; any other is reached through `/env/{name}/api/`.",
+    }),
+    reachable: z.boolean().meta({
+      description: 'Whether its server answered GET /api/project just now.',
+    }),
+    version: z
+      .string()
+      .optional()
+      .meta({ description: 'The configure-env version it runs.' }),
+    message: z.string().optional().meta({
+      description: 'When not reachable: why, such as `ECONNREFUSED`.',
+    }),
+  }),
+);
+
+export const environmentsResponse = named(
+  'Environments',
+  z.object({
+    environments: z.array(environmentStatus).meta({
+      description:
+        'This server first, then the environments of .configure-env/environments.json; never their tokens.',
+    }),
+  }),
+);

@@ -458,6 +458,26 @@ export interface EditRefused {
   errors: EditProblem[];
 }
 
+export interface Environment {
+  /** The name `configure-env env add` stored, or `local` for this server. */
+  name: string;
+  /** The environment's server; for `local`, this server's own URL. */
+  url: string;
+  /** Whether it is this server's own project; any other is reached through `/env/{name}/api/`. */
+  local: boolean;
+  /** Whether its server answered GET /api/project just now. */
+  reachable: boolean;
+  /** The configure-env version it runs. */
+  version?: string;
+  /** When not reachable: why, such as `ECONNREFUSED`. */
+  message?: string;
+}
+
+export interface Environments {
+  /** This server first, then the environments of .configure-env/environments.json; never their tokens. */
+  environments: Environment[];
+}
+
 export interface FileContent {
   file: string;
   exists: boolean;
@@ -3790,5 +3810,42 @@ export const openInEditor = async (
       ...getHeaders(options?.headers),
     },
     body: JSON.stringify(openInEditorRequest),
+  });
+};
+
+export type getEnvironmentsResponse200 = {
+  data: Environments;
+  status: 200;
+};
+
+export type getEnvironmentsResponse500 = {
+  data: ApiError;
+  status: 500;
+};
+
+export type getEnvironmentsResponseSuccess = getEnvironmentsResponse200 & {
+  headers: Headers;
+};
+export type getEnvironmentsResponseError = getEnvironmentsResponse500 & {
+  headers: Headers;
+};
+
+export type getEnvironmentsResponse =
+  | getEnvironmentsResponseSuccess
+  | getEnvironmentsResponseError;
+
+export const getGetEnvironmentsUrl = () => {
+  return `/api/environments`;
+};
+
+/**
+ * @summary The environments the portal can switch to: this server, then each of .configure-env/environments.json with its URL, whether it answers and its version. Never a token. Another environment's API is at /env/{name}/api/
+ */
+export const getEnvironments = async (
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<getEnvironmentsResponse> => {
+  return apiFetch<getEnvironmentsResponse>(getGetEnvironmentsUrl(), {
+    ...options,
+    method: 'GET',
   });
 };

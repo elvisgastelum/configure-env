@@ -51,6 +51,9 @@ in CI) to `test-results/`; both are ignored by git.
   page, signed in through the launch URL). Every test has its own server on
   its own port and its own copy, so tests run in parallel. A test picks the
   fixture with `test.use({ fixture: 'empty' })`; the default is `portfolio`.
+- `addEnvironment` (in `src/serve.ts`) stores a second serve as an
+  environment of the first, as `configure-env env add` would, for the
+  environment picker's journeys.
 - Tests find elements by role and accessible name, in English
   (`locale: 'en-US'`).
 
