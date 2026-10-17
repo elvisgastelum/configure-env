@@ -9,8 +9,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type ApiServer, createServer } from '@configure-env/api';
 import request from 'supertest';
-import { build } from 'vite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { build } from 'vite-plus';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 const webDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOKEN = 'serve-test-token-0123456789abcdefghijkl';

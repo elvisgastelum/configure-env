@@ -7,7 +7,7 @@ import {
   readChanges,
 } from '@configure-env/core';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   type ApiServer,
   SESSION_KEY,

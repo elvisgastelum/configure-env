@@ -5,7 +5,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { loadSchema } from '../schema/load.ts';
 import { validateValue } from '../schema/values.ts';
 import { planChanges } from './plan.ts';

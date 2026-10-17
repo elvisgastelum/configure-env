@@ -1,7 +1,7 @@
 // readStream: what `set --stdin` reads, with an idle timeout and a size cap.
 
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { CliError } from './common.ts';
 import { readStream, waitText } from './stdin.ts';
 

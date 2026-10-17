@@ -4,7 +4,7 @@ import {
   setProjectAnnotations,
 } from '@storybook/react-vite';
 import { waitFor } from '@testing-library/react';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 
 import preview from '../.storybook/preview';
 

@@ -15,7 +15,7 @@
     "dev": "tsx src/main.ts",
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vp test run",
     "build": "tsdown --config-loader native",
     "openapi": "tsx scripts/openapi.ts"
   },
@@ -38,6 +38,6 @@
     "tsdown": "0.23.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.3"
+    "vite-plus": "catalog:"
   }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { formatJson } from './format.ts';
 
 const stringify = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;

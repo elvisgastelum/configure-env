@@ -7,7 +7,7 @@ import {
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { cleanup } from '@testing-library/react';
 import { MotionGlobalConfig } from 'motion/react';
-import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vite-plus/test';
 import { resetMockState } from '../mocks/store';
 import { server } from './server';
 

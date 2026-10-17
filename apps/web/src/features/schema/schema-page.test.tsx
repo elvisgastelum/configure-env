@@ -2,7 +2,7 @@ import type { SchemaDocument } from '@configure-env/core/schema';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { scenarios } from '../../mocks/handlers';
 import { mockState, writeSchema } from '../../mocks/store';
 import { renderApp } from '../../test/render';

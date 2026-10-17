@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { createServer } from './server.ts';
 import {
   type ApiServer,

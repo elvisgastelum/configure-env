@@ -1,5 +1,5 @@
 import type { SchemaDocument } from '@configure-env/core/schema';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createI18n } from '../../i18n';
 import { schemaDocument, typedSchemaVariables } from '../../mocks/fixtures';
 import {

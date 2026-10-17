@@ -1,6 +1,6 @@
 import { parseSchema } from '@configure-env/core/schema';
 import type { SchemaDocument } from '@configure-env/core/schema';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { schemaDocument, typedSchemaVariables } from '../../mocks/fixtures';
 import { mockState } from '../../mocks/store';
 import { recordRequests } from '../../test/requests';

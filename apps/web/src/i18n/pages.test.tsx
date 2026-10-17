@@ -5,7 +5,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { LANGUAGES, type Language, resources } from '.';
 import { NAV_ITEMS } from '../lib/nav';
 import { renderApp } from '../test/render';

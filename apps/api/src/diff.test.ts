@@ -1,5 +1,5 @@
 import { parseSchema } from '@configure-env/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { diffLines, fileDiff, maskedLines } from './diff.ts';
 
 const parsed = parseSchema({

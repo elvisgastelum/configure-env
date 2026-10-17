@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { OWN_WRITE_MS } from '../../lib/use-project-events';
 import { findFile } from '../../mocks/store';
 import { changeOutside } from '../../test/events';

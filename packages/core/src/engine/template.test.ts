@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { isTemplate } from '../schema/definition.ts';
 import { checkDrift } from './check.ts';
 import { applyPlan } from './apply.ts';

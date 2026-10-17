@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import type { VariableSpec } from '../schema/definition.ts';
 import { validateValue } from '../schema/values.ts';
 import {

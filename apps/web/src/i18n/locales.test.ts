@@ -2,7 +2,7 @@
 // each plural form the language uses, and the same placeholders. CI runs
 // this with the rest of the unit tests, so a key missing in en or es fails it.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   LANGUAGES,
   LANGUAGE_STORAGE_KEY,

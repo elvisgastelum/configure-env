@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach } from 'vite-plus/test';
 import type { EnvSchema } from '../schema/definition.ts';
 import { parseSchema } from '../schema/load.ts';
 import { SALT_BYTES, stateMigrations } from './state.ts';
