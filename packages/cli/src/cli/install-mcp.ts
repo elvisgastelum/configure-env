@@ -209,8 +209,13 @@ const SERVER_TABLE = new RegExp(
 
 /** A key line that registers the server another way than its own table. */
 const OTHER_FORM = new RegExp(
-  `^\\s*(?:mcp_servers\\s*\\.\\s*${TOML_NAME}\\s*[.=]|mcp_servers\\s*=.*[{,]\\s*${TOML_NAME}\\s*[.=])`,
+  `^\\s*mcp_servers\\s*\\.\\s*${TOML_NAME}\\s*[.=]`,
 );
+/**
+ * An inline `mcp_servers = { ... }` table: TOML allows no table header
+ * under it, whichever servers it holds.
+ */
+const INLINE_SERVERS = /^\s*mcp_servers\s*=/;
 const KEY_IN_SERVERS = new RegExp(`^\\s*${TOML_NAME}\\s*[.=]`);
 
 /** What a TOML line leaves open: array brackets, a multi-line string. */
@@ -257,11 +262,12 @@ function scanValue(line: string, before: Open): Open {
 /**
  * Where the server's table and its subtables sit in a Codex configuration,
  * as line indexes, or that it is registered in a form this command does
- * not edit: under `[mcp_servers]`, as a dotted key, or inline.
+ * not edit: under `[mcp_servers]`, as a dotted key, or split; or that the
+ * servers are an inline table, which takes no table header.
  */
 function findServerTable(
   lines: readonly string[],
-): { start: number; end: number } | 'other' | undefined {
+): { start: number; end: number } | 'other' | 'inline' | undefined {
   let table = '';
   let start: number | undefined;
   let end: number | undefined;
@@ -282,6 +288,7 @@ function findServerTable(
       if (!ours && start !== undefined && end === undefined) end = index;
       continue;
     }
+    if (table === '' && INLINE_SERVERS.test(line)) return 'inline';
     if (
       (table === '' && OTHER_FORM.test(line)) ||
       (table === 'mcp_servers' && KEY_IN_SERVERS.test(line))
@@ -302,9 +309,13 @@ function planToml(
   if (current === undefined) return { status: 'created', text: table };
   const lines = current.split('\n');
   const found = findServerTable(lines);
+  if (found === 'inline')
+    return {
+      conflict: `holds its MCP servers in an inline mcp_servers table, which a [mcp_servers.${SERVER_NAME}] table cannot be added to; add the server to it yourself`,
+    };
   if (found === 'other')
     return {
-      conflict: `registers ${SERVER_NAME} in a form install mcp does not edit (under [mcp_servers], a dotted key, inline, or its tables split across the file); change it yourself`,
+      conflict: `registers ${SERVER_NAME} in a form install mcp does not edit (under [mcp_servers], a dotted key, or its tables split across the file); change it yourself`,
     };
   if (!found) {
     const separator =

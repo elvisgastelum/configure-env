@@ -467,7 +467,8 @@ A server already registered the same way is reported unchanged; a
 different one is never replaced without --force (exit 2). A configuration
 that is not plain JSON (VS Code's may hold comments) is refused, exit 2,
 and so is a Codex config.toml that registers configure-env other than as
-its own [mcp_servers.configure-env] table.
+its own [mcp_servers.configure-env] table, or holds its servers in an
+inline mcp_servers = { ... } table.
 Every file is checked before any is written, and each is written whole
 next to itself and renamed into place, keeping its mode. A symlink is
 written where it points, and stays, when it points inside the project

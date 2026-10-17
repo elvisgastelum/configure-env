@@ -251,12 +251,22 @@ describe('install mcp', () => {
     );
   });
 
-  it("adds the Codex table when another server's args only mention it", async () => {
+  it('refuses a Codex config whose servers are an inline table', async () => {
     const path = join(dirs.root, '.codex/config.toml');
     await mkdir(dirname(path), { recursive: true });
     const current =
       'mcp_servers = { db = { command = "x", args = ["configure-env"] } }\n';
     await writeFile(path, current);
+    const result = await install(['--ci', '--agent', 'codex', '--force']);
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(/an inline mcp_servers table/);
+    expect(await readFile(path, 'utf8')).toBe(current);
+  });
+
+  it("adds the Codex table next to another server's dotted keys", async () => {
+    const path = join(dirs.root, '.codex/config.toml');
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, 'mcp_servers.db.args = ["configure-env"]\n');
     const result = await install(['--ci', '--agent', 'codex']);
     expect(result.code).toBe(0);
     expect(await readFile(path, 'utf8')).toMatch(
@@ -295,7 +305,6 @@ describe('install mcp', () => {
       '[mcp_servers]\nconfigure-env = { command = "x" }\n',
     ],
     ['as a dotted key', 'mcp_servers.configure-env.command = "x"\n'],
-    ['inline', 'mcp_servers = { "configure-env" = { command = "x" } }\n'],
   ])(
     'refuses a Codex server registered %s, even with --force',
     async (_form, text) => {
