@@ -51,7 +51,13 @@ export class ProjectEvents implements OnModuleDestroy {
     }
     this.clients.add(res);
     res.on('close', () => this.unsubscribe(res));
-    this.arming ??= this.arm();
+    if (!this.arming) {
+      // A failure still answers, as before; the next listener tries again.
+      const arming: Promise<void> = this.arm().catch(() => {
+        if (this.arming === arming) this.arming = undefined;
+      });
+      this.arming = arming;
+    }
     await this.arming;
     // It left, or the server closed, while the files were being watched.
     if (!this.clients.has(res) || res.writableEnded) return;

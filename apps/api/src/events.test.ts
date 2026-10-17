@@ -3,7 +3,7 @@ import { type IncomingMessage, get } from 'node:http';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectEvents } from './events.ts';
 import { resolveProject } from './project.ts';
 import {
@@ -235,6 +235,23 @@ describe('ProjectEvents', () => {
     ]);
     expect(await firstSaw).toBe(1);
     expect(await secondSaw).toBe(1);
+  });
+
+  it('answers even when watching fails, and the next listener tries again', async () => {
+    const events = new ProjectEvents(
+      await resolveProject(root, 'env.schema.json'),
+    );
+    const watch = vi
+      .spyOn(events as unknown as { watch: () => Promise<void> }, 'watch')
+      .mockRejectedValueOnce(new Error('EMFILE'));
+    const first = fakeResponse();
+    await events.subscribe(first as never);
+    // Still an event stream, so EventSource reconnects and tries again.
+    expect(first.headersSent).toBe(true);
+    const second = fakeResponse();
+    await events.subscribe(second as never);
+    expect(watch).toHaveBeenCalledTimes(2);
+    expect(events.watching).toBe(1);
   });
 
   it('stops watching when the last listener leaves', async () => {
