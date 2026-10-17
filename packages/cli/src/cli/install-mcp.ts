@@ -321,12 +321,13 @@ function planToml(
   const block = lines.slice(found.start, end).join('\n');
   if (block.trim() === table.trim()) return { status: 'unchanged' };
   if (!force) return DIFFERENT_SERVER;
+  // The table ends with a newline; the head needs one before it, and the
+  // tail keeps the blank line that set it apart.
   const head = lines.slice(0, found.start).join('\n');
   const tail = lines.slice(end).join('\n');
-  return {
-    status: 'updated',
-    text: `${head}${head ? '\n' : ''}${table}${tail ? `${tail.startsWith('\n') ? '' : '\n'}${tail}` : ''}`,
-  };
+  const before = head ? `${head}\n` : '';
+  const after = !tail || tail.startsWith('\n') ? tail : `\n${tail}`;
+  return { status: 'updated', text: `${before}${table}${after}` };
 }
 
 const readText = (path: string) =>
@@ -388,6 +389,18 @@ export interface McpChoices {
   scope: McpScope;
   runner: Runner;
   agents: McpAgent[];
+}
+
+/** A configuration a run wrote, and what it held before. */
+interface Written {
+  /** The configuration's path, as the agent reads it. */
+  path: string;
+  /** The file written: the path, or where its symlink points. */
+  file: string;
+  /** Its text before the run; absent when the run created it. */
+  previous?: string;
+  /** The text the run wrote. */
+  text: string;
 }
 
 export interface InstalledServer {
@@ -507,12 +520,7 @@ export async function installMcp(
   const servers: InstalledServer[] = [];
   const lines: string[] = [];
   /** What each written file held before, to put back on a failure. */
-  const written: {
-    path: string;
-    file: string;
-    previous?: string;
-    text: string;
-  }[] = [];
+  const written: Written[] = [];
   const document = (ok: boolean) => ({
     command: 'install',
     subject: 'mcp',
@@ -603,14 +611,7 @@ export async function installMcp(
  * text, or no file when the run created it. Answers the paths it could not
  * put back; one changed since the run wrote it is left alone.
  */
-async function restore(
-  written: readonly {
-    path: string;
-    file: string;
-    previous?: string;
-    text: string;
-  }[],
-): Promise<string[]> {
+async function restore(written: readonly Written[]): Promise<string[]> {
   const kept: string[] = [];
   for (const { path, file, previous, text } of [...written].reverse()) {
     try {
