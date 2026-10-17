@@ -20,14 +20,7 @@ import { formatJson } from '@configure-env/core/schema';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  checkQuery,
-  filesQuery,
-  groupsQuery,
-  schemaQuery,
-  validateQuery,
-  variablesQuery,
-} from '../../lib/api';
+import { refreshAfterSchemaWrite, schemaQuery } from '../../lib/api';
 import { undoToast } from '../history/undo-toast';
 import { DiffView } from './diff-view';
 import {
@@ -118,12 +111,7 @@ function ReviewBody({
     preview?.ok === true ? formatJson(preview.document, before) : undefined;
   const path = schema?.path ?? 'env.schema.json';
 
-  const refreshDerived = () =>
-    Promise.all(
-      [variablesQuery, groupsQuery, filesQuery, checkQuery, validateQuery].map(
-        (query) => queryClient.invalidateQueries({ queryKey: query.queryKey }),
-      ),
-    );
+  const refreshDerived = () => refreshAfterSchemaWrite(queryClient);
 
   const save = useMutation({
     mutationFn: () => sendEdit(edit, schema?.fingerprint ?? ''),

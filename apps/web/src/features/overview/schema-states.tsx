@@ -24,15 +24,7 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import {
-  checkQuery,
-  filesQuery,
-  groupsQuery,
-  schemaQuery,
-  unwrap,
-  validateQuery,
-  variablesQuery,
-} from '../../lib/api';
+import { refreshAfterSchemaWrite, schemaQuery, unwrap } from '../../lib/api';
 import { editorItem } from '../editor/editor';
 import { OpenInEditorButton } from '../editor/open-in-editor';
 
@@ -62,17 +54,7 @@ function useInitSchema() {
         }),
       );
       written.warnings?.forEach((warning) => toast.warning(warning));
-      await Promise.all(
-        [
-          variablesQuery,
-          groupsQuery,
-          filesQuery,
-          checkQuery,
-          validateQuery,
-        ].map((query) =>
-          queryClient.invalidateQueries({ queryKey: query.queryKey }),
-        ),
-      );
+      await refreshAfterSchemaWrite(queryClient);
     },
     onError: (error) => {
       toast.error(

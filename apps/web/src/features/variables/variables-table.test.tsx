@@ -123,6 +123,22 @@ describe('the variables table', () => {
     expect(rowNames()).toEqual(['API_KEY', 'LOG_LEVEL']);
   });
 
+  it('follows the group in the address while the page stays open', async () => {
+    const { router } = await openVariables('/variables?group=Network');
+
+    await router.navigate({ to: '/variables', search: { group: 'Database' } });
+    await waitFor(() => expect(rowNames()).toEqual(['DB_PASSWORD']));
+
+    await router.history.back();
+    await waitFor(() => expect(rowNames()).toEqual(['API_URL', 'PORT']));
+
+    await router.navigate({ to: '/variables' });
+    await waitFor(() => expect(rowNames()).toHaveLength(5));
+    expect(screen.getByRole('combobox', { name: 'Group' })).toHaveTextContent(
+      'Any group',
+    );
+  });
+
   it('filters by the required, secret and protected flags', async () => {
     const { user } = await openVariables();
 

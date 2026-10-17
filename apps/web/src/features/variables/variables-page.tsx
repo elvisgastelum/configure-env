@@ -94,10 +94,13 @@ function VariablesBrowser({
     }
   }
 
-  // A new group link filters to its group.
+  // A new group in the address filters to it; none clears the filters, so
+  // they never disagree with the address after back or forward.
   if (group !== lastGroup) {
     setLastGroup(group);
-    if (group !== undefined) setFilters({ ...EMPTY_FILTERS, group });
+    setFilters(
+      group === undefined ? EMPTY_FILTERS : { ...EMPTY_FILTERS, group },
+    );
   }
 
   const list = useMemo(() => variables.data?.variables ?? [], [variables.data]);
