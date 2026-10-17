@@ -13,7 +13,8 @@ import type { SchemaEdit } from './edits';
 import { orphanedBy, referencesTo } from './references';
 
 export type Removal =
-  { kind: 'variable'; name: string } | { kind: 'file'; path: string };
+  | { kind: 'variable'; name: string }
+  | { kind: 'file'; path: string };
 
 /**
  * Before a removal: what it leaves dangling. A variable's references (rules

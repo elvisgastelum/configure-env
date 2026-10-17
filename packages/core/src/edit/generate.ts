@@ -22,7 +22,8 @@ export const MIN_GENERATED_BYTES = 16;
 const ATTEMPTS = 10;
 
 export type Generated =
-  { ok: true; value: string } | { ok: false; message: string };
+  | { ok: true; value: string }
+  | { ok: false; message: string };
 
 /**
  * Why a key cannot be generated, or undefined when it can: only a declared

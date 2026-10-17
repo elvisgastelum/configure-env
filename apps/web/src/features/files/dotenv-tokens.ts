@@ -2,7 +2,12 @@
 // tokens that keep every character, so the line reads exactly as written.
 
 export type TokenKind =
-  'comment' | 'keyword' | 'key' | 'operator' | 'value' | 'text';
+  | 'comment'
+  | 'keyword'
+  | 'key'
+  | 'operator'
+  | 'value'
+  | 'text';
 
 export interface Token {
   kind: TokenKind;
