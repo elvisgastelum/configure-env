@@ -15,6 +15,7 @@ import {
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { isInside } from '@configure-env/core';
 import { CliError, type Context, displayPath, usageError } from './common.ts';
 import type { Io } from './io.ts';
 
@@ -385,6 +386,12 @@ export async function installMcp(
   const { io, prompts } = context;
   const home = io.env.HOME || io.env.USERPROFILE || homedir();
   const show = (path: string) => shownPath(path, choices.scope, base, home);
+  // A symlinked configuration is written where it points only inside the
+  // project (project scope) or the home folder (user scope): a cloned
+  // repository must not make install mcp change a file anywhere else.
+  const folder = choices.scope === 'user' ? home : base;
+  // Both spellings: a dangling link's target is not resolved like the folder.
+  const bounds = [folder, await realpath(folder).catch(() => folder)];
 
   const planned: {
     agent: McpAgent;
@@ -411,6 +418,11 @@ export async function installMcp(
         `cannot read ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
       ]);
     }
+    if (file !== target.path && !bounds.some((bound) => isInside(bound, file)))
+      throw usageError(
+        `${show(target.path)} is a symlink to ${file}, outside the ${choices.scope === 'user' ? 'home folder' : 'project'}`,
+        'register the server in that file yourself, or replace the link',
+      );
     const entry =
       target.format === 'toml'
         ? tomlTable(launch)

@@ -481,6 +481,28 @@ describe('install mcp', () => {
     expect(await readFile(join(dirs.root, '.mcp.json'), 'utf8')).toBe('{}');
   });
 
+  it('refuses a project config that links outside the project', async () => {
+    const outside = join(home, '.zshrc');
+    await writeFile(outside, 'export A=1\n');
+    await mkdir(join(dirs.root, '.codex'), { recursive: true });
+    await symlink(outside, join(dirs.root, '.codex/config.toml'));
+    const result = await install(['--ci', '--agent', 'codex']);
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(
+      /\.codex\/config\.toml is a symlink to .*, outside the project/,
+    );
+    expect(await readFile(outside, 'utf8')).toBe('export A=1\n');
+  });
+
+  it('refuses a dangling project link that points outside the project', async () => {
+    const outside = join(home, 'created-by-link.json');
+    await mkdir(join(dirs.root, '.cursor'), { recursive: true });
+    await symlink(outside, join(dirs.root, '.cursor/mcp.json'));
+    const result = await install(['--ci', '--agent', 'cursor']);
+    expect(result.code).toBe(2);
+    await expect(stat(outside)).rejects.toThrow();
+  });
+
   it('prints one JSON document with --json', async () => {
     const result = await install(['--json', '--agent', 'cursor']);
     expect(result.code).toBe(0);
