@@ -357,14 +357,18 @@ describe('POST /api/schema/init', () => {
     expect((await getSchema()).body).not.toHaveProperty('initFrom');
   });
 
-  it('names none without an example, or with one init would refuse', async () => {
+  it('names none without an example, and one init refuses all the same', async () => {
     await start({});
     expect((await getSchema()).body).not.toHaveProperty('initFrom');
     const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
     try {
       await writeFile(join(outside, 'example'), EXAMPLE);
       await symlink(join(outside, 'example'), join(root, '.env.example'));
-      expect((await getSchema()).body).not.toHaveProperty('initFrom');
+      // The portal offers it, and init's refusal says why: never "no example".
+      expect((await getSchema()).body.initFrom).toBe('.env.example');
+      const refused = await send('post', '/api/schema/init', {});
+      expect(refused.status).toBe(403);
+      expect(refused.body.message).toMatch(/^\.env\.example: /);
     } finally {
       await rm(outside, { recursive: true, force: true });
     }

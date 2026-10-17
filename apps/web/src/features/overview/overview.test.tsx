@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import * as fixtures from '../../mocks/fixtures';
-import { passingCheck } from '../../mocks/fixtures';
 import { scenarios } from '../../mocks/handlers';
 import { renderApp } from '../../test/render';
 import { server } from '../../test/server';
@@ -74,7 +73,9 @@ describe('the overview', () => {
     const check = await screen.findByRole('region', { name: 'Check' });
     await within(check).findByText('1 issue');
 
-    server.use(http.get('/api/check', () => HttpResponse.json(passingCheck)));
+    server.use(
+      http.get('/api/check', () => HttpResponse.json(fixtures.passingCheck)),
+    );
     await user.click(within(check).getByRole('button', { name: 'Run check' }));
 
     expect(await within(check).findByText('Passing')).toBeInTheDocument();

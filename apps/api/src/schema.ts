@@ -7,6 +7,7 @@
 // after, so it can be undone.
 
 import { lstat, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   DEFAULT_EXAMPLE,
   STATE_IGNORE,
@@ -46,17 +47,20 @@ export async function currentSchema(project: Project): Promise<SchemaView> {
 }
 
 /**
- * While the schema file is missing: the example init would read, when it
- * exists and init may read it (inside the root, not a symlink).
+ * While the schema file is missing: the example init reads, when something
+ * is there. One init refuses (a symlink) is named too, so the portal offers
+ * it and init's refusal says why, rather than claiming there is none.
  */
 async function initSource(project: Project): Promise<string | undefined> {
-  const missing = await lstat(project.schemaFile).then(
-    () => false,
-    (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
-  );
-  if (!missing) return undefined;
-  const target = await resolveTarget(project.root, DEFAULT_EXAMPLE);
-  return target.ok && target.exists ? DEFAULT_EXAMPLE : undefined;
+  const exists = (path: string) =>
+    lstat(path).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
+    );
+  if (await exists(project.schemaFile)) return undefined;
+  return (await exists(join(project.root, DEFAULT_EXAMPLE)))
+    ? DEFAULT_EXAMPLE
+    : undefined;
 }
 
 /**

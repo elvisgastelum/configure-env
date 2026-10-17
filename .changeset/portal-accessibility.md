@@ -9,4 +9,5 @@ The portal passes axe on every page and dialog, in the light and dark themes, an
 - The apply plan's long lines scroll inside their own box instead of widening the dialog past the screen.
 - Applying one file from Check keeps its result until Done, and saving a value from Check or Validate keeps its "Saved" toast with Undo, though the fixed item leaves the report.
 - A tab without the session gets a page saying to open the launch link again, not the API's JSON error.
-- When the portal inits a schema, it never writes `.gitignore` through a symlink, and `serve` takes only a missing schema file for "no schema yet".
+- `configure-env init`, from the CLI or the portal, never writes `.gitignore` through a symlink, which may lead outside the project: it leaves it alone with a warning on stderr, and `init --json` reports `"gitignore": "symlink"` (before, the CLI wrote through it).
+- `serve` takes only a missing schema file for "no schema yet".

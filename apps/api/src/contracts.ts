@@ -82,7 +82,7 @@ export const schemaResponse = named(
     }),
     initFrom: z.string().optional().meta({
       description:
-        'While the schema file is missing: the example env file POST /api/schema/init would read. Absent when there is none it may read, and init then writes an empty schema.',
+        'While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema.',
     }),
   }),
 );
