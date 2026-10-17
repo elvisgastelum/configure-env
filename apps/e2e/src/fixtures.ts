@@ -65,16 +65,24 @@ export const test = base.extend<Fixtures>({
     // answers it once it watches the files. A test that edits a file or
     // drops the cookie before then would race it: the edit sends no event,
     // or the stream never opens without the cookie.
-    const events = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === '/api/events' && response.ok(),
-    );
+    const events = page
+      .waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/events' && response.ok(),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) =>
+          new Error(`the portal never opened /api/events: ${String(error)}`),
+      );
     await page.goto(served.launchUrl);
     // The launch route sets the session cookie and moves to the overview;
     // the navigation may sit behind "Open navigation" on a narrow screen.
     await expect(page).toHaveURL(`${served.origin}/`);
     await expect(page.locator('main#main')).toBeVisible();
-    await events;
+    // Settled either way, so a failure above never leaves it unhandled.
+    const failed = await events;
+    if (failed) throw failed;
     await use(page);
   },
 });
