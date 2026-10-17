@@ -17,6 +17,13 @@ export const DEBOUNCE_MS = 50;
 /** How often a comment keeps an idle stream open through proxies. */
 export const HEARTBEAT_MS = 25_000;
 
+const STREAM_HEADERS = {
+  'Content-Type': 'text/event-stream; charset=utf-8',
+  'Cache-Control': 'no-store',
+  Connection: 'keep-alive',
+  'X-Accel-Buffering': 'no',
+};
+
 export class ProjectEvents implements OnModuleDestroy {
   private readonly clients = new Set<Response>();
   private readonly watchers = new Map<string, FSWatcher>();
@@ -25,33 +32,61 @@ export class ProjectEvents implements OnModuleDestroy {
   private readonly pending = new Set<string>();
   private timer: NodeJS.Timeout | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
+  /**
+   * Watching the files for the first listener, the others wait for it too;
+   * false when it failed.
+   */
+  private arming: Promise<boolean> | undefined;
   private closed = false;
 
   constructor(private readonly project: Project) {}
 
-  /** Streams events to `res` until it closes or the server does. */
+  /**
+   * Streams events to `res` until it closes or the server does. The stream
+   * answers once the files are watched: a browser's EventSource opens on the
+   * response, and a change made as soon as it is open must not be missed.
+   */
   async subscribe(res: Response): Promise<void> {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-store',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
     if (this.closed) {
+      res.writeHead(200, STREAM_HEADERS);
       res.end();
       return;
     }
     this.clients.add(res);
     res.on('close', () => this.unsubscribe(res));
-    if (this.clients.size === 1) {
-      await this.watch();
-      this.heartbeat = setInterval(
-        () => this.send(': heartbeat\n\n'),
-        HEARTBEAT_MS,
+    if (!this.arming) {
+      const arming: Promise<boolean> = this.arm().then(
+        () => true,
+        () => {
+          // The next listener tries again.
+          if (this.arming === arming) this.arming = undefined;
+          return false;
+        },
       );
-      this.heartbeat.unref();
+      this.arming = arming;
     }
-    if (!res.writableEnded) res.write('retry: 1000\n\n: watching\n\n');
+    const watching = await this.arming;
+    // It left, or the server closed, while the files were being watched.
+    if (!this.clients.has(res) || res.writableEnded) return;
+    res.writeHead(200, STREAM_HEADERS);
+    if (!watching) {
+      // Nothing is watched: the stream ends, and EventSource reconnects
+      // after `retry`, which watches again.
+      res.write('retry: 1000\n\n');
+      res.end();
+      return;
+    }
+    res.write('retry: 1000\n\n: watching\n\n');
+  }
+
+  private async arm(): Promise<void> {
+    await this.watch();
+    if (this.closed || !this.clients.size) return;
+    this.heartbeat ??= setInterval(
+      () => this.send(': heartbeat\n\n'),
+      HEARTBEAT_MS,
+    );
+    this.heartbeat.unref();
   }
 
   private unsubscribe(res: Response) {
@@ -127,14 +162,17 @@ export class ProjectEvents implements OnModuleDestroy {
       this.send(`event: changed\ndata: ${JSON.stringify({ paths })}\n\n`);
   }
 
+  /** Writes to every stream that has answered; one still waiting gets none. */
   private send(frame: string) {
-    for (const res of this.clients) if (!res.writableEnded) res.write(frame);
+    for (const res of this.clients)
+      if (res.headersSent && !res.writableEnded) res.write(frame);
   }
 
   private stop() {
     clearTimeout(this.timer);
     clearInterval(this.heartbeat);
     this.timer = this.heartbeat = undefined;
+    this.arming = undefined;
     this.pending.clear();
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();
@@ -147,7 +185,12 @@ export class ProjectEvents implements OnModuleDestroy {
 
   onModuleDestroy() {
     this.closed = true;
-    for (const res of this.clients) res.end();
+    // A stream still waiting to be answered ends as an event stream too, so
+    // the browser's EventSource reconnects rather than giving up.
+    for (const res of this.clients) {
+      if (!res.headersSent) res.writeHead(200, STREAM_HEADERS);
+      res.end();
+    }
     this.clients.clear();
     this.stop();
   }
