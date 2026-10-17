@@ -61,22 +61,19 @@ describe('external changes', () => {
     );
   });
 
-  it('refresh the validate report', async () => {
+  it('refresh an invalid value on the check report', async () => {
     server.use(...scenarios.liveReports);
-    await renderApp('/validate');
-    const env = await screen.findByRole('region', { name: '.env' });
+    await renderApp('/check');
     expect(
-      within(env).getByRole('region', { name: 'API_URL' }),
-    ).toBeInTheDocument();
+      await screen.findByRole('region', { name: '.env' }),
+    ).toHaveTextContent('API_URL is not a URL');
 
     writeValue('.env', 'API_URL', 'https://api.example.com');
     await changeOutside(['.env']);
 
     expect(await toastFor('.env')).toBeInTheDocument();
     await waitFor(() =>
-      expect(
-        within(envRegion()).queryByRole('region', { name: 'API_URL' }),
-      ).not.toBeInTheDocument(),
+      expect(envRegion()).not.toHaveTextContent('API_URL is not a URL'),
     );
   });
 

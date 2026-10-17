@@ -48,7 +48,7 @@ export const fakeSecret = () => `fake-${randomBytes(12).toString('hex')}`;
  */
 const GENERATED: Record<FixtureName, () => Record<string, string>> = {
   portfolio: () => ({
-    // VITE_CONTACT_WHATSAPP breaks its pattern, so validate reports it.
+    // VITE_CONTACT_WHATSAPP breaks its pattern, so check reports it.
     '.env': [
       '# The local copy, never committed.',
       'WEB_HOST=127.0.0.1',

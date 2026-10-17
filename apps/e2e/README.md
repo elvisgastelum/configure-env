@@ -60,6 +60,6 @@ in CI) to `test-results/`; both are ignored by git.
   secret, `CONTACT_API_TOKEN`. `.env.example` misses `WEB_PORT` (check
   reports drift), `deploy/.env.production.example` does not exist (apply
   creates it), and `.env` is written at run time: git ignores it, it holds
-  an invalid `VITE_CONTACT_WHATSAPP` (validate reports it), and its secret is
+  an invalid `VITE_CONTACT_WHATSAPP` (check reports it), and its secret is
   random per run, never a committed literal.
 - `empty/`: only a `.env.example`, for the init journey.

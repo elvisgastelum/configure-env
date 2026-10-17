@@ -12,7 +12,6 @@ import {
   filesQuery,
   projectQuery,
   schemaQuery,
-  validateQuery,
   variablesQuery,
 } from '../../lib/api';
 import { projectName, schemaStatus } from '../../lib/schema-status';
@@ -20,9 +19,9 @@ import { FileCard } from './file-card';
 import { HealthCard } from './health-card';
 import { InvalidSchema, NoSchema } from './schema-states';
 import { StatCards } from './stat-cards';
-import { checkIssues, countVariables, validateErrors } from './summary';
+import { checkErrors, countVariables } from './summary';
 
-/** The project's env health: counts, files, and check and validate. */
+/** The project's env health: counts, files, and check. */
 export function OverviewPage() {
   const { t } = useTranslation();
   const { data: project } = useQuery(projectQuery);
@@ -63,7 +62,6 @@ function ProjectHealth() {
   const variables = useQuery(variablesQuery);
   const files = useQuery(filesQuery);
   const check = useQuery(checkQuery);
-  const validate = useQuery(validateQuery);
 
   return (
     <>
@@ -84,22 +82,11 @@ function ProjectHealth() {
             hint={t('overview.health.checkHint')}
             to="/check"
             runLabel={t('overview.health.runCheck')}
-            problems={check.data ? checkIssues(check.data) : undefined}
-            problemsLabel={(count) => t('overview.health.issues', { count })}
+            problems={check.data ? checkErrors(check.data) : undefined}
+            problemsLabel={(count) => t('overview.health.errors', { count })}
             fetching={check.isFetching}
             error={check.error?.message}
             onRun={() => void check.refetch()}
-          />
-          <HealthCard
-            title={t('overview.health.validate')}
-            hint={t('overview.health.validateHint')}
-            to="/validate"
-            runLabel={t('overview.health.runValidate')}
-            problems={validate.data ? validateErrors(validate.data) : undefined}
-            problemsLabel={(count) => t('overview.health.errors', { count })}
-            fetching={validate.isFetching}
-            error={validate.error?.message}
-            onRun={() => void validate.refetch()}
           />
         </div>
       </section>

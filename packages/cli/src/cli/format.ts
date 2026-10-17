@@ -1,12 +1,12 @@
-// How plans, results and drift read, as plain lines and as JSON.
+// How plans, results and check reports read, as plain lines and as JSON.
 
 import {
   type ApplyResult,
-  type FileDrift,
+  type CheckProblem,
+  type CheckReport,
+  type FileCheck,
   type FilePlan,
   formatMode,
-  loosens,
-  ruleKeys,
 } from '@configure-env/core';
 import { protectedLine } from './protect.ts';
 
@@ -120,48 +120,53 @@ export function applyJson(file: FilePlan, result?: ApplyResult) {
   };
 }
 
-/** A mode drift, with how to fix it: apply only removes permissions. */
-function modeLine({ actual, expected }: NonNullable<FileDrift['mode']>) {
-  const hint = loosens(Number.parseInt(actual, 8), Number.parseInt(expected, 8))
-    ? 'apply never adds a permission; chmod it by hand'
-    : 'run configure-env apply to fix it';
-  return `mode ${actual}, expected ${expected} (${hint})`;
+/** How a problem reads after its file's path, never with a raw secret. */
+function problemText(problem: CheckProblem): string {
+  const { code, key, keys, line, message, shown } = problem;
+  switch (code) {
+    case 'invalid-line':
+      return `line ${line} ${message}`;
+    case 'protected':
+      return protectedLine({ key: key!, message });
+    case 'mode':
+      // apply only removes permissions: a mode it would loosen has no fix.
+      return `${message} (${
+        problem.fix
+          ? 'run configure-env apply to fix it'
+          : 'apply never adds a permission; chmod it by hand'
+      })`;
+    case 'invalid-value':
+      return `${key}: ${message}${shown ? ` (got ${shown})` : ''}`;
+    default:
+      return key ? `${keys?.join(', ') ?? key}: ${message}` : message;
+  }
 }
 
-const DRIFT_STATUS: Record<FileDrift['status'], (file: FileDrift) => string> = {
-  current: () => 'current',
-  missing: () => 'missing',
-  differs: () => 'differs from the schema',
-  'missing-keys': (file) => `missing keys: ${file.missingKeys.join(' ')}`,
-  refused: (file) => `refused (${file.error})`,
-};
+/**
+ * For check: one line per problem, `path: <problem>`, warnings marked so;
+ * `path: ok` for a file without any.
+ */
+export function checkLines(file: FileCheck): string[] {
+  if (!file.problems.length) return [`${file.path}: ok`];
+  return file.problems.map(
+    (problem) =>
+      `${file.path}: ${problem.severity === 'warning' ? 'warning: ' : ''}${problemText(problem)}`,
+  );
+}
+
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * For check: the file's state, its unknown keys, its mode, then its invalid values, broken
- * rules, lines and protected values that no longer match.
+ * For check: `N errors, M warnings in K files`, K the files with a
+ * problem; `Everything is current.` without any, unless the run itself has
+ * errors (an invalid --set value, an unknown --file path).
  */
-export function driftLines(file: FileDrift): string[] {
-  return [
-    `${file.path}: ${DRIFT_STATUS[file.status](file)}`,
-    ...(file.unknownKeys.length
-      ? [
-          `${file.path}: unknown keys: ${file.unknownKeys.join(', ')} (run configure-env apply --prune to remove them)`,
-        ]
-      : []),
-    ...(file.mode ? [`${file.path}: ${modeLine(file.mode)}`] : []),
-    ...file.invalid.map(
-      ({ key, shown, message }) =>
-        `${file.path}: invalid ${key}=${shown} (${message})`,
-    ),
-    ...file.rules.map(
-      (problem) =>
-        `${file.path}: ${ruleKeys(problem).join(', ')}: ${problem.message}`,
-    ),
-    ...file.invalidLines.map(
-      (line) => `${file.path}: line ${line} is not a valid entry`,
-    ),
-    ...file.protected.map(
-      (mismatch) => `${file.path}: ${protectedLine(mismatch)}`,
-    ),
-  ];
+export function checkSummary(report: CheckReport): string {
+  const { errors, warnings } = report.summary;
+  if (!errors && !warnings)
+    return report.ok
+      ? 'Everything is current.'
+      : 'No problem in the files, but the run has errors.';
+  const files = report.files.filter((file) => file.problems.length).length;
+  return `${count(errors, 'error')}, ${count(warnings, 'warning')} in ${count(files, 'file')}`;
 }

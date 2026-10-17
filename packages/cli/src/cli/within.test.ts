@@ -39,26 +39,25 @@ const leaks = (lines: string[]) =>
   );
 
 describe('within', () => {
-  it('validate, check and list pass a value inside the network', async () => {
+  it('check and list pass a value inside the network', async () => {
     await env(`APP_SUBNET=${SUBNET}\nWEB_ADDRESS=${INSIDE}\n`);
-    expect((await cli(['validate', '--file', '.env'])).code).toBe(0);
     expect((await cli(['check', '--file', '.env'])).code).toBe(0);
     expect((await cli(['list', '--file', '.env'])).code).toBe(0);
   });
 
-  it('validate, check and list report a value outside it, naming both keys', async () => {
+  it('check and list report a value outside it, naming both keys', async () => {
     await env(`APP_SUBNET=${SUBNET}\nWEB_ADDRESS=${OUTSIDE}\n`);
-    const validate = await cli(['validate', '--file', '.env']);
-    expect(validate).toMatchObject({
-      code: 1,
-      out: ['.env: WEB_ADDRESS: must be within APP_SUBNET'],
-    });
     const check = await cli(['check', '--file', '.env']);
-    expect(check.code).toBe(1);
-    expect(check.out).toContain('.env: WEB_ADDRESS: must be within APP_SUBNET');
+    expect(check).toMatchObject({
+      code: 1,
+      out: [
+        '.env: WEB_ADDRESS: must be within APP_SUBNET',
+        '1 error, 0 warnings in 1 file',
+      ],
+    });
     const list = await cli(['list', '--file', '.env']);
     expect(list.out.join('\n')).toContain('must be within APP_SUBNET');
-    expect(leaks([...validate.out, ...validate.err, ...check.out])).toBe(false);
+    expect(leaks([...check.out, ...check.err])).toBe(false);
   });
 
   it('set refuses a value outside the network, writing nothing', async () => {
@@ -118,7 +117,7 @@ describe('within', () => {
         },
       }),
     );
-    const r = await cli(['validate']);
+    const r = await cli(['check']);
     expect(r.code).toBe(1);
     expect(r.err.join('\n')).toContain(
       'WEB_ADDRESS must be within the default of APP_SUBNET',

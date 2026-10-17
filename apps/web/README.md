@@ -1,6 +1,6 @@
 # @configure-env/web
 
-The configure-env portal: a static single-page app the local API serves behind its token. The repository README describes the shell, the overview, the variables browser and the session; this file describes the env files workspace, apply, check, validate, live updates, the schema editor and the history of edits.
+The configure-env portal: a static single-page app the local API serves behind its token. The repository README describes the shell, the overview, the variables browser and the session; this file describes the env files workspace, apply, check, live updates, the schema editor and the history of edits.
 
 ## Env files (`/files`)
 
@@ -20,14 +20,18 @@ A card per schema file shows its policy, mode (and the schema's, when they diffe
 
 The values are kept only in the dialog: the plan and apply requests are mutations with no cache, so a secret typed or generated there is gone when the dialog closes.
 
-## Check (`/check`) and validate (`/validate`)
+## Check (`/check`)
 
-| Page     | Grouped by                  | Items                                                                                                                                                                        | Fix                                                                                                                      |
-| -------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Check    | file, with its drift status | the file is missing or differs, missing keys, invalid values (shown masked), rule and protected problems, unknown keys, the mode, lines that do not parse; plan errors above | **Set KEY in FILE** edits the value in place; **Apply FILE** opens apply for that file; a bad line links to the raw view |
-| Validate | file, then variable         | value, rule and protected errors per variable (a rule under the first key it names, the others linked), lines that do not parse, warnings                                    | **Fix KEY in FILE** edits the value in place                                                                             |
+One page shows the whole report of `GET /api/check`, the same report `configure-env check` prints:
 
-Every variable name links to the variables page (`/variables?focus=KEY`). **Run check** and **Run validate** ask the API again; any write in the portal refreshes both. Set opens the editor of that one item, even when another item names the same key. When the variables cannot be read, check says values cannot be set right now and offers no Set; Apply stays available.
+1. **Summary.** At the top, the error and warning counts, the failing files, and a link to each file's section; plan errors (an invalid value given to the run) above it.
+2. **Filters.** Severity chips (errors, warnings) with their counts.
+3. **Files.** A card per file in schema order, with its drift status and its problems, errors first. Each item has its severity as a word and an icon, its code as a tag (missing file, differs, missing key, mode, refused, invalid line, invalid value, rule, protected, unknown key), and its message; values are masked by the API. A file without problems is collapsed.
+4. **Fix.** **Set KEY in FILE** edits the value in place; **Apply FILE** opens apply for that file; a bad line links to the raw view.
+
+Every variable name links to the variables page (`/variables?focus=KEY`). **Run check** asks the API again, and any write in the portal refreshes the report. A `role="status"` region announces the new counts after a rerun without moving the focus. Set opens the editor of that one item, even when another item names the same key. When the variables cannot be read, check says values cannot be set right now and offers no Set; Apply stays available.
+
+The overview shows one Check card with the counts, and the palette's only report action is **Run check**.
 
 ## Live updates
 
@@ -95,15 +99,15 @@ Every item that points at a place in a file has an **Open in editor** button (an
 
 - **Variables:** a row of the table opens the variable's entry in the file the value column shows. In the drawer, **Definition** opens its definition in the schema file, and each file of the value table opens its entry there.
 - **Env files:** the file detail opens the file, and each of its entries at its line.
-- **Check and validate:** a variable's item opens its entry in that file, a line that does not parse opens at that line, and a file's own problems (drift, mode) at its top.
+- **Check:** a variable's item opens its entry in that file, a line that does not parse opens at that line, and a file's own problems (drift, mode) at its top.
 - **Schema errors:** each error of an invalid schema opens at its JSON path (the API maps it to a line with a source map of the file), or at the line and column of a syntax error.
 - **Shortcut:** `o` opens the item that holds the focus, else the selected row of the variables table, else, in the drawer, the variable's definition. It does nothing while typing in a field or with a menu open.
 - **Toast:** says the file and line the editor opened, or, when no editor was found, how to set one, or, when the editor found runs in a terminal (the server never starts one), to set `$LAUNCH_EDITOR` to a GUI editor or open an IDE. A file that does not exist yet has no button.
 
 ## Tests and stories
 
-- The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes check and validate from it, so a fix shows in the next report.
+- The tests run against the msw handlers (`src/mocks`). The schema writes there run the core's schema writer, as the API does, so a handler refuses what the API refuses. Plan and apply run over the in-memory sample project (`planOf`, `applyPlan`), and `scenarios.liveReports` computes the check report from it, so a fix shows in the next report.
 - `GET /api/events` is mocked with msw's `sse()`. jsdom has no `EventSource`, so `src/test/event-source.ts` installs the `eventsource` polyfill before the handlers load; `changeOutside(paths)` (`src/test/events.ts`) sends a `changed` event once the portal listens, and `dropEvents()` (`src/mocks/store.ts`) ends the streams so the portal reconnects.
 - `POST /api/open-in-editor` opens nothing: it answers the line of the key in the sample file's lines. `scenarios.noEditor` answers that no editor was found, `scenarios.terminalEditor` that the editor found (vim) runs in a terminal, `scenarios.editorRefused` a refused path.
 - The history lives in the mock store too: value and schema writes record their changes (a secret's without its values), and an undo checks that the value or the schema text is still what the change wrote, as the API checks its fingerprint.
-- The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Validate`, `Portal/Schema` and `Portal/History`. Run them with `pnpm storybook:web`.
+- The stories are under `Portal/Files`, `Portal/Apply`, `Portal/Check`, `Portal/Schema` and `Portal/History`. Run them with `pnpm storybook:web`.

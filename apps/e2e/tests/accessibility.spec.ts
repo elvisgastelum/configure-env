@@ -12,7 +12,6 @@ const ROUTES = [
   '/files',
   '/schema',
   '/check',
-  '/validate',
   '/history',
 ];
 

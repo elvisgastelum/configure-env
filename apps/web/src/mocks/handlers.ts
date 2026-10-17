@@ -36,7 +36,6 @@ import {
   recordValueChange,
   touchFile,
   undoMockChange,
-  validateOf,
   writeSchema,
   writeValue,
 } from './store';
@@ -221,7 +220,6 @@ export const handlers = [
   http.get('/api/groups', () => json(groupsOf())),
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
-  http.get('/api/validate', () => json(fixtures.validate)),
   http.post('/api/files/content', async ({ request }) => {
     const { file } = (await request.json()) as { file: string };
     const info = findFile(file);
@@ -462,9 +460,6 @@ export const scenarios = {
     http.get('/api/check', () =>
       missing() ? schemaNeeded() : json(fixtures.check),
     ),
-    http.get('/api/validate', () =>
-      missing() ? schemaNeeded() : json(fixtures.validate),
-    ),
     // Init writes the sample schema, as if inferred from its .env.example.
     http.post('/api/schema/init', () => {
       if (!missing())
@@ -486,25 +481,20 @@ export const scenarios = {
     http.get('/api/groups', schemaNeeded),
     http.get('/api/files', schemaNeeded),
     http.get('/api/check', schemaNeeded),
-    http.get('/api/validate', schemaNeeded),
   ],
   /**
-   * GET /api/check and GET /api/validate computed from the in-memory sample
-   * project (`checkOf`, `validateOf`), so a fix made in the portal or outside
-   * it shows in the next report. Check reports drift, modes, invalid values
-   * and bad lines; validate reports invalid and missing required values and
-   * bad lines. Neither reports rule or protected-value problems, nor
-   * warnings.
+   * GET /api/check computed from the in-memory sample project (`checkOf`), so
+   * a fix made in the portal or outside it shows in the next report: drift,
+   * modes, missing keys, bad lines, invalid and missing required values, and
+   * unknown keys as warnings. It reports no rule or protected-value problems.
    */
-  liveReports: [
-    http.get('/api/check', () => json(checkOf())),
-    http.get('/api/validate', () => json(validateOf())),
-  ],
-  /** Check and validate report one of every kind of problem. */
-  everyProblem: [
-    http.get('/api/check', () => json(fixtures.driftCheck)),
-    http.get('/api/validate', () => json(fixtures.validationReport)),
-  ],
+  liveReports: [http.get('/api/check', () => json(checkOf()))],
+  /** Check reports one of every kind of problem. */
+  everyProblem: [http.get('/api/check', () => json(fixtures.checkReport))],
+  /** Check reports only warnings: unknown keys, which do not fail it. */
+  onlyWarnings: [http.get('/api/check', () => json(fixtures.warningsCheck))],
+  /** Check reports two dozen files, every fifth one failing. */
+  manyFiles: [http.get('/api/check', () => json(fixtures.manyFilesCheck()))],
   /** No editor is set or running: open-in-editor says so. */
   noEditor: [
     http.post('/api/open-in-editor', async ({ request }) => {
@@ -549,10 +539,7 @@ export const scenarios = {
   /** The plan shows every action a file can take. */
   everyAction: [http.post('/api/plan', () => json(fixtures.everyActionPlan))],
   /** Every env file matches its schema. */
-  passing: [
-    http.get('/api/check', () => json(fixtures.passingCheck)),
-    http.get('/api/validate', () => json(fixtures.passingValidate)),
-  ],
+  passing: [http.get('/api/check', () => json(fixtures.passingCheck))],
   /** Nothing ever answers: the skeletons stay. */
   loading: [
     http.get('/api/*', async () => {

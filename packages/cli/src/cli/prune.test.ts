@@ -393,31 +393,48 @@ describe('apply --prune and an unusable state', () => {
 });
 
 describe('check --strict', () => {
-  it('reports the keys apply --prune removes as drift', async () => {
+  it('reports the keys apply --prune removes as errors, warnings without it', async () => {
     await cli(['apply', '--ci']);
     await useSchema(without('DEBUG'));
-    expect((await cli(['check', '--ci'])).code).toBe(0);
+    expect(await cli(['check', '--ci'])).toMatchObject({
+      code: 0,
+      out: [
+        '.env.example: warning: DEBUG: is not in the schema for this file',
+        '.env: warning: DEBUG: is not in the schema for this file',
+        'gen.env: ok',
+        '0 errors, 2 warnings in 2 files',
+      ],
+    });
     const r = await cli(['check', '--ci', '--strict']);
     expect(r).toMatchObject({
       code: 1,
       out: [
-        '.env.example: current',
-        '.env.example: unknown keys: DEBUG (run configure-env apply --prune to remove them)',
-        '.env: current',
-        '.env: unknown keys: DEBUG (run configure-env apply --prune to remove them)',
-        'gen.env: current',
+        '.env.example: DEBUG: is not in the schema for this file',
+        '.env: DEBUG: is not in the schema for this file',
+        'gen.env: ok',
+        '2 errors, 0 warnings in 2 files',
       ],
     });
     const report = json(await cli(['check', '--ci', '--json', '--strict']));
-    expect(report).toMatchObject({ ok: false, drift: true });
+    expect(report).toMatchObject({
+      ok: false,
+      summary: { errors: 2, warnings: 0, files: 3, failing: 2 },
+    });
     expect(
-      report.files.map((file: { unknownKeys: string[] }) => file.unknownKeys),
-    ).toEqual([['DEBUG'], ['DEBUG'], []]);
+      report.files.map((file: { problems: { key?: string; fix?: string }[] }) =>
+        file.problems.map(({ key, fix }) => [key, fix]),
+      ),
+    ).toEqual([[['DEBUG', 'prune']], [['DEBUG', 'prune']], []]);
 
     await cli(['apply', '--ci', '--prune']);
     expect(await cli(['check', '--ci', '--strict'])).toMatchObject({
       code: 0,
-      out: ['.env.example: current', '.env: current', 'gen.env: current'],
+      out: [
+        '.env.example: ok',
+        '.env: ok',
+        'gen.env: ok',
+        'Everything is current.',
+      ],
     });
   });
 });

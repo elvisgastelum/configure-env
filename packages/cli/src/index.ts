@@ -67,10 +67,13 @@ export {
 } from '@configure-env/core';
 export type {
   CheckOptions,
-  DriftReport,
+  CheckProblem,
+  CheckReport,
   DriftStatus,
-  FileDrift,
-  InvalidValue,
+  FileCheck,
+  ProblemCode,
+  ProblemFix,
+  ProblemSeverity,
   ProtectedMismatch,
 } from '@configure-env/core';
 

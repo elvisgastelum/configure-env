@@ -6,7 +6,7 @@
 import {
   type DriftStatus,
   FILE_POLICIES,
-  RULE_FIELDS,
+  PROBLEM_CODES,
   VARIABLE_NAME,
   variableSpec,
 } from '@configure-env/core';
@@ -243,46 +243,44 @@ export const strictQuery = z.object({
   }),
 });
 
-const ruleProblem = named(
-  'RuleProblem',
+const problem = named(
+  'Problem',
   z.object({
-    rule: z.enum(RULE_FIELDS),
-    key: z.string(),
-    others: z.array(z.string()),
-    message: z.string(),
+    severity: z.enum(['error', 'warning']).meta({
+      description:
+        'error fails the check; warning (an unknown key without strict) does not.',
+    }),
+    code: z.enum(PROBLEM_CODES),
+    key: z.string().optional(),
+    keys: z.array(z.string()).optional().meta({
+      description:
+        'Every key a broken rule between variables names, when more than one.',
+    }),
+    line: z.int().optional().meta({ description: 'The 1-based line number.' }),
+    message: z.string().meta({ description: 'Never holds a value.' }),
+    shown: z.string().optional().meta({
+      description: 'An invalid value for display, masked when secret.',
+    }),
+    reason: z.string().optional().meta({
+      description: "A protected variable's reason, when it gives one.",
+    }),
+    fix: z.enum(['apply', 'prune', 'set']).optional().meta({
+      description:
+        'What fixes it: apply, apply with prune, or setting a value; absent when a person decides.',
+    }),
   }),
 );
 
-const fileDrift = named(
-  'FileDrift',
+const fileCheck = named(
+  'FileCheck',
   z.object({
     path: z.string(),
     policy: z.enum(FILE_POLICIES),
+    template: z.boolean(),
     status: z.enum(DRIFT_STATUSES),
-    drift: z.boolean(),
-    missingKeys: z.array(z.string()),
-    unknownKeys: z.array(z.string()),
-    invalid: z.array(
-      z.object({
-        key: z.string(),
-        message: z.string(),
-        shown: z
-          .string()
-          .meta({ description: 'The value for display, masked when secret.' }),
-      }),
-    ),
-    rules: z.array(ruleProblem),
-    invalidLines: z.array(z.int()),
-    protected: z.array(
-      z.object({
-        kind: z.literal('protected'),
-        key: z.string(),
-        message: z.string(),
-        reason: z.string().optional(),
-      }),
-    ),
     mode: z.object({ actual: z.string(), expected: z.string() }).optional(),
-    error: z.string().optional(),
+    ok: z.boolean().meta({ description: 'No error-severity problem.' }),
+    problems: z.array(problem),
   }),
 );
 
@@ -300,49 +298,18 @@ export const planError = named(
 export const checkResponse = named(
   'Check',
   z.object({
-    ok: z
-      .boolean()
-      .meta({ description: 'No drift, no invalid value, no error.' }),
-    drift: z.boolean(),
-    files: z.array(fileDrift),
+    command: z.literal('check'),
+    ok: z.boolean().meta({
+      description: 'No error-severity problem and no plan error.',
+    }),
+    summary: z.object({
+      errors: z.int(),
+      warnings: z.int(),
+      files: z.int().meta({ description: 'The files checked.' }),
+      failing: z.int().meta({ description: 'The files with an error.' }),
+    }),
+    files: z.array(fileCheck),
     errors: z.array(planError),
-  }),
-);
-
-const problem = named(
-  'Problem',
-  z.object({
-    kind: z.literal('protected').optional().meta({
-      description:
-        'protected: a protected value that no longer matches the one the state recorded.',
-    }),
-    key: z.string().optional(),
-    keys: z.array(z.string()).optional(),
-    line: z.int().optional(),
-    message: z.string(),
-    reason: z.string().optional().meta({
-      description: "A protected variable's reason, when it gives one.",
-    }),
-  }),
-);
-
-export const validateResponse = named(
-  'Validate',
-  z.object({
-    ok: z.boolean(),
-    files: z.array(
-      named(
-        'FileValidation',
-        z.object({
-          path: z.string(),
-          template: z.boolean(),
-          exists: z.boolean(),
-          ok: z.boolean(),
-          errors: z.array(problem),
-          warnings: z.array(problem),
-        }),
-      ),
-    ),
   }),
 );
 

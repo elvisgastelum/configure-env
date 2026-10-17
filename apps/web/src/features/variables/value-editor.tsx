@@ -187,7 +187,7 @@ export function ValueEditor({
       ...(fingerprint !== undefined ? { fingerprint } : {}),
     };
     // The promise, not mutate's callbacks: TanStack Query skips those once the
-    // editor unmounts, and a Check or Validate item unmounts as soon as the
+    // editor unmounts, and a Check item unmounts as soon as the
     // save fixes it; the toast and its Undo must still show. A failure shows
     // through `edit.error`.
     edit.mutateAsync(request).then(

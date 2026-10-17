@@ -11,7 +11,7 @@ import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
- * Check or validate at a glance: passing or how many problems, a button
+ * Check at a glance: passing or how many problems, a button
  * that runs it again, and a link to its full report.
  */
 export function HealthCard({
@@ -27,7 +27,7 @@ export function HealthCard({
 }: {
   title: string;
   hint: string;
-  to: '/check' | '/validate';
+  to: '/check';
   runLabel: string;
   /** Undefined until the first answer. */
   problems: number | undefined;

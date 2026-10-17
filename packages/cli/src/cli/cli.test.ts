@@ -108,6 +108,7 @@ describe('dispatch, help and version', () => {
     const r = await run(['check', '--root', root()], { cwd: '/' });
     expect(r.code).toBe(1);
     expect(r.out[0]).toBe('config/app.env: missing');
+    expect(r.out.at(-1)).toBe('3 errors, 0 warnings in 3 files');
   });
 });
 
@@ -1039,9 +1040,10 @@ describe('check', () => {
     const r = await cli(['check']);
     expect(r).toMatchObject({ code: 0, err: [] });
     expect(r.out).toEqual([
-      'config/app.env: current',
-      'shared.env: current',
-      'local.env: current',
+      'config/app.env: ok',
+      'shared.env: ok',
+      'local.env: ok',
+      'Everything is current.',
     ]);
   });
 
@@ -1052,6 +1054,7 @@ describe('check', () => {
       'config/app.env: missing',
       'shared.env: missing',
       'local.env: missing',
+      '3 errors, 0 warnings in 3 files',
     ]);
     expect(await readdir(root())).toEqual(['env.schema.json']);
   });
@@ -1066,12 +1069,12 @@ describe('check', () => {
     const r = await cli(['check']);
     expect(r.code).toBe(1);
     expect(r.out).toEqual([
-      'config/app.env: current',
-      'shared.env: current',
-      'local.env: current',
-      'local.env: invalid PORT=http (must be a port between 1 and 65535)',
-      'local.env: invalid TOKEN=••••••• (must be at least 8 characters)',
+      'config/app.env: ok',
+      'shared.env: ok',
       'local.env: line 4 is not a valid entry',
+      'local.env: PORT: must be a port between 1 and 65535 (got http)',
+      'local.env: TOKEN: must be at least 8 characters (got •••••••)',
+      '3 errors, 0 warnings in 1 file',
     ]);
     expect(r.out.join('\n')).not.toContain('hunter2');
   });
@@ -1081,28 +1084,54 @@ describe('check', () => {
     await chmod(join(root(), 'local.env'), 0o644);
     const r = await cli(['check']);
     expect(r.code).toBe(1);
-    expect(r.out).toContain(
+    expect(r.out).toEqual([
+      'config/app.env: ok',
+      'shared.env: ok',
       'local.env: mode 644, expected 600 (run configure-env apply to fix it)',
-    );
+      '1 error, 0 warnings in 1 file',
+    ]);
   });
 
   it('checks only the --file paths', async () => {
     await applied();
     const r = await cli(['check', '--file', 'shared.env']);
-    expect(r).toMatchObject({ code: 0, out: ['shared.env: current'] });
+    expect(r).toMatchObject({
+      code: 0,
+      out: ['shared.env: ok', 'Everything is current.'],
+    });
   });
 
   it('prints one JSON document with --json', async () => {
     const r = await cli(['check', '--json']);
     expect(r.code).toBe(1);
     const report = JSON.parse(r.out.join('\n'));
-    expect(report).toMatchObject({ command: 'check', ok: false, drift: true });
-    expect(report.files[0]).toMatchObject({
+    expect(Object.keys(report)).toEqual([
+      'command',
+      'ok',
+      'summary',
+      'files',
+      'errors',
+    ]);
+    expect(report).toMatchObject({
+      command: 'check',
+      ok: false,
+      summary: { errors: 3, warnings: 0, files: 3, failing: 3 },
+      errors: [],
+    });
+    expect(report.files[0]).toEqual({
       path: 'config/app.env',
+      policy: 'generate',
+      template: false,
       status: 'missing',
-      drift: true,
-      invalid: [],
-      invalidLines: [],
+      ok: false,
+      problems: [
+        {
+          severity: 'error',
+          code: 'missing-file',
+          message: 'missing',
+          fix: 'apply',
+        },
+      ],
     });
   });
 
@@ -1128,6 +1157,41 @@ describe('check', () => {
     const r = await cli(['check'], { isTTY: true, prompts });
     expect(r.code).toBe(0);
     expect(logs.some((line) => line.startsWith('note: Check'))).toBe(true);
+    expect(logs.filter((line) => line.startsWith('outro:'))).toEqual([
+      'outro: Everything is current.',
+    ]);
+  });
+
+  it('ends the terminal run with the summary and the fix', async () => {
+    await applied();
+    await writeFile(
+      join(root(), 'shared.env'),
+      `${await read('shared.env')}EXTRA=1\n`,
+    );
+    const { prompts, logs } = scriptedPrompts();
+    const r = await cli(['check', '--strict'], { isTTY: true, prompts });
+    expect(r.code).toBe(1);
+    expect(logs.filter((line) => line.startsWith('outro:'))).toEqual([
+      'outro: 1 error, 0 warnings in 1 file. Run configure-env apply --prune to fix the drift.',
+    ]);
+  });
+
+  it('exits 0 when it finds warnings only', async () => {
+    await applied();
+    await writeFile(
+      join(root(), 'shared.env'),
+      `${await read('shared.env')}EXTRA=1\n`,
+    );
+    const r = await cli(['check']);
+    expect(r).toMatchObject({
+      code: 0,
+      out: [
+        'config/app.env: ok',
+        'shared.env: warning: EXTRA: is not in the schema for this file',
+        'local.env: ok',
+        '0 errors, 1 warning in 1 file',
+      ],
+    });
   });
 });
 

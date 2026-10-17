@@ -7,17 +7,17 @@ import type {
   Change,
   Check,
   EditProblem,
-  FileDrift,
+  FileCheck,
+  FileInfo,
   FilePlan,
-  FileValidation,
   Files,
   Group,
   Groups,
   Plan,
   PlanError,
   PlanRequest,
+  Problem,
   Schema,
-  Validate,
   Variable,
   VariableSpec,
   Variables,
@@ -339,7 +339,8 @@ const shownLine = (variable: Variable, value: string) =>
 /**
  * What applying would do, as POST /api/plan answers it for the sample
  * project: a template is left as it is, a missing file is created with its
- * variables, a merge file gains its missing keys and its schema mode.
+ * variables, a merge file gains its missing keys and its schema mode, and
+ * with `prune` loses the keys the schema does not declare.
  */
 export function planOf(inputs: PlanRequest): Plan {
   const values = inputs.values ?? {};
@@ -377,11 +378,18 @@ export function planOf(inputs: PlanRequest): Plan {
     const added = info.exists
       ? info.drift.missingKeys.flatMap((key) => findVariable(key) ?? [])
       : variablesIn(info.path);
+    const pruned =
+      inputs.prune && info.exists ? [...info.drift.unknownKeys] : [];
     for (const variable of added)
       if (variable.spec.required && valueFor(variable, values) === '')
         addError({ kind: 'value', key: variable.name, message: 'is required' });
     const diff = [
-      ...lines.map((line) => ({ kind: 'same' as const, line })),
+      ...lines.map((line) => ({
+        kind: pruned.some((key) => line.startsWith(`${key}=`))
+          ? ('removed' as const)
+          : ('same' as const),
+        line,
+      })),
       ...added.map((variable) => ({
         kind: 'added' as const,
         line: shownLine(variable, valueFor(variable, values)),
@@ -389,7 +397,7 @@ export function planOf(inputs: PlanRequest): Plan {
     ];
     const action = !info.exists
       ? 'create'
-      : added.length
+      : added.length || pruned.length
         ? 'update'
         : base.mode !== base.currentMode
           ? 'mode'
@@ -398,6 +406,7 @@ export function planOf(inputs: PlanRequest): Plan {
       ...base,
       action,
       addedKeys: added.map((variable) => variable.name),
+      prunedKeys: pruned,
       diff,
     };
   });
@@ -407,6 +416,7 @@ export function planOf(inputs: PlanRequest): Plan {
         mockState.writes,
         values,
         inputs.files ?? null,
+        inputs.prune ?? false,
         files.map((file) => file.action),
       ]),
     )}`,
@@ -432,6 +442,7 @@ export function applyPlan(inputs: PlanRequest): Applied {
       if (value === '') writeLine(file.path, key, '');
       else writeValue(file.path, key, value);
     }
+    for (const key of file.prunedKeys) writeLine(file.path, key);
     info.exists = true;
     info.mode.actual = file.mode;
     info.drift = {
@@ -439,6 +450,9 @@ export function applyPlan(inputs: PlanRequest): Applied {
       status: 'current',
       drift: false,
       missingKeys: [],
+      unknownKeys: info.drift.unknownKeys.filter(
+        (key) => !file.prunedKeys.includes(key),
+      ),
     };
     touchFile(file.path);
   }
@@ -455,90 +469,132 @@ export function applyPlan(inputs: PlanRequest): Applied {
   };
 }
 
-/** The invalid values each file holds now, masked as the API shows them. */
-const invalidIn = (path: string) =>
-  mockState.variables.variables.flatMap((variable) =>
-    variable.files
-      .filter((entry) => entry.file === path && entry.status === 'invalid')
-      .map((entry) => ({
-        key: variable.name,
-        message: entry.error ?? 'is invalid',
-        shown: entry.value ?? '',
-      })),
-  );
-
 /**
- * The drift report as GET /api/check answers it for the sample project as
- * it is now, so a fix shows in the next report.
+ * The value problems each existing file holds now, masked as the API shows
+ * them: invalid values, and required values the file lacks that are not
+ * already missing keys. A template holds placeholders, so it has none.
  */
-export function checkOf(): Check {
-  const files = mockState.files.files.map((info): FileDrift => {
-    const { expected, actual } = info.mode;
-    const mode =
-      info.exists && expected && actual && expected !== actual
-        ? { mode: { actual, expected } }
-        : {};
-    return {
-      path: info.path,
-      policy: info.policy,
-      status: info.drift.status,
-      drift: info.drift.drift,
-      missingKeys: [...info.drift.missingKeys],
-      unknownKeys: [...info.drift.unknownKeys],
-      invalid: info.template ? [] : invalidIn(info.path),
-      rules: [],
-      invalidLines: info.parseErrors.map(({ line }) => line),
-      protected: [],
-      ...mode,
+const valueProblemsIn = (path: string, missingKeys: readonly string[]) =>
+  variablesIn(path).flatMap((variable): Problem[] => {
+    const entry = variable.files.find((value) => value.file === path)!;
+    const base = {
+      severity: 'error' as const,
+      code: 'invalid-value' as const,
+      key: variable.name,
+      fix: 'set' as const,
     };
+    if (entry.status === 'invalid')
+      return [
+        {
+          ...base,
+          message: entry.error ?? 'is invalid',
+          shown: entry.value ?? '',
+        },
+      ];
+    if (
+      entry.status === 'missing' &&
+      variable.spec.required &&
+      !missingKeys.includes(variable.name)
+    )
+      return [{ ...base, message: 'is required', shown: '' }];
+    return [];
   });
-  const clean = (file: FileDrift) =>
-    !file.drift &&
-    !file.invalid.length &&
-    !file.rules.length &&
-    !file.invalidLines.length &&
-    !file.protected.length &&
-    !file.mode;
-  return {
-    ok: files.every(clean),
-    drift: files.some((file) => file.drift),
-    files,
-    errors: [],
-  };
+
+/** One file's problems in the core's order, as GET /api/check lists them. */
+function problemsIn(info: FileInfo): Problem[] {
+  const error = 'error' as const;
+  const { status, missingKeys, unknownKeys } = info.drift;
+  if (status === 'missing')
+    return [
+      {
+        severity: error,
+        code: 'missing-file',
+        message: 'missing',
+        fix: 'apply',
+      },
+    ];
+  const problems: Problem[] = [];
+  if (status === 'differs')
+    problems.push({
+      severity: error,
+      code: 'differs',
+      message: 'differs from the schema',
+      fix: 'apply',
+    });
+  const { expected, actual } = info.mode;
+  if (expected && actual && expected !== actual)
+    problems.push({
+      severity: error,
+      code: 'mode',
+      message: `mode ${actual}, expected ${expected}`,
+      fix: 'apply',
+    });
+  for (const key of missingKeys)
+    problems.push({
+      severity: error,
+      code: 'missing-key',
+      key,
+      message: 'is missing',
+      fix: 'apply',
+    });
+  for (const { line } of info.parseErrors)
+    problems.push({
+      severity: error,
+      code: 'invalid-line',
+      line,
+      message: 'is not a valid entry',
+    });
+  if (!info.template) problems.push(...valueProblemsIn(info.path, missingKeys));
+  for (const key of unknownKeys)
+    problems.push({
+      severity: 'warning',
+      code: 'unknown-key',
+      key,
+      message: 'is not in the schema for this file',
+      fix: 'prune',
+    });
+  return problems;
 }
 
 /**
- * The value and rule errors as GET /api/validate answers it for the sample
- * project as it is now: invalid values, required values a file lacks, and
- * lines that do not parse. A template holds placeholders and passes.
+ * The report as GET /api/check answers it for the sample project as it is
+ * now, so a fix shows in the next report.
  */
-export function validateOf(): Validate {
-  const files = mockState.files.files.map((info): FileValidation => {
-    const errors: FileValidation['errors'] = [];
-    if (!info.template && info.exists) {
-      for (const variable of variablesIn(info.path)) {
-        const entry = variable.files.find((value) => value.file === info.path)!;
-        if (entry.status === 'invalid')
-          errors.push({
-            key: variable.name,
-            message: entry.error ?? 'is invalid',
-          });
-        else if (entry.status === 'missing' && variable.spec.required)
-          errors.push({ key: variable.name, message: 'is required' });
-      }
-      for (const { line } of info.parseErrors)
-        errors.push({ line, message: 'is not a valid entry' });
-    }
+export function checkOf(): Check {
+  const files = mockState.files.files.map((info): FileCheck => {
+    const { expected, actual } = info.mode;
+    const problems = problemsIn(info);
     return {
       path: info.path,
+      policy: info.policy,
       template: info.template,
-      exists: info.exists,
-      ok: errors.length === 0,
-      errors,
-      warnings: [],
+      status: info.drift.status,
+      ...(info.exists && expected && actual && expected !== actual
+        ? { mode: { actual, expected } }
+        : {}),
+      ok: problems.every((problem) => problem.severity !== 'error'),
+      problems,
     };
   });
-  return { ok: files.every((file) => file.ok), files };
+  const count = (severity: Problem['severity']) =>
+    files.reduce(
+      (sum, file) =>
+        sum + file.problems.filter((p) => p.severity === severity).length,
+      0,
+    );
+  const failing = files.filter((file) => !file.ok).length;
+  return {
+    command: 'check',
+    ok: failing === 0,
+    summary: {
+      errors: count('error'),
+      warnings: count('warning'),
+      files: files.length,
+      failing,
+    },
+    files,
+    errors: [],
+  };
 }
 
 // ---------------------------------------------------------------- history

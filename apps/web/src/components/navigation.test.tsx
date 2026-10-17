@@ -28,9 +28,9 @@ describe('navigation', () => {
   });
 
   it('opens any page directly', async () => {
-    await renderApp('/validate');
+    await renderApp('/check');
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Validate' }),
+      await screen.findByRole('heading', { level: 1, name: 'Check' }),
     ).toBeInTheDocument();
   });
 

@@ -36,7 +36,6 @@ describe('the shell', () => {
       'Files',
       'Schema',
       'Check',
-      'Validate',
       'History',
     ]);
     expect(within(nav).getByRole('link', { name: 'Overview' })).toHaveAttribute(

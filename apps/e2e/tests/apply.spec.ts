@@ -40,5 +40,5 @@ test('plan and apply writes the files the plan shows @smoke', async ({
   // Check no longer reports the files apply wrote.
   await expect(
     page.getByRole('region', { name: 'deploy/.env.production.example' }),
-  ).toContainText('Current');
+  ).toContainText('Passes');
 });

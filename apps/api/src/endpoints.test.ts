@@ -295,28 +295,92 @@ describe('POST /api/files/content', () => {
 });
 
 describe('GET /api/check', () => {
-  it('reports drift with secrets masked', async () => {
+  it('reports every problem by file, with a summary and secrets masked', async () => {
     const response = await get('/api/check');
     expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(false);
-    expect(response.body.drift).toBe(true);
-    const env = response.body.files[0];
-    expect(env).toMatchObject({
+    expect(Object.keys(response.body)).toEqual([
+      'command',
+      'ok',
+      'summary',
+      'files',
+      'errors',
+    ]);
+    expect(response.body).toMatchObject({
+      command: 'check',
+      ok: false,
+      summary: { errors: 6, warnings: 1, files: 3, failing: 3 },
+      errors: [],
+    });
+    const [env, example, app] = response.body.files;
+    expect(env).toEqual({
       path: '.env',
+      policy: 'merge',
+      template: false,
       status: 'missing-keys',
       mode: { actual: '644', expected: '600' },
-      invalidLines: [6],
-      unknownKeys: [],
+      ok: false,
+      problems: [
+        {
+          severity: 'error',
+          code: 'mode',
+          message: 'mode 644, expected 600',
+          fix: 'apply',
+        },
+        {
+          severity: 'error',
+          code: 'missing-key',
+          key: 'API_KEY',
+          message: 'is missing',
+          fix: 'apply',
+        },
+        {
+          severity: 'error',
+          code: 'invalid-line',
+          line: 6,
+          message: 'is not a valid entry',
+        },
+        {
+          severity: 'error',
+          code: 'invalid-value',
+          key: 'API_URL',
+          message: expect.any(String),
+          shown: 'not-a-url',
+          fix: 'set',
+        },
+        {
+          severity: 'warning',
+          code: 'unknown-key',
+          key: 'EXTRA',
+          message: 'is not in the schema for this file',
+          fix: 'prune',
+        },
+      ],
     });
-    expect(env.invalid).toEqual([
-      { key: 'API_URL', message: expect.any(String), shown: 'not-a-url' },
-    ]);
+    expect(example).toMatchObject({
+      path: '.env.example',
+      template: true,
+      status: 'missing',
+      problems: [{ severity: 'error', code: 'missing-file', fix: 'apply' }],
+    });
+    expect(app).toMatchObject({ path: 'config/app.env', status: 'missing' });
     expect(response.text).not.toContain(DB_PASSWORD);
   });
 
-  it('reports unknown keys when strict', async () => {
+  it('turns unknown keys into errors when strict', async () => {
     const response = await get('/api/check?strict=true');
-    expect(response.body.files[0].unknownKeys).toEqual(['EXTRA']);
+    expect(response.body.summary).toEqual({
+      errors: 7,
+      warnings: 0,
+      files: 3,
+      failing: 3,
+    });
+    expect(response.body.files[0].problems).toContainEqual({
+      severity: 'error',
+      code: 'unknown-key',
+      key: 'EXTRA',
+      message: 'is not in the schema for this file',
+      fix: 'prune',
+    });
   });
 
   it('validates the query', async () => {
@@ -325,34 +389,8 @@ describe('GET /api/check', () => {
 });
 
 describe('GET /api/validate', () => {
-  it('reports rule and value errors per file', async () => {
-    const response = await get('/api/validate');
-    expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(false);
-    const [env, example] = response.body.files;
-    expect(env).toMatchObject({ path: '.env', exists: true, ok: false });
-    expect(env.errors).toEqual([
-      { line: 6, message: 'is not a valid entry' },
-      { key: 'API_URL', message: expect.any(String) },
-    ]);
-    expect(env.warnings).toEqual([
-      { key: 'EXTRA', message: 'is not in the schema for this file' },
-    ]);
-    expect(example).toMatchObject({
-      path: '.env.example',
-      template: true,
-      exists: false,
-      errors: [{ message: 'missing' }],
-    });
-  });
-
-  it('turns unknown keys into errors when strict', async () => {
-    const response = await get('/api/validate?strict=true');
-    expect(response.body.files[0].warnings).toEqual([]);
-    expect(response.body.files[0].errors).toContainEqual({
-      key: 'EXTRA',
-      message: 'is not in the schema for this file',
-    });
+  it('is gone: check reports what it did', async () => {
+    expect((await get('/api/validate')).status).toBe(404);
   });
 });
 
@@ -453,7 +491,7 @@ describe('a file that escapes the root through a symlink', () => {
     expect(response.text).not.toContain('outside-value');
   });
 
-  it('is reported, never read, by files, variables and validate', async () => {
+  it('is reported, never read, by files, variables and check', async () => {
     const files = await call('/api/files');
     expect(files.body.files[0]).toMatchObject({
       exists: false,
@@ -463,11 +501,19 @@ describe('a file that escapes the root through a symlink', () => {
     expect(variables.body.variables[0].files[0]).toMatchObject({
       status: 'missing',
     });
-    const validate = await call('/api/validate');
-    expect(validate.body.files[0].errors[0].message).toMatch(
-      /outside the root/,
-    );
-    for (const response of [files, variables, validate])
+    const check = await call('/api/check');
+    expect(check.body.files[0]).toMatchObject({
+      status: 'refused',
+      ok: false,
+      problems: [
+        {
+          severity: 'error',
+          code: 'refused',
+          message: expect.stringMatching(/outside the root/),
+        },
+      ],
+    });
+    for (const response of [files, variables, check])
       expect(response.text).not.toContain('outside-value');
   });
 

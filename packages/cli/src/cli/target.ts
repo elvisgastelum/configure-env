@@ -1,4 +1,4 @@
-// What the variable commands (set, get, unset, list, validate) share: which
+// What the variable commands (set, get, unset, list) share: which
 // schema file they work on, and reading it.
 
 import {

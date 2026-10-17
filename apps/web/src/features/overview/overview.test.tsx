@@ -58,20 +58,21 @@ describe('the overview', () => {
     );
   });
 
-  it('shows the check and validate status', async () => {
+  it('shows the check status, one card for the whole report', async () => {
     await renderApp();
 
     const check = await screen.findByRole('region', { name: 'Check' });
-    expect(await within(check).findByText('1 issue')).toBeInTheDocument();
-    const validate = screen.getByRole('region', { name: 'Validate' });
-    expect(await within(validate).findByText('1 error')).toBeInTheDocument();
+    expect(await within(check).findByText('1 error')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Validate' }),
+    ).not.toBeInTheDocument();
   });
 
   it('runs check again in one click', async () => {
     const user = userEvent.setup();
     await renderApp();
     const check = await screen.findByRole('region', { name: 'Check' });
-    await within(check).findByText('1 issue');
+    await within(check).findByText('1 error');
 
     server.use(
       http.get('/api/check', () => HttpResponse.json(fixtures.passingCheck)),
@@ -81,12 +82,12 @@ describe('the overview', () => {
     expect(await within(check).findByText('Passing')).toBeInTheDocument();
   });
 
-  it('links each status to its report', async () => {
+  it('links the status to its report', async () => {
     await renderApp();
-    const validate = await screen.findByRole('region', { name: 'Validate' });
+    const check = await screen.findByRole('region', { name: 'Check' });
     expect(
-      within(validate).getByRole('link', { name: 'Open the report' }),
-    ).toHaveAttribute('href', '/validate');
+      within(check).getByRole('link', { name: 'Open the report' }),
+    ).toHaveAttribute('href', '/check');
   });
 
   it('shows skeletons while the project loads', async () => {

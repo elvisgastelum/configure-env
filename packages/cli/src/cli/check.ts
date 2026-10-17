@@ -1,4 +1,5 @@
-// `configure-env check`: reports drift and invalid values; writes nothing.
+// `configure-env check`: one report of every problem the env files have
+// against the schema, by file; writes nothing.
 
 import { checkDrift } from '@configure-env/core';
 import {
@@ -10,7 +11,7 @@ import {
   parseCommand,
   parseSets,
 } from './common.ts';
-import { driftLines } from './format.ts';
+import { checkLines, checkSummary } from './format.ts';
 import { CHECK_HELP } from './help.ts';
 import type { Io } from './io.ts';
 import { readState } from './protect.ts';
@@ -50,26 +51,32 @@ export async function checkCommand(args: string[], io: Io): Promise<number> {
   });
   const code = report.ok ? 0 : 1;
   if (context.json) {
-    io.stdout(JSON.stringify({ command: 'check', ...report }));
+    io.stdout(JSON.stringify(report));
     return code;
   }
 
-  const lines = report.files.flatMap(driftLines);
+  const lines = report.files.flatMap(checkLines);
   const errors = report.errors.map(describeError);
+  const summary = checkSummary(report);
   if (!context.ci && io.isTTY) {
     const { prompts, schemaPath } = context;
     prompts.intro(`configure-env check · ${displayPath(io.cwd, schemaPath)}`);
     if (lines.length) prompts.note(lines.join('\n'), 'Check');
     if (errors.length) prompts.log.error(errors.join('\n'));
-    const unknown = report.files.some((file) => file.unknownKeys.length);
-    prompts.outro(
-      report.ok
-        ? 'Everything is current.'
-        : `Out of date: run configure-env apply${unknown ? ' --prune' : ''} to fix the drift.`,
+    const fixes = new Set(
+      report.files.flatMap((file) =>
+        file.problems.map((problem) => problem.fix),
+      ),
     );
+    const hint =
+      fixes.has('apply') || fixes.has('prune')
+        ? ` Run configure-env apply${fixes.has('prune') ? ' --prune' : ''} to fix the drift.`
+        : '';
+    prompts.outro(hint ? `${summary}.${hint}` : summary);
     return code;
   }
   lines.forEach((line) => io.stdout(line));
+  io.stdout(summary);
   errors.forEach((error) => io.stderr(`configure-env: ${error}`));
   return code;
 }

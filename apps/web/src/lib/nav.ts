@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   type LucideIcon,
   ScanSearch,
-  ShieldCheck,
   Variable,
 } from 'lucide-react';
 
@@ -17,7 +16,6 @@ export type PageKey =
   | 'files'
   | 'schema'
   | 'check'
-  | 'validate'
   | 'history';
 
 export interface NavItem {
@@ -29,7 +27,6 @@ export interface NavItem {
     | '/files'
     | '/schema'
     | '/check'
-    | '/validate'
     | '/history';
   icon: LucideIcon;
 }
@@ -42,6 +39,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'files', to: '/files', icon: FileText },
   { key: 'schema', to: '/schema', icon: Braces },
   { key: 'check', to: '/check', icon: ScanSearch },
-  { key: 'validate', to: '/validate', icon: ShieldCheck },
   { key: 'history', to: '/history', icon: History },
 ];

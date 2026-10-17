@@ -1,6 +1,7 @@
-// Checks the env files against the schema without changing them: content
-// drift by policy, current values that break their variable's rules, and
-// protected values that no longer match the state.
+// Checks the env files against the schema without changing them, as one
+// report of problems per file: content drift by policy, lines that do not
+// parse, current values that break their variable's rules, protected values
+// that no longer match the state, and keys the schema does not list.
 
 import {
   type EnvSchema,
@@ -13,6 +14,7 @@ import {
   type RuleProblem,
   checkRules,
   maskValue,
+  ruleKeys,
   unquoteValue,
   validateValue,
 } from '../schema/values.ts';
@@ -20,6 +22,7 @@ import {
   type DotenvDocument,
   getValue,
   invalidLineNumbers,
+  keysOf,
   parseDotenv,
 } from './dotenv.ts';
 import {
@@ -44,11 +47,49 @@ export type DriftStatus =
   | 'missing-keys'
   | 'refused';
 
+export type ProblemSeverity = 'error' | 'warning';
+
+export const PROBLEM_CODES = [
+  'missing-file',
+  'differs',
+  'missing-key',
+  'mode',
+  'refused',
+  'invalid-line',
+  'invalid-value',
+  'rule',
+  'protected',
+  'unknown-key',
+] as const;
+
+export type ProblemCode = (typeof PROBLEM_CODES)[number];
+
+/** What fixes a problem: `configure-env apply`, `apply --prune`, or a value to set. */
+export type ProblemFix = 'apply' | 'prune' | 'set';
+
+/**
+ * One finding in a file. `message` never holds a value; `shown` is the
+ * value of an invalid one for display, masked when the variable is secret.
+ * A rule over several keys lists them in `keys`; a protected value gives
+ * the schema's `reason` when it has one. No `fix` means a person decides.
+ */
+export interface CheckProblem {
+  severity: ProblemSeverity;
+  code: ProblemCode;
+  key?: string;
+  keys?: string[];
+  line?: number;
+  message: string;
+  shown?: string;
+  reason?: string;
+  fix?: ProblemFix;
+}
+
 /**
  * A current value that breaks its rule. The message never holds the value;
  * `shown` is the value for display, masked when the variable is secret.
  */
-export interface InvalidValue {
+interface InvalidValue {
   key: string;
   message: string;
   shown: string;
@@ -67,38 +108,31 @@ export interface ProtectedMismatch {
 
 export { formatMode } from './plan.ts';
 
-export interface FileDrift {
+export interface FileCheck {
   path: string;
   policy: FilePolicy;
+  template: boolean;
   status: DriftStatus;
-  /** Whether a run would change the file: generate and merge files only. */
-  drift: boolean;
-  /** The keys a merge file lacks. */
-  missingKeys: string[];
-  /**
-   * With `strict`, the keys a merge or create-only file holds that the
-   * schema does not list for it: apply --prune removes them.
-   */
-  unknownKeys: string[];
-  invalid: InvalidValue[];
-  /** The rules between variables the file's values break. */
-  rules: RuleProblem[];
-  /** The 1-based numbers of the lines that are not valid entries. */
-  invalidLines: number[];
-  /** The protected values that no longer match the state. */
-  protected: ProtectedMismatch[];
   /** Set when the file's mode differs from the schema's `mode`. */
   mode?: { actual: string; expected: string };
-  /** Why the path was refused. */
-  error?: string;
+  /** No error-severity problem. */
+  ok: boolean;
+  problems: CheckProblem[];
 }
 
-export interface DriftReport {
-  files: FileDrift[];
-  /** Whether any file drifted. */
-  drift: boolean;
-  /** No drift, no invalid value and no error. */
+export interface CheckReport {
+  command: 'check';
+  /** No error-severity problem and no plan error. */
   ok: boolean;
+  summary: {
+    errors: number;
+    warnings: number;
+    /** The files checked. */
+    files: number;
+    /** The files with an error. */
+    failing: number;
+  };
+  files: FileCheck[];
   errors: PlanError[];
 }
 
@@ -110,7 +144,7 @@ export interface CheckOptions {
   files?: readonly string[];
   /** The protected variables' state; no mismatch is reported without it. */
   state?: State;
-  /** Reports the keys apply --prune would remove as drift. */
+  /** Reports the keys the schema does not list as errors, not warnings. */
   strict?: boolean;
 }
 
@@ -189,18 +223,136 @@ export function protectedMismatches(
   return mismatches;
 }
 
-function statusOf(plan: FilePlan): Pick<FileDrift, 'status' | 'drift'> {
-  if (plan.reason === 'refused') return { status: 'refused', drift: true };
-  if (plan.previous === undefined)
-    return { status: 'missing', drift: plan.policy !== 'create-only' };
+function statusOf(plan: FilePlan): DriftStatus {
+  if (plan.reason === 'refused') return 'refused';
+  if (plan.previous === undefined) return 'missing';
   if (plan.policy === 'generate' && plan.content !== plan.previous)
-    return { status: 'differs', drift: true };
-  if (plan.policy === 'merge' && plan.addedKeys.length)
-    return { status: 'missing-keys', drift: true };
-  return { status: 'current', drift: false };
+    return 'differs';
+  if (plan.policy === 'merge' && plan.addedKeys.length) return 'missing-keys';
+  return 'current';
 }
 
-/** Drift and invalid values per file, in schema order. Writes nothing. */
+const UNKNOWN_MESSAGE = 'is not in the schema for this file';
+
+/**
+ * The file's problems in a fixed order: its state, its mode, the keys it
+ * lacks, its lines, values, rules and protected values, then unknown keys.
+ */
+function fileProblems(
+  schema: EnvSchema,
+  spec: FileSpec,
+  plan: FilePlan,
+  status: DriftStatus,
+  mode: FileCheck['mode'],
+  strict: boolean,
+  state: State | undefined,
+): CheckProblem[] {
+  const error = 'error' as const;
+  if (status === 'refused')
+    return [
+      { severity: error, code: 'refused', message: `refused: ${plan.error}` },
+    ];
+  if (status === 'missing')
+    return [
+      {
+        severity: error,
+        code: 'missing-file',
+        message: 'missing',
+        fix: 'apply',
+      },
+    ];
+  const doc = parseDotenv(plan.previous!);
+  const problems: CheckProblem[] = [];
+  if (status === 'differs')
+    problems.push({
+      severity: error,
+      code: 'differs',
+      message: 'differs from the schema',
+      fix: 'apply',
+    });
+  if (mode)
+    problems.push({
+      severity: error,
+      code: 'mode',
+      message: `mode ${mode.actual}, expected ${mode.expected}`,
+      // apply never adds a permission: a person chmods the file.
+      ...(plan.reason === 'loosens' ? {} : { fix: 'apply' as const }),
+    });
+  // A template holds placeholders: only whether each key is there counts.
+  const present = new Set(keysOf(doc));
+  const missingKeys = isTemplate(spec)
+    ? fileKeys(schema, spec).filter((key) => !present.has(key))
+    : status === 'missing-keys'
+      ? plan.addedKeys
+      : [];
+  for (const key of missingKeys)
+    problems.push({
+      severity: error,
+      code: 'missing-key',
+      key,
+      message: 'is missing',
+      fix: 'apply',
+    });
+  for (const line of invalidLineNumbers(doc))
+    problems.push({
+      severity: error,
+      code: 'invalid-line',
+      line,
+      message: 'is not a valid entry',
+    });
+  for (const { key, message, shown } of invalidValues(
+    schema,
+    spec,
+    plan.previous!,
+    missingKeys,
+  ))
+    problems.push({
+      severity: error,
+      code: 'invalid-value',
+      key,
+      message,
+      shown,
+      fix: 'set',
+    });
+  for (const problem of fileRules(schema, spec, doc)) {
+    const keys = ruleKeys(problem);
+    problems.push({
+      severity: error,
+      code: 'rule',
+      key: problem.key,
+      ...(keys.length > 1 ? { keys } : {}),
+      message: problem.message,
+      fix: 'set',
+    });
+  }
+  for (const { key, message, reason } of protectedMismatches(
+    schema,
+    state,
+    spec,
+    doc,
+  ))
+    problems.push({
+      severity: error,
+      code: 'protected',
+      key,
+      message,
+      ...(reason ? { reason } : {}),
+    });
+  for (const key of unknownKeys(schema, spec, doc))
+    problems.push({
+      severity: strict ? error : 'warning',
+      code: 'unknown-key',
+      key,
+      message: UNKNOWN_MESSAGE,
+      fix: 'prune',
+    });
+  return problems;
+}
+
+/**
+ * Checks the env files against the schema: one report, by file in schema
+ * order, of every problem with its severity, code and fix. Writes nothing.
+ */
 export async function checkDrift({
   schema,
   root,
@@ -208,13 +360,12 @@ export async function checkDrift({
   files,
   state,
   strict = false,
-}: CheckOptions): Promise<DriftReport> {
+}: CheckOptions): Promise<CheckReport> {
   const plan = await planChanges({ schema, root, values, files });
-  const report = plan.files.map((filePlan): FileDrift => {
+  const report = plan.files.map((filePlan): FileCheck => {
     const spec = schema.files.find((file) => file.path === filePlan.path)!;
-    const { status, drift } = statusOf(filePlan);
-    const missingKeys = status === 'missing-keys' ? filePlan.addedKeys : [];
-    const { previous, currentMode } = filePlan;
+    const status = statusOf(filePlan);
+    const { currentMode } = filePlan;
     const mode =
       filePlan.modeFixed &&
       currentMode !== undefined &&
@@ -224,45 +375,37 @@ export async function checkDrift({
             expected: formatMode(filePlan.mode),
           }
         : undefined;
-    const unknown =
-      strict && previous !== undefined && filePlan.policy !== 'generate'
-        ? unknownKeys(schema, spec, parseDotenv(previous))
-        : [];
+    const problems = fileProblems(
+      schema,
+      spec,
+      filePlan,
+      status,
+      mode,
+      strict,
+      state,
+    );
     return {
       path: filePlan.path,
       policy: filePlan.policy,
+      template: isTemplate(spec),
       status,
-      drift: drift || Boolean(mode) || unknown.length > 0,
-      missingKeys,
-      unknownKeys: unknown,
-      invalid:
-        previous === undefined
-          ? []
-          : invalidValues(schema, spec, previous, missingKeys),
-      rules:
-        previous === undefined
-          ? []
-          : fileRules(schema, spec, parseDotenv(previous)),
-      invalidLines:
-        previous === undefined ? [] : invalidLineNumbers(parseDotenv(previous)),
-      protected:
-        previous === undefined
-          ? []
-          : protectedMismatches(schema, state, spec, parseDotenv(previous)),
       ...(mode ? { mode } : {}),
-      ...(filePlan.error ? { error: filePlan.error } : {}),
+      ok: problems.every((problem) => problem.severity !== 'error'),
+      problems,
     };
   });
-  const drift = report.some((file) => file.drift);
-  const ok =
-    !drift &&
-    !plan.errors.length &&
-    report.every(
-      (file) =>
-        !file.invalid.length &&
-        !file.rules.length &&
-        !file.invalidLines.length &&
-        !file.protected.length,
-    );
-  return { files: report, drift, ok, errors: plan.errors };
+  const all = report.flatMap((file) => file.problems);
+  const errors = all.filter((problem) => problem.severity === 'error').length;
+  return {
+    command: 'check',
+    ok: !errors && !plan.errors.length,
+    summary: {
+      errors,
+      warnings: all.length - errors,
+      files: report.length,
+      failing: report.filter((file) => !file.ok).length,
+    },
+    files: report,
+    errors: plan.errors,
+  };
 }

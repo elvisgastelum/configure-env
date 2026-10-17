@@ -1,20 +1,16 @@
-// `configure-env list` and `validate`: read-only views of the values the
-// env files hold now, checked against the schema.
+// `configure-env list`: a read-only view of the values the env files hold
+// now, checked against the schema. `check` reports their problems.
 
 import {
-  type DotenvDocument,
   type EnvSchema,
   type FileSpec,
   type RuleProblem,
-  type State,
   fileKeys,
   fileRules,
   getValue,
-  invalidLineNumbers,
   isTemplate,
-  keysOf,
-  protectedMismatches,
   ruleKeys,
+  unknownKeys,
   unquoteValue,
   validateValue,
 } from '@configure-env/core';
@@ -24,9 +20,8 @@ import {
   loadContextSchema,
   parseCommand,
 } from './common.ts';
-import { LIST_HELP, VALIDATE_HELP } from './help.ts';
+import { LIST_HELP } from './help.ts';
 import type { Io } from './io.ts';
-import { protectedLine, readState } from './protect.ts';
 import {
   type EnvFile,
   UNKNOWN_SPEC,
@@ -39,16 +34,6 @@ const selectedFiles = (schema: EnvSchema, context: Context): FileSpec[] =>
   schema.files.filter(
     (file) => !context.files || context.files.includes(file.path),
   );
-
-/** The keys the file holds that are not among its schema variables. */
-const unknownKeys = (
-  schema: EnvSchema,
-  file: FileSpec,
-  doc: DotenvDocument,
-) => {
-  const known = new Set(fileKeys(schema, file));
-  return keysOf(doc).filter((key) => !known.has(key));
-};
 
 /**
  * Validates one held value: a placeholder the file sets on purpose through
@@ -194,125 +179,4 @@ export async function listCommand(args: string[], io: Io): Promise<number> {
     ]).forEach((line) => io.stdout(line));
   });
   return 0;
-}
-
-// ---------------------------------------------------------------- validate
-
-/**
- * One problem: at a key or at a line. A broken rule between variables that
- * is reported under more than one key lists them in `keys`; a protected
- * value that no longer matches the state has kind `protected`. Never holds
- * a value.
- */
-interface Problem {
-  kind?: 'protected';
-  key?: string;
-  keys?: string[];
-  line?: number;
-  message: string;
-  reason?: string;
-}
-
-interface FileReport {
-  path: string;
-  template: boolean;
-  exists: boolean;
-  ok: boolean;
-  errors: Problem[];
-  warnings: Problem[];
-}
-
-const UNKNOWN_MESSAGE = 'is not in the schema for this file';
-
-function validateFile(
-  schema: EnvSchema,
-  file: EnvFile,
-  strict: boolean,
-  state: State | undefined,
-): FileReport {
-  const { spec, doc } = file;
-  const template = isTemplate(spec);
-  const errors: Problem[] = [];
-  const warnings: Problem[] = [];
-  if (!file.exists) errors.push({ message: 'missing' });
-  else {
-    for (const line of invalidLineNumbers(doc))
-      errors.push({ line, message: 'is not a valid entry' });
-    for (const key of fileKeys(schema, spec)) {
-      const value = getValue(doc, key);
-      // A template holds placeholders: only whether each key is there counts.
-      const message = template
-        ? value === undefined
-          ? 'is missing'
-          : undefined
-        : checkValue(schema, spec, key, value);
-      if (message) errors.push({ key, message });
-    }
-    for (const problem of fileRules(schema, spec, doc)) {
-      const keys = ruleKeys(problem);
-      errors.push({
-        key: problem.key,
-        ...(keys.length > 1 ? { keys } : {}),
-        message: problem.message,
-      });
-    }
-    errors.push(...protectedMismatches(schema, state, spec, doc));
-    for (const key of unknownKeys(schema, spec, doc))
-      (strict ? errors : warnings).push({ key, message: UNKNOWN_MESSAGE });
-  }
-  return {
-    path: spec.path,
-    template,
-    exists: file.exists,
-    ok: !errors.length,
-    errors,
-    warnings,
-  };
-}
-
-const problemText = ({ kind, key, keys, line, message }: Problem) =>
-  line !== undefined
-    ? `line ${line} ${message}`
-    : kind === 'protected'
-      ? protectedLine({ key: key!, message })
-      : key
-        ? `${keys?.join(', ') ?? key}: ${message}`
-        : message;
-
-const VALIDATE_OPTIONS = { strict: { type: 'boolean' } } as const;
-
-export async function validateCommand(args: string[], io: Io): Promise<number> {
-  const options = parseCommand(args, VALIDATE_OPTIONS);
-  if (options.help) {
-    io.stdout(VALIDATE_HELP);
-    return 0;
-  }
-  const context = await contextOf(io, options);
-  const schema = await loadContextSchema(context);
-  // Read, never written: validate changes nothing.
-  const state = await readState(context, schema);
-  const reports: FileReport[] = [];
-  for (const spec of selectedFiles(schema, context))
-    reports.push(
-      validateFile(
-        schema,
-        await readEnvFile(context, spec),
-        Boolean(options.strict),
-        state,
-      ),
-    );
-  const ok = reports.every((report) => report.ok);
-
-  if (context.json)
-    io.stdout(JSON.stringify({ command: 'validate', ok, files: reports }));
-  else
-    for (const report of reports) {
-      const lines = [
-        ...report.errors.map(problemText),
-        ...report.warnings.map((warning) => `warning: ${problemText(warning)}`),
-      ];
-      if (!lines.length) io.stdout(`${report.path}: ok`);
-      lines.forEach((line) => io.stdout(`${report.path}: ${line}`));
-    }
-  return ok ? 0 : 1;
 }

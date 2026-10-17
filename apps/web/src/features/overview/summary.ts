@@ -1,11 +1,6 @@
 // What the overview shows, computed from the API's answers.
 
-import type {
-  Check,
-  FileInfo,
-  Validate,
-  Variables,
-} from '@configure-env/api-client';
+import type { Check, FileInfo, Variables } from '@configure-env/api-client';
 
 export interface VariableCounts {
   variables: number;
@@ -26,27 +21,10 @@ export function countVariables({ variables }: Variables): VariableCounts {
   };
 }
 
-/** The problems check reports: plan errors and files that drift or break. */
-export function checkIssues(check: Check): number {
+/** The errors check reports: its files' errors and the plan's own. */
+export function checkErrors(check: Check): number {
   if (check.ok) return 0;
-  const files = check.files.filter(
-    (file) =>
-      file.drift ||
-      file.invalid.length > 0 ||
-      file.rules.length > 0 ||
-      file.error !== undefined,
-  ).length;
-  return Math.max(1, check.errors.length + files);
-}
-
-/** The errors validate reports across every file. */
-export function validateErrors(validate: Validate): number {
-  if (validate.ok) return 0;
-  const errors = validate.files.reduce(
-    (sum, file) => sum + file.errors.length,
-    0,
-  );
-  return Math.max(1, errors);
+  return Math.max(1, check.summary.errors + check.errors.length);
 }
 
 export type ModeState =

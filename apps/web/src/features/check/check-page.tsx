@@ -1,4 +1,11 @@
-import type { Check, FileDrift, Variable } from '@configure-env/api-client';
+import type {
+  Check,
+  FileCheck,
+  PlanError,
+  Problem,
+  ProblemSeverity,
+  Variable,
+} from '@configure-env/api-client';
 import { Badge } from '@configure-env/design-system/components/atoms/badge';
 import { Button } from '@configure-env/design-system/components/atoms/button';
 import { Card } from '@configure-env/design-system/components/atoms/card';
@@ -7,8 +14,8 @@ import { TYPE } from '@configure-env/design-system/recipes';
 import { cn } from '@configure-env/design-system/utils';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
-import { useId, useState } from 'react';
+import { CircleCheck, CircleX, RefreshCw, TriangleAlert } from 'lucide-react';
+import { type MouseEvent, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   checkQuery,
@@ -24,15 +31,18 @@ import { ValueEditor } from '../variables/value-editor';
 import { editorItem } from '../editor/editor';
 import { OpenInEditorButton } from '../editor/open-in-editor';
 import {
-  type DriftItem,
   applyFixes,
-  driftItems,
+  countsOf,
   editorTargetOf,
-  keyOf,
-} from './drift-items';
+  failingFiles,
+  filterProblems,
+  keysOf,
+  pruneFixes,
+  sortProblems,
+} from './problems';
 import { VariableLink } from './variable-link';
 
-const DRIFT_VARIANT = {
+const STATUS_VARIANT = {
   current: 'secondary',
   missing: 'outline',
   differs: 'destructive',
@@ -40,22 +50,42 @@ const DRIFT_VARIANT = {
   refused: 'destructive',
 } as const;
 
-/** The item whose value is being set: one item of one file. */
+/** The codes a person fixes by setting the problem's key. */
+const SET_CODES = new Set<Problem['code']>([
+  'missing-key',
+  'invalid-value',
+  'rule',
+  'protected',
+]);
+
+/** The problem whose value is being set: one problem of one file. */
 interface Editing {
   file: string;
-  /** The item's id in the file's list (`itemId`). */
-  item: string;
+  /** The problem's id in its file (`problemId`). */
+  problem: string;
 }
 
-/** An item's id in its file's list; two items may name the same key. */
-const itemId = (item: DriftItem, index: number) => `${item.kind}-${index}`;
+/** A problem's id in its file, stable while the filter changes. */
+const problemId = (problem: Problem, index: number) =>
+  `${problem.code}-${index}`;
+
+/** A file section's id, for the summary's links to it. */
+const fileAnchor = (index: number) => `check-file-${index}`;
 
 /**
- * `configure-env check` in the portal: the drift report grouped by file,
- * each item linking to its variable with a fix, setting the value or
- * applying the file.
+ * `configure-env check` in the portal: one report of every problem, summed up
+ * at the top, filtered by severity, and grouped by file in schema order; each
+ * problem links to its variable with its fix, setting the value or applying
+ * the file.
  */
-export function CheckPage() {
+export function CheckPage({
+  severity,
+  onSeverityChange,
+}: {
+  /** The problems to show; every one when undefined. */
+  severity?: ProblemSeverity;
+  onSeverityChange: (severity?: ProblemSeverity) => void;
+}) {
   const { t } = useTranslation();
   const schema = useQuery(schemaQuery);
   const status = schema.data ? schemaStatus(schema.data) : undefined;
@@ -75,19 +105,40 @@ export function CheckPage() {
       {status === 'invalid' && schema.data && (
         <InvalidSchema schema={schema.data} />
       )}
-      {status === 'valid' && <Report />}
+      {status === 'valid' && (
+        <Report severity={severity} onSeverityChange={onSeverityChange} />
+      )}
     </div>
   );
 }
 
-function Report() {
+function Report({
+  severity,
+  onSeverityChange,
+}: {
+  severity?: ProblemSeverity;
+  onSeverityChange: (severity?: ProblemSeverity) => void;
+}) {
   const { t } = useTranslation();
   const check = useQuery(checkQuery);
   const variables = useQuery(variablesQuery);
   // A value write names the fingerprint of the file it was read from.
   useQuery(filesQuery);
   const [editing, setEditing] = useState<Editing>();
-  const list = variables.data?.variables ?? [];
+  // What the last run found, said without moving the focus.
+  const [announcement, setAnnouncement] = useState('');
+
+  const run = async () => {
+    setAnnouncement('');
+    const { data } = await check.refetch();
+    if (data)
+      setAnnouncement(
+        t('check.announce', {
+          errors: t('check.errors', { count: data.summary.errors }),
+          warnings: t('check.warnings', { count: data.summary.warnings }),
+        }),
+      );
+  };
 
   return (
     <RevealProvider>
@@ -95,7 +146,7 @@ function Report() {
         <Button
           variant="outline"
           aria-busy={check.isFetching || undefined}
-          onClick={() => void check.refetch()}
+          onClick={() => void run()}
         >
           <RefreshCw
             aria-hidden="true"
@@ -105,6 +156,9 @@ function Report() {
           {t('check.run')}
         </Button>
         <ApplyButton variant="outline" label={t('check.applyAll')} />
+        <p role="status" className="sr-only">
+          {announcement}
+        </p>
       </div>
       {check.error && (
         <p role="alert" className="text-destructive">
@@ -120,7 +174,9 @@ function Report() {
       {check.data && (
         <ReportBody
           check={check.data}
-          variables={list}
+          variables={variables.data?.variables ?? []}
+          severity={severity}
+          onSeverityChange={onSeverityChange}
           editing={editing}
           onEditingChange={setEditing}
         />
@@ -132,174 +188,368 @@ function Report() {
 function ReportBody({
   check,
   variables,
+  severity,
+  onSeverityChange,
   editing,
   onEditingChange,
 }: {
   check: Check;
   variables: readonly Variable[];
+  severity?: ProblemSeverity;
+  onSeverityChange: (severity?: ProblemSeverity) => void;
   editing?: Editing;
   onEditingChange: (editing?: Editing) => void;
 }) {
   const { t } = useTranslation();
-  const errorsId = useId();
-  const drifting = check.files.filter(
-    (file) => driftItems(file).length > 0,
-  ).length;
+  const { errors, warnings } = check.summary;
+  // Under a filter, only the files with a problem of that severity show.
+  const shown = check.files
+    .map((file, index) => ({ file, index }))
+    .filter(
+      ({ file }) =>
+        !severity || filterProblems(file.problems, severity).length > 0,
+    );
   return (
     <>
-      <p role="status" className="text-sm font-medium">
-        {check.ok
-          ? t('check.passing')
-          : drifting > 0
-            ? t('check.summary', { count: drifting })
-            : t('check.summaryErrors')}
-      </p>
-      {check.errors.length > 0 && (
-        <section aria-labelledby={errorsId} className="flex flex-col gap-2">
-          <h2 id={errorsId} className={TYPE.cardTitle}>
-            {t('check.valueErrors')}
-          </h2>
-          <ul className="flex flex-col gap-1 text-sm">
-            {check.errors.map((error, index) => {
-              const keys = error.key ? [error.key] : (error.keys ?? []);
-              return (
-                <li
-                  key={index}
-                  className="flex flex-wrap items-baseline gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5"
-                >
-                  <span>
-                    {keys.map((key) => (
-                      <span key={key}>
-                        <VariableLink name={key} />{' '}
-                      </span>
-                    ))}
-                    {!keys.length && error.path && (
-                      <>
-                        <code className="font-mono text-xs">
-                          {error.path}
-                        </code>{' '}
-                      </>
-                    )}
-                    {error.message}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+      <Summary check={check} />
+      {errors + warnings > 0 && (
+        <SeverityFilter
+          counts={{ all: errors + warnings, error: errors, warning: warnings }}
+          severity={severity}
+          onChange={onSeverityChange}
+        />
       )}
-      <ul className="flex flex-col gap-3">
-        {check.files.map((file) => (
-          <li key={file.path}>
-            <FileReport
-              file={file}
-              variables={variables}
-              editing={editing?.file === file.path ? editing.item : undefined}
-              onEdit={(item) =>
-                onEditingChange(item ? { file: file.path, item } : undefined)
-              }
-            />
-          </li>
-        ))}
-      </ul>
+      {shown.length === 0 && severity ? (
+        <p className="text-sm text-muted-foreground">{t('check.noMatch')}</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {shown.map(({ file, index }) => (
+            <li key={file.path}>
+              <FileReport
+                file={file}
+                anchor={fileAnchor(index)}
+                severity={severity}
+                variables={variables}
+                editing={
+                  editing?.file === file.path ? editing.problem : undefined
+                }
+                onEdit={(problem) =>
+                  onEditingChange(
+                    problem ? { file: file.path, problem } : undefined,
+                  )
+                }
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </>
+  );
+}
+
+/**
+ * The report at a glance, as an error summary: the counts by severity, how
+ * many files fail, a link to each failing file, and the plan's own errors.
+ */
+function Summary({ check }: { check: Check }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const jumpId = useId();
+  const { errors, warnings, files, failing } = check.summary;
+  const clean = errors + warnings === 0 && check.errors.length === 0;
+  const failingList = failingFiles(check);
+  // Moves the focus to the file's section, as a skip link does.
+  const jump = (event: MouseEvent<HTMLAnchorElement>, anchor: string) => {
+    const target = document.getElementById(anchor);
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView?.({ block: 'start' });
+    target.focus();
+  };
+  return (
+    <section aria-labelledby={titleId}>
+      <Card className="gap-3 px-4">
+        <h2 id={titleId} className="sr-only">
+          {t('check.summary.title')}
+        </h2>
+        {clean ? (
+          <p className="flex items-center gap-2 font-medium">
+            <CircleCheck
+              aria-hidden="true"
+              className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+            {t('check.passing')}
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <SeverityCount severity="error" count={errors} />
+            <SeverityCount severity="warning" count={warnings} />
+            <span className="text-sm text-muted-foreground">
+              {t('check.summary.failing', { failing, count: files })}
+            </span>
+          </div>
+        )}
+        {failingList.length > 0 && (
+          <nav aria-labelledby={jumpId} className="flex flex-col gap-1.5">
+            <h3 id={jumpId} className="text-sm font-medium">
+              {t('check.summary.jump')}
+            </h3>
+            <ul className="flex flex-wrap gap-2">
+              {failingList.map((file) => {
+                const anchor = fileAnchor(check.files.indexOf(file));
+                const count = countsOf(file.problems).errors;
+                return (
+                  <li key={file.path}>
+                    <a
+                      href={`#${anchor}`}
+                      onClick={(event) => jump(event, anchor)}
+                      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-sm underline-offset-4 hover:bg-muted hover:underline"
+                    >
+                      <span className="font-mono text-xs">{file.path}</span>{' '}
+                      <span className="text-xs text-destructive">
+                        {t('check.errors', { count })}
+                      </span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        )}
+        {check.errors.length > 0 && <PlanErrors errors={check.errors} />}
+      </Card>
+    </section>
+  );
+}
+
+/** A severity's icon and count, its word in the text: never color alone. */
+function SeverityCount({
+  severity,
+  count,
+}: {
+  severity: ProblemSeverity;
+  count: number;
+}) {
+  const { t } = useTranslation();
+  return (
+    <span className="flex items-center gap-1.5 font-medium">
+      <SeverityIcon severity={severity} />
+      {t(severity === 'error' ? 'check.errors' : 'check.warnings', { count })}
+    </span>
+  );
+}
+
+function SeverityIcon({
+  severity,
+  className,
+}: {
+  severity: ProblemSeverity;
+  className?: string;
+}) {
+  const Icon = severity === 'error' ? CircleX : TriangleAlert;
+  return (
+    <Icon
+      aria-hidden="true"
+      className={cn(
+        'size-4 shrink-0',
+        severity === 'error'
+          ? 'text-destructive'
+          : 'text-amber-600 dark:text-amber-400',
+        className,
+      )}
+    />
+  );
+}
+
+/** The errors the plan reports outside any one file. */
+function PlanErrors({ errors }: { errors: readonly PlanError[] }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-1.5">
+      <h3 id={titleId} className="text-sm font-medium">
+        {t('check.planErrors')}
+      </h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {errors.map((error, index) => {
+          const keys = error.key ? [error.key] : (error.keys ?? []);
+          return (
+            <li
+              key={index}
+              className="flex flex-wrap items-baseline gap-1.5 rounded-lg bg-muted/60 px-3 py-1.5"
+            >
+              <SeverityIcon severity="error" className="self-center" />
+              <span>
+                {keys.map((key) => (
+                  <span key={key}>
+                    <VariableLink name={key} />{' '}
+                  </span>
+                ))}
+                {!keys.length && error.path && (
+                  <>
+                    <code className="font-mono text-xs">{error.path}</code>{' '}
+                  </>
+                )}
+                {error.message}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** The severity chips: every problem, or only errors or warnings. */
+function SeverityFilter({
+  counts,
+  severity,
+  onChange,
+}: {
+  counts: { all: number; error: number; warning: number };
+  severity?: ProblemSeverity;
+  onChange: (severity?: ProblemSeverity) => void;
+}) {
+  const { t } = useTranslation();
+  const chips = [
+    { value: undefined, label: t('check.filter.all'), count: counts.all },
+    { value: 'error', label: t('check.filter.error'), count: counts.error },
+    {
+      value: 'warning',
+      label: t('check.filter.warning'),
+      count: counts.warning,
+    },
+  ] as const;
+  return (
+    <div
+      role="group"
+      aria-label={t('check.filter.label')}
+      className="flex flex-wrap gap-2"
+    >
+      {chips.map((chip) => {
+        const pressed = severity === chip.value;
+        return (
+          <Button
+            key={chip.value ?? 'all'}
+            type="button"
+            size="sm"
+            variant={pressed ? 'secondary' : 'outline'}
+            aria-pressed={pressed}
+            onClick={() => onChange(chip.value)}
+            className="rounded-full"
+          >
+            {chip.value && <SeverityIcon severity={chip.value} />}
+            {chip.label}{' '}
+            <span className="rounded-full bg-background/60 px-1.5 text-xs tabular-nums">
+              {chip.count}
+            </span>
+          </Button>
+        );
+      })}
+    </div>
   );
 }
 
 function FileReport({
   file,
+  anchor,
+  severity,
   variables,
   editing,
   onEdit,
 }: {
-  file: FileDrift;
+  file: FileCheck;
+  anchor: string;
+  severity?: ProblemSeverity;
   variables: readonly Variable[];
-  /** The item whose value is being set in this file (`itemId`). */
+  /** The problem whose value is being set in this file (`problemId`). */
   editing?: string;
-  onEdit: (item?: string) => void;
+  onEdit: (problem?: string) => void;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
-  const items = driftItems(file);
+  const listed = filterProblems(
+    sortProblems(
+      file.problems.map((problem, index) => ({
+        ...problem,
+        id: problemId(problem, index),
+      })),
+    ),
+    severity,
+  ) as (Problem & { id: string })[];
+  const counts = countsOf(file.problems);
+  const passes = file.problems.length === 0;
   return (
-    <Card className="gap-3 px-4">
-      <section aria-labelledby={titleId} className="flex flex-col gap-3">
+    <Card className={cn('px-4', passes ? 'gap-0 py-2.5' : 'gap-3')}>
+      <section
+        id={anchor}
+        tabIndex={-1}
+        aria-labelledby={titleId}
+        className="flex scroll-mt-20 flex-col gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <header className="flex flex-wrap items-center gap-2">
+          {passes && (
+            <CircleCheck
+              aria-hidden="true"
+              className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+          )}
           <h2 id={titleId} className="font-mono text-sm font-medium">
             {file.path}
           </h2>
-          <Badge variant={DRIFT_VARIANT[file.status]}>
-            {t(`overview.drift.${file.status}`)}
-          </Badge>
+          {passes ? (
+            <span className="text-sm text-muted-foreground">
+              {t('check.passes')}
+            </span>
+          ) : (
+            <Badge variant={STATUS_VARIANT[file.status]}>
+              {t(`overview.drift.${file.status}`)}
+            </Badge>
+          )}
           <Badge variant="outline">{file.policy}</Badge>
-          <span className="ml-auto">
+          {file.template && (
+            <Badge variant="outline">{t('overview.files.template')}</Badge>
+          )}
+          {!passes && (
+            <span className="text-xs text-muted-foreground">
+              {[
+                counts.errors > 0 &&
+                  t('check.errors', { count: counts.errors }),
+                counts.warnings > 0 &&
+                  t('check.warnings', { count: counts.warnings }),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+          <span className="ml-auto flex flex-wrap gap-2">
             <ApplyButton
               files={[file.path]}
               variant="outline"
               label={t('check.applyFile', { path: file.path })}
               show={applyFixes(file)}
             />
+            <ApplyButton
+              files={[file.path]}
+              prune
+              variant="outline"
+              label={t('check.applyPrune', { path: file.path })}
+              show={pruneFixes(file)}
+            />
           </span>
         </header>
-        {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('check.nothing')}</p>
-        ) : (
+        {listed.length > 0 && (
           <ul className="flex flex-col gap-2 text-sm">
-            {items.map((item, index) => {
-              const key = keyOf(item);
-              const variable = key
-                ? variables.find((entry) => entry.name === key)
-                : undefined;
-              const id = itemId(item, index);
-              const open = variable !== undefined && editing === id;
-              const target = editorTargetOf(file, item);
-              return (
-                <li
-                  key={id}
-                  className="flex flex-col gap-2 rounded-lg bg-muted/40 px-3 py-2"
-                  {...editorItem}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span data-message="" className="min-w-0 flex-1">
-                      <ItemMessage item={item} />
-                    </span>
-                    {variable && !open && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        onClick={() => onEdit(id)}
-                      >
-                        <span aria-hidden="true">{t('check.set')}</span>
-                        <span className="sr-only">
-                          {t('check.setLabel', {
-                            name: variable.name,
-                            file: file.path,
-                          })}
-                        </span>
-                      </Button>
-                    )}
-                    {item.kind === 'line' && (
-                      <Link
-                        to="/files"
-                        search={{ focus: file.path }}
-                        className="text-xs underline-offset-4 hover:underline"
-                      >
-                        {t('check.openFile', { path: file.path })}
-                      </Link>
-                    )}
-                    {target && <OpenInEditorButton target={target} />}
-                  </div>
-                  {open && variable && (
-                    <ValueEditor
-                      variable={variable}
-                      file={file.path}
-                      onDone={() => onEdit(undefined)}
-                    />
-                  )}
-                </li>
-              );
-            })}
+            {listed.map((problem) => (
+              <ProblemItem
+                key={problem.id}
+                file={file}
+                problem={problem}
+                variables={variables}
+                open={editing === problem.id}
+                onEdit={(open) => onEdit(open ? problem.id : undefined)}
+              />
+            ))}
           </ul>
         )}
       </section>
@@ -307,57 +557,159 @@ function FileReport({
   );
 }
 
-/** What an item says, its variable's name a link to it. */
-function ItemMessage({ item }: { item: DriftItem }) {
+function ProblemItem({
+  file,
+  problem,
+  variables,
+  open,
+  onEdit,
+}: {
+  file: FileCheck;
+  problem: Problem;
+  variables: readonly Variable[];
+  open: boolean;
+  onEdit: (open: boolean) => void;
+}) {
   const { t } = useTranslation();
-  switch (item.kind) {
-    case 'absent':
-      return <>{t('check.item.absent')}</>;
+  // Only a variable the file holds can be set in it.
+  const variable =
+    problem.key && SET_CODES.has(problem.code)
+      ? variables.find(
+          (entry) =>
+            entry.name === problem.key &&
+            entry.files.some((value) => value.file === file.path),
+        )
+      : undefined;
+  const editorTarget = editorTargetOf(file, problem);
+  const others = keysOf(problem).filter((key) => key !== problem.key);
+  return (
+    <li
+      className={cn(
+        'flex flex-col gap-2 rounded-lg px-3 py-2',
+        problem.severity === 'error'
+          ? 'bg-muted/40'
+          : 'border border-dashed border-amber-500/40',
+      )}
+      {...editorItem}
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="flex items-center gap-1 text-xs font-medium">
+          <SeverityIcon severity={problem.severity} />
+          {t(`check.severity.${problem.severity}`)}
+        </span>
+        <span data-message="" className="min-w-0 flex-1">
+          <ProblemMessage file={file} problem={problem} />
+        </span>
+        {others.length > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {t('check.with')}{' '}
+            {others.map((other) => (
+              <VariableLink key={other} name={other} />
+            ))}
+          </span>
+        )}
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">
+          {problem.code}
+        </code>
+        {problem.fix === 'apply' && (
+          <span className="text-xs text-muted-foreground">
+            {t('check.fix.apply')}
+          </span>
+        )}
+        {problem.fix === 'prune' && (
+          <span className="text-xs text-muted-foreground">
+            {t('check.fix.prune')}
+          </span>
+        )}
+        {variable && !open && (
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={() => onEdit(true)}
+          >
+            <span aria-hidden="true">{t('check.set')}</span>
+            <span className="sr-only">
+              {t('check.setLabel', { name: variable.name, file: file.path })}
+            </span>
+          </Button>
+        )}
+        {problem.code === 'invalid-line' && (
+          <Link
+            to="/files"
+            search={{ focus: file.path }}
+            className="text-xs underline-offset-4 hover:underline"
+          >
+            {t('check.openFile', { path: file.path })}
+          </Link>
+        )}
+        {editorTarget && <OpenInEditorButton target={editorTarget} />}
+      </div>
+      {open && variable && (
+        <ValueEditor
+          variable={variable}
+          file={file.path}
+          onDone={() => onEdit(false)}
+        />
+      )}
+    </li>
+  );
+}
+
+/**
+ * What a problem says, its variable's name a link to it. The codes with a
+ * fixed message say it in the portal's language; the others carry the
+ * core's own message, which never holds a value.
+ */
+function ProblemMessage({
+  file,
+  problem,
+}: {
+  file: FileCheck;
+  problem: Problem;
+}) {
+  const { t } = useTranslation();
+  const key = problem.key && <VariableLink name={problem.key} />;
+  switch (problem.code) {
+    case 'missing-file':
+      return <>{t('check.code.missing-file')}</>;
     case 'differs':
-      return <>{t('check.item.differs')}</>;
+      return <>{t('check.code.differs')}</>;
     case 'refused':
-      return <>{t('check.item.refused', { message: item.message })}</>;
-    case 'missing':
+      return <>{problem.message}</>;
+    case 'mode':
+      return file.mode ? (
+        <>{t('check.code.mode', file.mode)}</>
+      ) : (
+        <>{problem.message}</>
+      );
+    case 'missing-key':
       return (
         <>
-          <VariableLink name={item.key} /> {t('check.item.missing')}
+          {key} {t('check.code.missing-key')}
         </>
       );
-    case 'invalid':
+    case 'invalid-line':
+      return <>{t('check.code.invalid-line', { line: problem.line })}</>;
+    case 'unknown-key':
       return (
         <>
-          <VariableLink name={item.key} /> {item.message}
-          {item.shown !== '' && (
+          <code className="font-mono text-xs">{problem.key}</code>{' '}
+          {t('check.code.unknown-key')}
+        </>
+      );
+    default:
+      return (
+        <>
+          {key} {problem.message}
+          {problem.shown !== undefined && problem.shown !== '' && (
             <>
-              : <code className="font-mono text-xs">{item.shown}</code>
+              : <code className="font-mono text-xs">{problem.shown}</code>
             </>
           )}
+          {problem.reason && ` (${problem.reason})`}
         </>
       );
-    case 'rule':
-      return (
-        <>
-          <VariableLink name={item.key} /> {item.message}
-        </>
-      );
-    case 'protected':
-      return (
-        <>
-          <VariableLink name={item.key} /> {item.message}
-          {item.reason && ` (${item.reason})`}
-        </>
-      );
-    case 'unknown':
-      return (
-        <>
-          <code className="font-mono text-xs">{item.key}</code>{' '}
-          {t('check.item.unknown')}
-        </>
-      );
-    case 'mode':
-      return <>{t('check.item.mode', item)}</>;
-    case 'line':
-      return <>{t('check.item.line', { line: item.line })}</>;
   }
 }
 
@@ -369,6 +721,7 @@ function ReportSkeleton() {
       aria-label={t('check.loading')}
       className="flex flex-col gap-3"
     >
+      <Skeleton className="h-16" />
       <Skeleton className="h-24" />
       <Skeleton className="h-24" />
     </div>
