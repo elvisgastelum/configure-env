@@ -697,7 +697,7 @@ The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and 
 
 ## Development
 
-Requirements: Node.js 22.18 or later, or 24.11 or later on Node 24, as Vite+ needs (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
+Requirements: Node.js 22.18 or later on Node 22, 24.11 or later on Node 24, or Node 26 and later, as Vite+ needs (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
 
 The repo is a pnpm workspace: the published package lives in `packages/cli`, the engine it is built on (schema, values, dotenv, plan, apply, check, the protected state, the per-key edits behind `set` and `unset`, and the schema writer) in the private `packages/core` (`@configure-env/core`), and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
 
