@@ -635,11 +635,12 @@ async function unmaskedKeys(
 }
 
 /**
- * The values the schema files hold for the keys {@link isHidden} keeps out
- * of every answer, whether or not the file lists them: as written and
- * unquoted, longest first.
+ * The values the schema files hold for the secret variables, whether or
+ * not the file lists them: as written and unquoted, longest first. These
+ * are masked wherever they appear; an undeclared key's value only in its
+ * own entry (see {@link maskJson}).
  */
-async function hiddenValues(
+async function secretValues(
   context: Context,
   schema: EnvSchema,
 ): Promise<Hidden[]> {
@@ -750,7 +751,7 @@ async function maskSecrets(
     };
   }
   const hidden = (name: string) => isHidden(schema, name);
-  const values = await hiddenValues(context, schema);
+  const values = await secretValues(context, schema);
   const scrub = (line: string) => {
     let parsed: unknown;
     try {
