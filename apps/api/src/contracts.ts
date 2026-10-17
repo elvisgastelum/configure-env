@@ -135,6 +135,26 @@ export const variablesResponse = named(
   z.object({ variables: z.array(variable) }),
 );
 
+export const group = named(
+  'Group',
+  z.object({
+    name: z.string().nullable().meta({
+      description: 'The group heading; null for the variables without one.',
+    }),
+    variables: z
+      .array(z.string())
+      .meta({ description: 'Its variable names, in schema order.' }),
+    required: z.int(),
+    secret: z.int(),
+    protected: z.int(),
+  }),
+);
+
+export const groupsResponse = named(
+  'Groups',
+  z.object({ groups: z.array(group) }),
+);
+
 export const parseError = named(
   'ParseError',
   z.object({ line: z.int(), message: z.string() }),

@@ -28,6 +28,7 @@ import {
   fileContentRequest,
   fileContentResponse,
   filesResponse,
+  groupsResponse,
   healthResponse,
   projectResponse,
   revealRequest,
@@ -49,6 +50,7 @@ import {
   checkProject,
   fileContent,
   listFiles,
+  listGroups,
   listVariables,
   revealValue,
   validateProject,
@@ -139,6 +141,17 @@ export class ProjectController {
   @NeedsSchema()
   async variables() {
     return listVariables(await this.schema(), this.project.root);
+  }
+
+  @Get('groups')
+  @Read(
+    'getGroups',
+    'The variables by group heading, with their counts; the ungrouped last',
+    groupsResponse,
+  )
+  @NeedsSchema()
+  async groups() {
+    return listGroups(await this.schema());
   }
 
   @Get('files')

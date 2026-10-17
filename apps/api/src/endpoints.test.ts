@@ -94,6 +94,85 @@ describe('GET /api/variables', () => {
   });
 });
 
+describe('GET /api/groups', () => {
+  let grouped: string;
+  let groupedServer: ApiServer;
+
+  beforeAll(async () => {
+    grouped = await writeProject({
+      'env.schema.json': JSON.stringify({
+        version: 1,
+        variables: {
+          PORT: { type: 'port', group: 'Server' },
+          LOG_LEVEL: { type: 'enum', values: ['debug', 'info'] },
+          DB_URL: { type: 'url', group: 'Database', required: true },
+          HOST: { type: 'host', group: 'Server', required: true },
+          DB_PASSWORD: {
+            type: 'string',
+            group: 'Database',
+            secret: true,
+            protected: { reason: 'rotating it drops every connection' },
+          },
+          API_KEY: { type: 'string', secret: true },
+        },
+        files: [{ path: '.env', policy: 'merge', variables: '*' }],
+      }),
+    });
+    groupedServer = await startServer(grouped);
+  });
+
+  afterAll(async () => {
+    await groupedServer.close();
+    await removeProject(grouped);
+  });
+
+  it('lists each group in schema order, the ungrouped ones last', async () => {
+    const response = await request(groupedServer.url)
+      .get('/api/groups')
+      .set('Authorization', bearer);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      groups: [
+        {
+          name: 'Server',
+          variables: ['PORT', 'HOST'],
+          required: 1,
+          secret: 0,
+          protected: 0,
+        },
+        {
+          name: 'Database',
+          variables: ['DB_URL', 'DB_PASSWORD'],
+          required: 1,
+          secret: 1,
+          protected: 1,
+        },
+        {
+          name: null,
+          variables: ['LOG_LEVEL', 'API_KEY'],
+          required: 0,
+          secret: 1,
+          protected: 0,
+        },
+      ],
+    });
+  });
+
+  it('puts every variable in one ungrouped group when none has a group', async () => {
+    const response = await get('/api/groups');
+    expect(response.status).toBe(200);
+    expect(response.body.groups).toEqual([
+      {
+        name: null,
+        variables: Object.keys(fixtureSchema.variables),
+        required: 2,
+        secret: 2,
+        protected: 0,
+      },
+    ]);
+  });
+});
+
 describe('GET /api/files', () => {
   it('reports policy, mode, drift and parse errors', async () => {
     const response = await get('/api/files');
@@ -317,11 +396,13 @@ describe('an invalid schema', () => {
   });
 
   it('answers 422 where a valid schema is needed', async () => {
-    const response = await request(badServer.url)
-      .get('/api/variables')
-      .set('Authorization', bearer);
-    expect(response.status).toBe(422);
-    expect(response.body.errors.length).toBeGreaterThan(0);
+    for (const path of ['/api/variables', '/api/groups']) {
+      const response = await request(badServer.url)
+        .get(path)
+        .set('Authorization', bearer);
+      expect(response.status).toBe(422);
+      expect(response.body.errors.length).toBeGreaterThan(0);
+    }
   });
 
   it('reports a syntax error with its position', async () => {

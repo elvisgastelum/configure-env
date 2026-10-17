@@ -553,6 +553,35 @@ export interface FileValue {
   error?: string;
 }
 
+export interface Group {
+  /**
+   * The group heading; null for the variables without one.
+   * @nullable
+   */
+  name: string | null;
+  /** Its variable names, in schema order. */
+  variables: string[];
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  required: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  secret: number;
+  /**
+   * @minimum -9007199254740991
+   * @maximum 9007199254740991
+   */
+  protected: number;
+}
+
+export interface Groups {
+  groups: Group[];
+}
+
 export type HealthStatus = (typeof HealthStatus)[keyof typeof HealthStatus];
 
 export const HealthStatus = {
@@ -2323,6 +2352,171 @@ export function useGetVariables<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetVariablesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export type getGroupsResponse200 = {
+  data: Groups;
+  status: 200;
+};
+
+export type getGroupsResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type getGroupsResponseSuccess = getGroupsResponse200 & {
+  headers: Headers;
+};
+export type getGroupsResponseError = getGroupsResponse422 & {
+  headers: Headers;
+};
+
+export type getGroupsResponse =
+  | getGroupsResponseSuccess
+  | getGroupsResponseError;
+
+export const getGetGroupsUrl = () => {
+  return `/api/groups`;
+};
+
+/**
+ * @summary The variables by group heading, with their counts; the ungrouped last
+ */
+export const getGroups = async (
+  options?: RequestInit,
+): Promise<getGroupsResponse> => {
+  const res = await fetch(getGetGroupsUrl(), {
+    ...options,
+    method: 'GET',
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getGroupsResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as getGroupsResponse;
+};
+
+export const getGetGroupsQueryKey = () => {
+  return [`/api/groups`] as const;
+};
+
+export const getGetGroupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGroups>>,
+  TError = InvalidSchema,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
+  >;
+  fetch?: RequestInit;
+}) => {
+  const { query: queryOptions, fetch: fetchOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGroupsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGroups>>> = ({
+    signal,
+  }) => getGroups({ signal, ...fetchOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGroups>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGroupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getGroups>>
+>;
+export type GetGroupsQueryError = InvalidSchema;
+
+export function useGetGroups<
+  TData = Awaited<ReturnType<typeof getGroups>>,
+  TError = InvalidSchema,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGroups>>,
+          TError,
+          Awaited<ReturnType<typeof getGroups>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroups<
+  TData = Awaited<ReturnType<typeof getGroups>>,
+  TError = InvalidSchema,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGroups>>,
+          TError,
+          Awaited<ReturnType<typeof getGroups>>
+        >,
+        'initialData'
+      >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useGetGroups<
+  TData = Awaited<ReturnType<typeof getGroups>>,
+  TError = InvalidSchema,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+/**
+ * @summary The variables by group heading, with their counts; the ungrouped last
+ */
+
+export function useGetGroups<
+  TData = Awaited<ReturnType<typeof getGroups>>,
+  TError = InvalidSchema,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getGroups>>, TError, TData>
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetGroupsQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,
