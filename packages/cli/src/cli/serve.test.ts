@@ -157,6 +157,17 @@ describe('serve options', () => {
     expect(runtime.started).toEqual([]);
   });
 
+  it('says how the portal reaches the stored environments in its help', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve(['--help'], { cwd: project.root, runtime });
+    const help = result.out.join('\n').replace(/\s+/g, ' ');
+    expect(help).toContain('GET /api/environments');
+    expect(help).toContain('/env/<name>/api/*');
+    expect(help).toMatch(
+      /tokens? stays? on this server|never reach(es)? the browser/,
+    );
+  });
+
   it.each([
     [['--port', 'http']],
     [['--port', '65536']],

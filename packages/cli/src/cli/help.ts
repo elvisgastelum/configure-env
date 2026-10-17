@@ -545,6 +545,13 @@ While it runs, .configure-env/server.json (mode 600, named in that
 folder's .gitignore) holds its URL, pid, version and token, so the
 project's commands run through it; it is removed when serve stops.
 
+The portal switches to the environments env add stored (see configure-env
+env --help), read from .configure-env/environments.json on every request:
+GET /api/environments lists them with their URL, whether they answer and
+their version, and /env/<name>/api/* forwards to that server's API with
+its token, behind this server's own token. The tokens stay on this
+server: they never reach the browser.
+
 In a terminal it opens the URL in the default browser; --open and
 --no-open decide instead. With --json it prints one line,
 {"command":"serve","url":...,"port":...,"pid":...}, where url holds the
