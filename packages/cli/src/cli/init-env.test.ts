@@ -1,7 +1,17 @@
 // `init` over the configure-env API: in-process for a local run, and
 // against a named environment's server, which owns its project.
 
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { readChanges } from '@configure-env/core';
@@ -17,6 +27,50 @@ const remoteText = (path = 'env.schema.json') =>
   readFile(join(remote.root, path), 'utf8');
 
 describe('init, local', () => {
+  it.skipIf(process.platform === 'win32')(
+    'creates the schema with the mode the umask leaves, as before',
+    async () => {
+      const previous = process.umask(0o002);
+      try {
+        expect((await cli(['init', '--ci'])).code).toBe(0);
+      } finally {
+        process.umask(previous);
+      }
+      const { mode } = await stat(join(dirs.root, 'env.schema.json'));
+      expect(mode & 0o777).toBe(0o664);
+    },
+  );
+
+  it('records no history when .gitignore cannot be updated, as before', async () => {
+    // A folder where .gitignore should be: it can be neither read nor written.
+    await mkdir(join(dirs.root, '.gitignore'));
+    const r = await cli(['init', '--ci']);
+    expect(r).toMatchObject({ code: 1, out: [] });
+    expect(r.err).toEqual([
+      'configure-env: cannot update .gitignore: EISDIR',
+      'env.schema.json was written; add .configure-env/ to .gitignore yourself',
+    ]);
+    expect((await readdir(dirs.root)).sort()).toEqual([
+      '.gitignore',
+      'env.schema.json',
+    ]);
+  });
+
+  it('refuses a .env.example that is a symlink leading outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'example'), 'PORT=8080\n');
+      await symlink(join(outside, 'example'), join(dirs.root, '.env.example'));
+      const r = await cli(['init', '--ci']);
+      expect(r).toMatchObject({ code: 1, out: [] });
+      expect(r.err).toHaveLength(1);
+      expect(r.err[0]).toMatch(/^configure-env: \.env\.example: /);
+      expect(await readdir(dirs.root)).toEqual(['.env.example']);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it('writes through the API in-process, recording the change as the cli’s', async () => {
     await writeFile(join(dirs.root, 'example.env'), 'PORT=8080\n');
     const r = await cli(['init', '--ci', '--from', 'example.env']);

@@ -6,18 +6,19 @@
 // A write is recorded in the history with the schema's text before and
 // after, so it can be undone.
 
-import { lstat, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { link, lstat, open, readFile, rm } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   DEFAULT_EXAMPLE,
   type EnvSchema,
   type IgnoreStatus,
   STATE_IGNORE,
   type SchemaDocument,
+  type SchemaError,
   type SchemaEditResult,
   type SchemaWriteResult,
   VARIABLE_NAME,
-  createSchemaFile,
   editSchemaFile,
   filePathProblem,
   getValue,
@@ -94,12 +95,13 @@ async function answer(
   project: Project,
   result: SchemaWriteResult,
   actor: Actor = 'portal',
+  { record = true }: { record?: boolean } = {},
 ): Promise<SchemaView> {
   if (result.ok) {
     const history = await recordHistory(
       project.statePath,
       actor,
-      result.written
+      record && result.written
         ? schemaChanges(project.schemaPath, result.previous, result.file.text)
         : [],
     );
@@ -185,6 +187,66 @@ const occupied = (path: string) =>
     (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
   );
 
+/** The mode a new schema file takes before the umask, as writeFile gives it. */
+const INIT_MODE = 0o666;
+
+/**
+ * Creates the schema file with `document`, validated first, through a
+ * temporary file linked into place, so a reader never sees half a schema
+ * and a file that exists is never replaced (`stale`). Its mode is what the
+ * umask leaves of 666, as configure-env init has always written it.
+ */
+async function createInitFile(
+  path: string,
+  document: SchemaDocument,
+): Promise<SchemaWriteResult> {
+  const valid = validateDocument(document);
+  if (!valid.ok) return { ok: false, kind: 'invalid', errors: valid.errors };
+  const text = initText(document);
+  const failed = (kind: 'stale' | 'io', message: string) => ({
+    ok: false as const,
+    kind,
+    errors: [{ path: '(root)', message }] satisfies SchemaError[],
+  });
+  const temp = join(
+    dirname(path),
+    `.${basename(path)}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+  try {
+    const handle = await open(temp, 'wx', INIT_MODE);
+    try {
+      await handle.writeFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      await link(temp, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        return failed('stale', `${path} exists; edit it instead`);
+      throw error;
+    }
+  } catch (error) {
+    return failed(
+      'io',
+      `cannot write ${path}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
+    );
+  } finally {
+    await rm(temp, { force: true }).catch(() => undefined);
+  }
+  return {
+    ok: true,
+    written: true,
+    file: {
+      text,
+      fingerprint: schemaFingerprint(text),
+      document: valid.document,
+      schema: valid.schema,
+    },
+  };
+}
+
 /** The text configure-env init writes a starting schema as. */
 const initText = (document: SchemaDocument) =>
   `${JSON.stringify(document, null, 2)}\n`;
@@ -232,16 +294,22 @@ export async function initSchema(
     ? await restoreSchemaFile(project.schemaFile, initText(document), {
         fingerprint: body.fingerprint,
       })
-    : await createSchemaFile(project.schemaFile, document);
-  const view = await answer(project, result, actor);
-  const ignored = await ignoreStateInside(project.root);
+    : await createInitFile(project.schemaFile, document);
+  // .gitignore only once the schema is written; one that cannot be updated
+  // leaves the change out of the history, as configure-env init always has.
+  const ignored = result.ok
+    ? await ignoreStateInside(project.root)
+    : { status: undefined };
+  const view = await answer(project, result, actor, {
+    record: !('problem' in ignored),
+  });
   const problem =
     'problem' in ignored
       ? ignored.problem
       : ignored.status === 'symlink'
         ? 'it is a symlink'
         : undefined;
-  if ('status' in ignored) view.gitignore = ignored.status;
+  if ('status' in ignored && ignored.status) view.gitignore = ignored.status;
   if (problem)
     view.warnings = [
       ...(view.warnings ?? []),

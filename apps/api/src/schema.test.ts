@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -591,6 +599,35 @@ describe('POST /api/schema/init, as configure-env init sends it', () => {
     expect(await history()).toMatchObject([
       { actor: 'cli', file: 'env.schema.json', operation: 'schema' },
     ]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the schema with the mode the umask leaves',
+    async () => {
+      await start({});
+      const previous = process.umask(0o002);
+      try {
+        expect((await cli({})).status).toBe(200);
+      } finally {
+        process.umask(previous);
+      }
+      const { mode } = await stat(join(root, 'env.schema.json'));
+      expect(mode & 0o777).toBe(0o664);
+    },
+  );
+
+  it('records no history when .gitignore cannot be updated', async () => {
+    await start({ '.env.example': EXAMPLE });
+    await mkdir(join(root, '.gitignore'));
+    const response = await cli({});
+    expect(response.status).toBe(200);
+    expect(response.body).not.toHaveProperty('gitignore');
+    expect(response.body).not.toHaveProperty('change');
+    expect(response.body.warnings).toEqual([
+      'cannot update .gitignore: EISDIR; add .configure-env/ to it yourself',
+    ]);
+    expect(await diskText()).toContain('"PORT"');
+    expect(await history()).toEqual([]);
   });
 
   it('answers what it did to .gitignore', async () => {
