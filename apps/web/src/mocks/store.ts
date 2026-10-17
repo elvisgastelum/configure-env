@@ -11,6 +11,8 @@ import type {
   FilePlan,
   FileValidation,
   Files,
+  Group,
+  Groups,
   Plan,
   PlanError,
   PlanRequest,
@@ -280,6 +282,32 @@ export function writeSchema(document: unknown): Schema {
     fingerprint: `schema-${mockState.schemaWrites + 1}`,
   };
   return mockState.schema;
+}
+
+/**
+ * The variables by group heading as GET /api/groups answers it, from the
+ * sample's variables: in schema order, the ungrouped ones last.
+ */
+export function groupsOf(): Groups {
+  const groups = new Map<string | null, Group>();
+  for (const { name, spec } of mockState.variables.variables) {
+    const heading = spec.group ?? null;
+    const group = groups.get(heading) ?? {
+      name: heading,
+      variables: [],
+      required: 0,
+      secret: 0,
+      protected: 0,
+    };
+    groups.set(heading, group);
+    group.variables.push(name);
+    if (spec.required) group.required += 1;
+    if (spec.secret) group.secret += 1;
+    if (spec.protected !== undefined) group.protected += 1;
+  }
+  const ungrouped = groups.get(null);
+  groups.delete(null);
+  return { groups: [...groups.values(), ...(ungrouped ? [ungrouped] : [])] };
 }
 
 /** A short hash of `text`, so a plan fingerprint names no value. */

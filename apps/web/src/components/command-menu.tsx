@@ -14,6 +14,7 @@ import { useNavigate } from '@tanstack/react-router';
 import {
   FileText,
   Languages,
+  Layers,
   Palette,
   ScanSearch,
   ShieldCheck,
@@ -23,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import {
   checkQuery,
   filesQuery,
+  groupsQuery,
   schemaQuery,
   validateQuery,
   variablesQuery,
@@ -31,7 +33,7 @@ import { LANGUAGES, currentLanguage, setLanguage } from '../i18n';
 import { NAV_ITEMS } from '../lib/nav';
 
 /**
- * The ⌘K palette: every page, every variable and env file of the schema,
+ * The ⌘K palette: every page, every variable, group and env file of the schema,
  * and the actions (run check or validate, switch the theme or the
  * language). The shell owns its open state, so the header's search button
  * opens it too.
@@ -49,6 +51,7 @@ export default function CommandMenu({
   const { data: schema } = useQuery(schemaQuery);
   const enabled = open && schema?.valid === true;
   const { data: variables } = useQuery({ ...variablesQuery, enabled });
+  const { data: groups } = useQuery({ ...groupsQuery, enabled });
   const { data: files } = useQuery({ ...filesQuery, enabled });
 
   const run = (action: () => void) => () => {
@@ -98,6 +101,31 @@ export default function CommandMenu({
                 <span className="font-mono">{name}</span>
               </CommandItem>
             ))}
+          </CommandGroup>
+        )}
+
+        {groups && groups.groups.some(({ name }) => name !== null) && (
+          <CommandGroup heading={t('palette.groups')}>
+            {groups.groups.flatMap(({ name }) =>
+              name === null
+                ? []
+                : [
+                    <CommandItem
+                      key={name}
+                      value={`group ${name}`}
+                      onSelect={run(
+                        () =>
+                          void navigate({
+                            to: '/groups',
+                            search: { focus: name },
+                          }),
+                      )}
+                    >
+                      <Layers aria-hidden="true" />
+                      {name}
+                    </CommandItem>,
+                  ],
+            )}
           </CommandGroup>
         )}
 

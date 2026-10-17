@@ -7,6 +7,7 @@ const WIDTHS = [360, 768, 1280, 1920];
 const ROUTES = [
   '/',
   '/variables',
+  '/groups',
   '/files',
   '/schema',
   '/check',

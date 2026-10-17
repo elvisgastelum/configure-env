@@ -34,28 +34,18 @@
   },
   "palette": {
     "title": "Paleta de comandos",
-    "description": "Ve a cualquier página, variable o archivo, o ejecuta una acción.",
+    "description": "Ve a cualquier página, variable, grupo o archivo, o ejecuta una acción.",
     "placeholder": "Escribe una variable, un archivo o una acción…",
     "empty": "No hay coincidencias.",
     "pages": "Páginas",
     "variables": "Variables",
+    "groups": "Grupos",
     "files": "Archivos",
     "actions": "Acciones",
     "runCheck": "Ejecutar la comprobación",
     "runValidate": "Ejecutar la validación",
     "theme": "Cambiar al tema {{theme}}",
     "language": "Cambiar a {{language}}"
-  },
-  "placeholder": {
-    "soon": "Próximamente",
-    "focus": "Saltaste a {{name}}.",
-    "variables": "Cada variable con su especificación y su valor en cada archivo.",
-    "groups": "Las variables según su encabezado de grupo.",
-    "files": "Cada archivo env con su política, modo, desviación y errores de análisis.",
-    "schema": "El documento del esquema y sus errores.",
-    "check": "El informe de desviaciones de configure-env check.",
-    "validate": "Los errores de reglas y valores de configure-env validate.",
-    "history": "Cada cambio en los archivos env y el esquema, con opción de deshacer."
   },
   "theme": {
     "label": "Tema",
@@ -636,6 +626,42 @@
       "close": "Cerrar",
       "errors": "El esquema rechaza esta edición:"
     }
+  },
+  "groups": {
+    "lead": "Las variables según su encabezado de grupo: lo que contiene cada grupo y qué falla en sus valores.",
+    "error": "No se pudieron cargar los grupos: {{message}}",
+    "loading": "Cargando los grupos",
+    "empty": "El esquema aún no tiene variables.",
+    "ungrouped": "Sin grupo",
+    "count_one": "{{count}} variable",
+    "count_many": "{{count}} variables",
+    "count_other": "{{count}} variables",
+    "flags": {
+      "required_one": "{{count}} obligatoria",
+      "required_many": "{{count}} obligatorias",
+      "required_other": "{{count}} obligatorias",
+      "secret_one": "{{count}} secreta",
+      "secret_many": "{{count}} secretas",
+      "secret_other": "{{count}} secretas",
+      "protected_one": "{{count}} protegida",
+      "protected_many": "{{count}} protegidas",
+      "protected_other": "{{count}} protegidas"
+    },
+    "problems": {
+      "missing_one": "{{count}} faltante",
+      "missing_many": "{{count}} faltantes",
+      "missing_other": "{{count}} faltantes",
+      "invalid_one": "{{count}} inválida",
+      "invalid_many": "{{count}} inválidas",
+      "invalid_other": "{{count}} inválidas",
+      "drift_one": "{{count}} con desviación",
+      "drift_many": "{{count}} con desviación",
+      "drift_other": "{{count}} con desviación"
+    },
+    "allSet": "Todo en orden",
+    "members": "Variables en {{name}}",
+    "view": "Ver {{name}} en Variables",
+    "viewShort": "Ver"
   },
   "files": {
     "lead": "Cada archivo env que incluye el esquema: su política, modo y desviación. Abre uno para ver sus entradas y su texto sin procesar.",

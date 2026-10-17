@@ -25,6 +25,7 @@ import {
   eventClients,
   findFile,
   findVariable,
+  groupsOf,
   mockState,
   planOf,
   plainValue,
@@ -217,6 +218,7 @@ export const handlers = [
   http.get('/api/schema', () => json(mockState.schema)),
   ...schemaWrites,
   http.get('/api/variables', () => json(mockState.variables)),
+  http.get('/api/groups', () => json(groupsOf())),
   http.get('/api/files', () => json(mockState.files)),
   http.get('/api/check', () => json(fixtures.check)),
   http.get('/api/validate', () => json(fixtures.validate)),
@@ -451,6 +453,9 @@ export const scenarios = {
     http.get('/api/variables', () =>
       missing() ? schemaNeeded() : json(mockState.variables),
     ),
+    http.get('/api/groups', () =>
+      missing() ? schemaNeeded() : json(groupsOf()),
+    ),
     http.get('/api/files', () =>
       missing() ? schemaNeeded() : json(mockState.files),
     ),
@@ -478,6 +483,7 @@ export const scenarios = {
   invalidSchema: [
     http.get('/api/schema', () => json(fixtures.invalidSchema)),
     http.get('/api/variables', schemaNeeded),
+    http.get('/api/groups', schemaNeeded),
     http.get('/api/files', schemaNeeded),
     http.get('/api/check', schemaNeeded),
     http.get('/api/validate', schemaNeeded),

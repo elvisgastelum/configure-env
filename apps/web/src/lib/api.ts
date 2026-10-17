@@ -5,8 +5,10 @@
 import {
   getCheck,
   getFiles,
+  getGroups,
   getGetCheckQueryKey,
   getGetFilesQueryKey,
+  getGetGroupsQueryKey,
   getGetProjectQueryKey,
   getGetSchemaQueryKey,
   getGetValidateQueryKey,
@@ -65,6 +67,13 @@ export const schemaQuery = queryOptions({
 export const variablesQuery = queryOptions({
   queryKey: getGetVariablesQueryKey(),
   queryFn: ({ signal }) => unwrap(getVariables({ signal })),
+});
+
+export const groupsQuery = queryOptions({
+  queryKey: getGetGroupsQueryKey(),
+  queryFn: ({ signal }) => unwrap(getGroups({ signal })),
+  // Like the schema's, the order of `groups` is the schema's declaration order.
+  structuralSharing: false,
 });
 
 export const filesQuery = queryOptions({

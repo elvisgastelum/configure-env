@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import {
   checkQuery,
   filesQuery,
+  groupsQuery,
   schemaQuery,
   validateQuery,
   variablesQuery,
@@ -119,8 +120,8 @@ function ReviewBody({
 
   const refreshDerived = () =>
     Promise.all(
-      [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
-        queryClient.invalidateQueries({ queryKey: query.queryKey }),
+      [variablesQuery, groupsQuery, filesQuery, checkQuery, validateQuery].map(
+        (query) => queryClient.invalidateQueries({ queryKey: query.queryKey }),
       ),
     );
 
