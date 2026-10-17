@@ -16,7 +16,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 ## Hard Rules
 
 - Pass `--ci` on every command. You have no terminal, so the interactive TUI exits 2. Add `--json` when you parse the output. Never fake a terminal.
-- Never read env files directly (`cat`, `grep`, `Read`, `source`, `printenv`). Inspect them with `list --json`, `validate --json` and `check --ci --json`; these mask secrets.
+- Never read env files directly (`cat`, `grep`, `Read`, `source`, `printenv`). Inspect them with `list --ci --json` and `check --ci --json`; these mask secrets.
 - Never pass `get --reveal`. Never print, echo, log or summarize a secret value.
 - Never put a secret in argv (`set KEY=VALUE`, `apply --set KEY=VALUE`, `KEY=value cmd`) or in any file you write. A secret goes in only through:
   1. `--generate KEY` for secrets the project makes itself (session, JWT, encryption, internal passwords);
@@ -46,7 +46,7 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 | Vendor secret, manager known | `<manager read cmd> \| configure-env set --ci --file .env --stdin KEY` |
 | Vendor secret, no manager | the user runs `configure-env set --file .env --prompt KEY` (Claude Code: `! <command>`) |
 | Many values for a human | ask them to run `configure-env apply` (TUI) |
-| CI or a review gate | `check --ci` and `validate --ci --file .env.example` |
+| CI or a review gate | `check --ci --file .env.example` (the committed files; a missing file is an error under every policy); `--strict` fails on unknown keys too |
 | Mode drift reported by check | `apply --ci --file <path>` (chmod only; never loosens; on `mode not loosened`, ask the user) |
 | `protected` exit 2 | ask the user; to restore after a deletion, pipe the backup into `set --ci --create --file .env --stdin KEY` |
 | State lock held (exit 1) | retry once; `left by process …`: ask the user to remove the lock |
@@ -54,10 +54,10 @@ Invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a 
 
 ## Execution Steps
 
-1. `validate --ci --json` and `list --ci --json` show what is missing or invalid.
+1. `check --ci --json` and `list --ci --json` show what is missing or invalid: each problem has a `severity`, a `code` and a `fix` (`apply`, `prune`, `set`, or none when a person decides).
 2. Change the schema first for a new variable or rule; a broken schema exits 1, naming each problem.
 3. Write with `apply` or `set`, following the gates.
-4. Verify with `validate --ci` and `check --ci`: 0 ok, 1 a problem, 2 a usage error. Fix the cause the message names; do not retry blindly.
+4. Verify with `check --ci`: 0 ok (warnings alone pass), 1 an error, 2 a usage error. Fix the cause the message names; do not retry blindly.
 
 ## Output Contract
 

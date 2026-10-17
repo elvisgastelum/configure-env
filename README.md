@@ -11,13 +11,12 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | Command    | Purpose                                            |
 | ---------- | -------------------------------------------------- |
 | `apply`    | write the env files the schema describes           |
-| `check`    | change nothing; report drift and exit 1 when found |
+| `check`    | change nothing; report every problem by file       |
 | `init`     | start a schema for a project                       |
 | `set`      | set one variable                                   |
 | `get`      | print one variable                                 |
 | `unset`    | remove one variable                                |
 | `list`     | list the variables and where they are set          |
-| `validate` | validate the values against the schema             |
 | `history`  | list the latest changes to env files and the schema |
 | `install`  | install the agent skill for Claude Code and others |
 
@@ -37,8 +36,9 @@ npx @elvisgastelum/configure-env init
 # 3. Write the env files, answering the prompts.
 npx @elvisgastelum/configure-env apply
 
-# 4. In CI, fail when a file drifts from the schema.
-npx @elvisgastelum/configure-env check --ci
+# 4. In CI, fail when a committed file drifts from the schema or holds an
+#    invalid entry.
+npx @elvisgastelum/configure-env check --ci --file .env.example
 ```
 
 To pin the version for a team, install it as a dev dependency and call the `configure-env` bin from a script:
@@ -161,7 +161,7 @@ The rules hold per file, over that file's own variables: a name the file does no
 .env: SM_PREVIOUS_MASTER_KEY: must differ from SM_MASTER_KEY
 ```
 
-`validate` and `check` report them and exit 1, `list` shows them in the `VALID` column, and `apply` and `set` refuse to write a file that would break one (exit 1). In generated files, a `requiredUnless` variable's comment ends with `required unless X is set` (`X or Y` for several).
+`check` reports them and exits 1, `list` shows them in the `VALID` column, and `apply` and `set` refuse to write a file that would break one (exit 1). In generated files, a `requiredUnless` variable's comment ends with `required unless X is set` (`X or Y` for several).
 
 ### Networks
 
@@ -178,7 +178,7 @@ A strict error suggests the network address, `host bits are set; use 10.0.0.0/8`
 
 `"APP_SUBNET": {"type": "cidr", "family": "ipv4", "default": "172.30.250.0/24"}, "WEB_ADDRESS": {"type": "ipv4", "default": "172.30.250.10", "within": "APP_SUBNET"}`
 
-The address must lie inside the network; a `cidr` variable's whole block must, so its prefix is at least as long. A different family is never within. `within` names one declared `cidr` variable, never the variable itself; a target whose `family` can never match the variable's is a schema error. Like the other rules, it holds per file and only when both values are set and valid for their types, `validate`, `check` and `list` report it, and `apply` and `set` refuse a file that breaks it (exit 1), naming both keys and never a value:
+The address must lie inside the network; a `cidr` variable's whole block must, so its prefix is at least as long. A different family is never within. `within` names one declared `cidr` variable, never the variable itself; a target whose `family` can never match the variable's is a schema error. Like the other rules, it holds per file and only when both values are set and valid for their types, `check` and `list` report it, and `apply` and `set` refuse a file that breaks it (exit 1), naming both keys and never a value:
 
 ```text
 .env: WEB_ADDRESS: must be within APP_SUBNET
@@ -215,13 +215,13 @@ SM_MASTER_KEY was set on 2026-10-10; restore it from your backup, or pass --repl
 
 `--replace-protected KEY` (repeatable; on `set`, `unset` and `apply`) allows the change for that key only; there is no global force. In a terminal you confirm by typing the key's name: a wrong name exits 2 and a cancel 130, both writing nothing. With `--ci` or `--json` the flag alone is enough; without a terminal or either, it exits 2. The output says `replaced protected KEY`. Moving from a key to its file, say, takes `unset --replace-protected SM_MASTER_KEY SM_MASTER_KEY`, then `set SM_MASTER_KEY_FILE=…`.
 
-The state is `.configure-env/state.db` under the root, a SQLite database, or the global `--state <path>` (relative to the root; never a schema file or a path inside one). `apply`, `set` and `unset` record each protected value they write, and each one the files they touch hold, only after the env files are written; a value replaced with the flag replaces its record, and one removed with it drops it. A value that differs from its record is left as it is, for `check` and `validate` to report (exit 1):
+The state is `.configure-env/state.db` under the root, a SQLite database, or the global `--state <path>` (relative to the root; never a schema file or a path inside one). `apply`, `set` and `unset` record each protected value they write, and each one the files they touch hold, only after the env files are written; a value replaced with the flag replaces its record, and one removed with it drops it. A value that differs from its record is left as it is, for `check` to report (exit 1):
 
 ```text
 .env: SM_MASTER_KEY no longer matches the value recorded on 2026-10-10
 ```
 
-`check`, `validate` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each protected value, never the value. Every write command (`set`, `unset`, `apply`, `init`, and the portal's writes) records what it changed in the history of edits, which `configure-env history` lists; a history it cannot write is a warning, never a failure. Its tables are:
+`check` and `list` never write the state. A run that writes or holds a protected value opens a write transaction on the database (SQLite's `BEGIN IMMEDIATE`) before it writes any env file: in it, it re-reads the state, runs every protected check against it, writes the env files and applies only its own changes, then commits, so parallel runs, from the CLI or the portal, keep each other's fingerprints. A transaction held by another run makes it wait 2 seconds, then exit 1 with nothing written (`in use by another run; try again`). A run that crashes leaves nothing to clean up: SQLite rolls back its transaction. The database uses WAL mode, so a run can read the state while another writes it. It has mode 600, its directory 700, it is never opened through a symlink, and it holds only a salted HMAC of each protected value, never the value. Every write command (`set`, `unset`, `apply`, `init`, and the portal's writes) records what it changed in the history of edits, which `configure-env history` lists; a history it cannot write is a warning, never a failure. Its tables are:
 
 | Table                    | What it holds                                                                                                                                                                                          |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -261,7 +261,7 @@ Limits: the state knows only this machine's history. A fresh clone has none, so 
 
 A template file is committed with placeholders, like `.env.example`. A file is a template when its `template` is `true`, or when `template` is not set and its path ends in `.example`, `.sample` or `.template`; `"template": false` turns the suffix rule off.
 
-A template takes only its `values` entries and the defaults. It never takes a `--set` value, an environment variable or a prompted value, so a secret cannot end up in a committed file, and `apply` asks for no variable that only template files need. `check` and `validate` do not check the values of a template, which are placeholders.
+A template takes only its `values` entries and the defaults. It never takes a `--set` value, an environment variable or a prompted value, so a secret cannot end up in a committed file, and `apply` asks for no variable that only template files need. `check` checks only a template's lines and keys, never its values, which are placeholders.
 
 ### How files are written
 
@@ -298,13 +298,12 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | Command | What it does                                                         |
 | ------- | -------------------------------------------------------------------- |
 | `apply` | writes the env files the schema describes; the default command       |
-| `check` | changes nothing; reports drift and invalid values, exits 1 on either |
+| `check` | changes nothing; reports every problem by file, exits 1 on any error |
 | `init`  | writes a starting `env.schema.json`, inferred from an example env file |
 | `set`   | sets variables in one file, keeping every other byte                   |
 | `get`   | prints one variable's value                                            |
 | `unset` | removes variables from one file                                        |
 | `list`  | shows each file's variables: set, valid, value (secrets masked)        |
-| `validate` | checks the current values against the schema; exits 1 on errors     |
 | `history` | lists the latest changes the CLI and the portal made (see "history") |
 | `install` | `install skill` installs the agent skill (see "AI agents")           |
 | `serve` | starts the local portal for the project in a browser (see "Portal (serve)") |
@@ -347,9 +346,9 @@ A file whose content is current but whose mode differs from the schema's `mode` 
 
 `--replace-protected KEY` (repeatable) lets the run change a protected value; see "Protected variables". Every protected key a file of the run would write is checked before anything is written.
 
-`--prune` removes the keys a `merge` file, or an existing `create-only` file, holds that the schema does not list for it: a variable deleted from the schema, or a key added by hand. Each goes with its comment block, the `#` lines directly above it with no blank line between; a comment set apart by a blank line stays. The blank line rule of `unset` applies. Generate files need no pruning, since they are rewritten. It is opt-in because it deletes keys a person may have added on purpose, and without it `apply` keeps every key. The terminal plan lists the keys to prune (`prune keys: A, B`); the output never shows a value. A pruned key that has a protected fingerprint loses it, in the state's write transaction. When the schema protects no variable, that is a best effort: a state that cannot be read, or one another run holds, keeps the fingerprints and, when the run prunes a key, prints a warning without failing the run: `configure-env: warning: .configure-env/state.db: cannot be read (is not a valid state database); fingerprints of pruned keys, if any, were kept`, or, when a pruned key had one, `not written (<reason>); fingerprints of pruned keys were kept`; a missing state is never created. `check --strict` reports the keys it would remove.
+`--prune` removes the keys a `merge` file, or an existing `create-only` file, holds that the schema does not list for it: a variable deleted from the schema, or a key added by hand. Each goes with its comment block, the `#` lines directly above it with no blank line between; a comment set apart by a blank line stays. The blank line rule of `unset` applies. Generate files need no pruning, since they are rewritten. It is opt-in because it deletes keys a person may have added on purpose, and without it `apply` keeps every key. The terminal plan lists the keys to prune (`prune keys: A, B`); the output never shows a value. A pruned key that has a protected fingerprint loses it, in the state's write transaction. When the schema protects no variable, that is a best effort: a state that cannot be read, or one another run holds, keeps the fingerprints and, when the run prunes a key, prints a warning without failing the run: `configure-env: warning: .configure-env/state.db: cannot be read (is not a valid state database); fingerprints of pruned keys, if any, were kept`, or, when a pruned key had one, `not written (<reason>); fingerprints of pruned keys were kept`; a missing state is never created. `check` reports the keys it would remove as warnings, and as errors with `--strict`.
 
-`--defer KEY` (repeatable) leaves a required variable, or a `requiredUnless` one, for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key that is neither `required: true` nor `requiredUnless`, one also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, leaving out a `requiredUnless` key whose alternative the file sets, and `validate` fails on them until they are set:
+`--defer KEY` (repeatable) leaves a required variable, or a `requiredUnless` one, for a person to set later. When it ends up with no value, it is written empty, as an empty optional value is, instead of failing the run; in a terminal it is not prompted for. A value from `--set`, `--generate`, the environment or the default is written as usual. Every other required variable still needs a value. A key that is neither `required: true` nor `requiredUnless`, one also given with `--set` or `--generate`, or one the schema does not declare, is a usage error (exit 2). The run reports the keys it left empty after the file lines, leaving out a `requiredUnless` key whose alternative the file sets, and `check` fails on them until they are set:
 
 ```text
 .env.example: created
@@ -369,12 +368,67 @@ configure-env apply --ci --json
 
 ### check
 
-`check` writes nothing. Per file it reports a missing file, a generated file that differs from the schema, the keys a merge file lacks, a mode other than the schema's `mode` (`mode 644, expected 600 (run configure-env apply to fix it)`, or `apply never adds a permission; chmod it by hand` when the schema's mode would add one), values that break their variable's rules (secrets masked), broken rules between variables, lines that are not valid entries, and protected values that no longer match the state. With `--strict`, the keys a merge or existing create-only file holds that the schema does not list for it are drift too (`.env: unknown keys: DEBUG (run configure-env apply --prune to remove them)`), so CI can require pruning. It exits 1 when it finds any, 0 when everything is current. Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them. It runs the same way with or without a terminal.
+`check` writes nothing. It prints one report of every problem the env files have against the schema, file by file in schema order, and exits 1 when any problem is an error. Warnings alone exit 0.
+
+```text
+config/app.env: ok
+.env: PORT: must be a port between 1 and 65535 (got http)
+.env: line 4 is not a valid entry
+.env: warning: EXTRA: is not in the schema for this file
+.env.example: API_TOKEN: is missing
+3 errors, 1 warning in 2 files
+```
+
+Without a terminal (or with `--ci`) it prints one line per problem, `path: <message>`, warnings marked `warning:`, and `path: ok` for a file without any. The last line counts the errors, the warnings and the files that have a problem, or says `Everything is current.` A run error, such as an invalid `--set` value or a `--file` path that is not safe, goes to stderr. In a terminal the same report shows as a note per file, and the closing line adds the fix: `Run configure-env apply to fix the drift.` (`apply --prune` when a key is unknown).
+
+| Problem (`code`)  | Severity                       | Reported when                                                                  | Fix                                   |
+| ----------------- | ------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------- |
+| `missing-file`    | error                          | a file does not exist, under any policy (create-only and templates too)        | `apply`                               |
+| `differs`         | error                          | a generate file's content differs from what the schema writes                  | `apply`                               |
+| `missing-key`     | error                          | a merge file or a template lacks a key                                         | `apply`                               |
+| `mode`            | error                          | the file's mode is not the schema's `mode`                                     | `apply`, when it only removes permissions; else a chmod by hand |
+| `refused`         | error                          | the path leaves the root                                                       | none                                  |
+| `invalid-line`    | error                          | a line is not a valid entry                                                    | none: edit the line                   |
+| `invalid-value`   | error                          | a value breaks its variable's rules, a required one unset or empty included    | `set`                                 |
+| `rule`            | error                          | a rule between variables is broken (`requiredUnless`, `conflictsWith`, `distinctFrom`, `within`) | `set`             |
+| `protected`       | error                          | a protected value no longer matches the one the state recorded                 | none: a person decides                |
+| `unknown-key`     | warning; error with `--strict` | a file holds a key the schema does not list for it                             | `apply --prune`                       |
+
+- **Messages never show a value.** An invalid value is shown after `got`, masked for a secret. A mode that `apply` would loosen says `apply never adds a permission; chmod it by hand` instead of `run configure-env apply to fix it`.
+- **One problem per cause.** A key reported as `missing-key` is not reported again as an `invalid-value`.
+- **Templates hold placeholders**, so only their file, lines and keys are checked (`missing-file`, `missing-key`, `invalid-line`, `unknown-key` and the drift codes); never their values, rules or protected values. A placeholder a file sets through `values` passes.
+- **`--strict`** makes unknown keys errors, so CI can require pruning.
+- **Deterministic.** Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them.
+
+With `--json` it prints the same report (see "JSON output"):
+
+```json
+{
+  "command": "check",
+  "ok": false,
+  "summary": { "errors": 1, "warnings": 1, "files": 1, "failing": 1 },
+  "files": [
+    {
+      "path": "app.env",
+      "policy": "merge",
+      "template": false,
+      "status": "current",
+      "ok": false,
+      "problems": [
+        { "severity": "error", "code": "invalid-value", "key": "PORT", "message": "must be a port between 1 and 65535", "shown": "http", "fix": "set" },
+        { "severity": "warning", "code": "unknown-key", "key": "EXTRA", "message": "is not in the schema for this file", "fix": "prune" }
+      ]
+    }
+  ],
+  "errors": []
+}
+```
 
 ```sh
 configure-env check
 WEB_PORT=9090 configure-env check --use-env
 configure-env check --ci --strict
+configure-env check --file .env --strict
 configure-env check --ci --json
 ```
 
@@ -445,7 +499,7 @@ configure-env get WEB_HOST --file .env --json
 
 ### unset
 
-`unset KEY [KEY…]` removes each key. The comment lines right above it go too, but only when they are exactly the comment the schema writes for it; any other comment stays. The blank line that set the removed block apart goes with it (see "How files are written"), so a file the tool wrote is left as a fresh `apply` would write it. Every other byte stays, and the file keeps its mode. A key the file does not hold is reported as `absent` and exits 0. Rules between variables are not checked: an `unset` may leave a `requiredUnless` variable without its alternative, which `validate` then reports. A protected value is removed only with `--replace-protected KEY`.
+`unset KEY [KEY…]` removes each key. The comment lines right above it go too, but only when they are exactly the comment the schema writes for it; any other comment stays. The blank line that set the removed block apart goes with it (see "How files are written"), so a file the tool wrote is left as a fresh `apply` would write it. Every other byte stays, and the file keeps its mode. A key the file does not hold is reported as `absent` and exits 0. Rules between variables are not checked: an `unset` may leave a `requiredUnless` variable without its alternative, which `check` then reports. A protected value is removed only with `--replace-protected KEY`.
 
 ```sh
 configure-env unset WEB_PORT
@@ -475,22 +529,6 @@ EXTRA      yes    unknown                             1
 ```sh
 configure-env list
 configure-env list --file .env --json
-```
-
-### validate
-
-`validate` changes nothing. It checks the current values of every schema file (or the `--file` paths): a missing file, lines that are not valid entries, required keys that are not set, values that break their variable's rules, broken rules between variables, and protected values that no longer match the state. A key the schema does not list for the file is a warning, and an error with `--strict`. A template holds placeholders, so only its lines and the presence of each key are checked. A placeholder a file sets through `values` passes. It exits 1 on any error; messages never show a value.
-
-```text
-.env: PORT: must be a port between 1 and 65535
-.env: warning: EXTRA: is not in the schema for this file
-.env.example: ok
-```
-
-```sh
-configure-env validate
-configure-env validate --file .env --strict
-configure-env validate --json
 ```
 
 ### history
@@ -524,14 +562,14 @@ configure-env history --json
 
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`; a run that fails part-way prints `ok: false`, the skills it installed before the failure, and `errors` with one `file` error (exit 1); a previous skill it could not remove adds `warnings`, a list of texts naming it (only when non-empty). `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `validate` prints `{ "command": "validate", "ok", "files" }`; each file has `path`, `template`, `exists`, `ok`, `errors` and `warnings`, each problem with `key` or `line` and `message`, plus `keys` (both names) for a conflict, and `kind: "protected"` (with `reason`) for a protected value that no longer matches the state. `serve` prints one line once it listens, `{ "command": "serve", "url", "port", "pid" }`, where `url` is the launch URL with the token. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "drift", "errors", "files" }`; each file has `path`, `policy`, `status`, `drift`, `missingKeys`, `unknownKeys` (with `--strict`, the keys `apply --prune` would remove; else `[]`), `invalid` (`key`, `message` and the masked `shown` value), `rules` (`rule`, `key`, `others` and `message`, for each broken rule between variables), `invalidLines`, `protected` (`kind`, `key`, `message` and `reason`, for each protected value that no longer matches the state), and `mode` (`{ "actual", "expected" }`, without the text hint) when it differs.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`; a run that fails part-way prints `ok: false`, the skills it installed before the failure, and `errors` with one `file` error (exit 1); a previous skill it could not remove adds `warnings`, a list of texts naming it (only when non-empty). `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `serve` prints one line once it listens, `{ "command": "serve", "url", "port", "pid" }`, where `url` is the launch URL with the token. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "summary", "files", "errors" }`: `ok` is false on any error-severity problem or run error; `summary` holds `errors`, `warnings`, `files` (the files checked) and `failing` (the files with an error). Each file has `path`, `policy`, `template`, `status` (`current`, `missing`, `differs`, `missing-keys` or `refused`), `mode` (`{ "actual", "expected" }`, only when it differs), `ok` (no error) and `problems`. Each problem has `severity` (`error` or `warning`), `code` (see "check"), `message` (never a value), and, when they apply, `key`, `keys` (every key a broken rule between variables names, when more than one), `line` (for an invalid line), `shown` (the invalid value, masked for a secret), `reason` (the schema's, for a protected value) and `fix` (`apply`, `prune` or `set`; absent when a person decides). `errors` holds the run errors, such as an invalid `--set` value, with `kind`, `key` or `path`, and `message`.
 
 ### Exit codes
 
 | Code  | Meaning                                                                  |
 | ----- | ------------------------------------------------------------------------ |
 | `0`   | ok                                                                       |
-| `1`   | drift, an invalid value or schema, or a failed write                     |
+| `1`   | a `check` error (drift, an invalid value or line, a broken rule), an invalid schema, or a failed write |
 | `2`   | usage error: a bad option, no schema, no terminal without `--ci`, `init` or `install` over an existing one without `--force`, or a change to a protected value |
 | `130` | cancelled; for `serve`, a Ctrl-C before the server listens               |
 
@@ -565,7 +603,7 @@ What the portal does, page by page:
 - **Overview**: the schema's health, the env files and how they match the schema.
 - **Variables**: every variable with its value in each env file; search, filter, reveal and copy a secret, edit a value in place, open it in your editor. A [dark theme](docs/portal/variables-dark.png) and Spanish follow the switches in the header.
 - **Schema**: add, edit, rename (with every reference rewritten) and remove variables and files, each change reviewed as a diff before it is written. [Screenshot](docs/portal/schema.png).
-- **Check** and **Validate**: the reports of `check` and `validate`, each item fixed in place, and a plan of what apply would write before it writes. [Screenshot](docs/portal/check.png).
+- **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. [Screenshot](docs/portal/check.png).
 - **History**: every change made through the CLI or the portal, with undo.
 - A file changed outside the portal (by an editor, `git checkout` or another command) shows up without a reload.
 
@@ -582,7 +620,7 @@ What the portal does, page by page:
 
 ## CI usage
 
-In CI the real env files usually do not exist and the secrets are not at hand, so check the committed files: the templates. A create-only file that is missing is not drift, so `check` passes without it.
+In CI the real env files usually do not exist and the secrets are not at hand, so check the committed files, such as the templates, by naming them with `--file`. A missing file is an error under every policy, so a plain `check` fails on a create-only `.env` that CI does not have.
 
 ```yaml
 # .github/workflows/env.yml
@@ -596,11 +634,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # Fails (exit 1) when .env.example lacks a key the schema adds, or when
-      # a generated file differs from the schema.
-      - run: npx --yes @elvisgastelum/configure-env@0.1 check --ci
-      # Fails on lines that are not valid entries and on missing keys.
-      - run: npx --yes @elvisgastelum/configure-env@0.1 validate --file .env.example
+      # Fails (exit 1) when .env.example lacks a key the schema adds or holds a
+      # line that is not a valid entry; add --strict to fail on unknown keys.
+      - run: npx --yes @elvisgastelum/configure-env@0.1 check --ci --file .env.example
 ```
 
 To write a real env file in a deploy job, pass the values as environment variables (from secrets) or `--set`; with `--ci` nothing prompts, and a missing required value fails before anything is written:
@@ -616,7 +652,7 @@ To write a real env file in a deploy job, pass the values as environment variabl
 
 ## AI agents
 
-An agent runs without a terminal, so it uses `--ci` and `--json` and never sees a secret. It inspects files with `list`, `validate` and `check`, which mask secrets. It writes them with `apply` and `set`. A secret goes in without passing through the agent:
+An agent runs without a terminal, so it uses `--ci` and `--json` and never sees a secret. It inspects files with `list` and `check`, which mask secrets. It writes them with `apply` and `set`. A secret goes in without passing through the agent:
 
 | Secret                                         | How it is set                                                              |
 | ---------------------------------------------- | -------------------------------------------------------------------------- |
@@ -686,14 +722,14 @@ console.log(report.ok, report.files.map((file) => [file.path, file.status]));
 | `loadSchema(path?)`, `parseSchemaText(text)`, `parseSchema(json)` | read and validate a schema; `{ ok: true, schema }` or `{ ok: false, errors }` |
 | `planChanges({ schema, root, values, files?, prune? })` | what a run would write to each file, without writing |
 | `applyPlan(plan)` | write the plan's files atomically; one result per file |
-| `checkDrift({ schema, root, values?, files?, state?, strict? })` | the drift and invalid values per file, as `check` reports them |
+| `checkDrift({ schema, root, values?, files?, state?, strict? })` | every problem per file, with its severity, code and fix, as `check` reports them |
 | `validateValue(spec, raw)`, `formatValue(spec, value)`, `maskValue(spec, value)` | one variable's rules, its written form, and its masked display |
 | `parseDotenv(text)`, `serialize(doc)`, `getValue`, `setValue`, `removeKey`, `keysOf`, `appendLines`, `removeEntry`, `invalidLineNumbers` | parse dotenv text and edit it, keeping every other byte |
 | `loadState(path)`, `writeState(path, state)`, `recordFingerprint`, `matchesFingerprint`, `protectedMismatches`, ... | the protected variables' state, as the CLI reads and writes it |
 | `envSchema`, `SCHEMA_ID`, `SCHEMA_VERSION`, `isTemplate`, ... | the zod schema and the format constants |
 | `main(argv, io)` | the CLI itself, with the streams, environment and prompts passed in |
 
-The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and the rest) are exported too. The JSON Schema is `@elvisgastelum/configure-env/schema.json`. Until 1.0 a minor version may change the API.
+The types (`EnvSchema`, `Plan`, `FilePlan`, `CheckReport`, `FileCheck`, `CheckProblem`, `DotenvDocument` and the rest) are exported too. The JSON Schema is `@elvisgastelum/configure-env/schema.json`. Until 1.0 a minor version may change the API.
 
 ## Development
 
@@ -724,13 +760,12 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
 | `POST /api/files/content` | one schema file's lines as it holds them, secrets masked: `{ "file": ".env" }`                |
-| `GET /api/check`     | the drift report of `configure-env check` (`?strict=true` reports unknown keys)                 |
-| `GET /api/validate`  | the rule and value errors of `configure-env validate` (`?strict=true` makes unknown keys errors) |
+| `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, and the counts (`?strict=true` makes unknown keys errors) |
 | `GET /api/history`   | the history of edits, newest first: `file`, `key`, `actor` (`cli` or `portal`), `from` and `to` (a date, its whole UTC day, or a timestamp) filter it; `page` and `limit` (50 by default, at most 200) page it; secrets masked |
 | `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
 
-The endpoints that need a valid schema answer 422 with its errors otherwise. Check and validate read the protected variables' state (`.configure-env/state.db`) and report a protected value that no longer matches it, as the CLI does.
+The endpoints that need a valid schema answer 422 with its errors otherwise. Check reads the protected variables' state (`.configure-env/state.db`) and report a protected value that no longer matches it, as the CLI does.
 
 Every change the portal makes goes through these write endpoints, which reuse the core engine; the portal never edits a file itself.
 
@@ -758,22 +793,22 @@ Every change the portal makes goes through these write endpoints, which reuse th
 
 `apps/web` (`@configure-env/web`) is the portal: a static single-page app (Vite, React 19, TanStack Router file routes and TanStack Query over `@configure-env/api-client`, Tailwind with the design system's theme, motion, i18next) that the API serves from `staticDir`. `pnpm build` writes it to `apps/web/dist/`; a test builds it and serves it from the real API.
 
-- **Shell.** A sidebar with the overview, variables, groups, files, schema, check, validate and history pages, a sticky header with the project, its root and the schema's state, an English / Spanish language switcher, a system / light / dark theme toggle, and a ⌘K / Ctrl+K palette that jumps to any page, variable, group or file and runs check, validate, a theme switch or a language switch.
-- **Overview.** The counts of variables, secrets, required variables and groups, a card per env file with its policy, mode and drift, check and validate with a button to run them again, and an empty state pointing at `configure-env init` when the project has no schema yet.
+- **Shell.** A sidebar with the overview, variables, groups, files, schema, check and history pages, a sticky header with the project, its root and the schema's state, an English / Spanish language switcher, a system / light / dark theme toggle, and a ⌘K / Ctrl+K palette that jumps to any page, variable, group or file and runs check, a theme switch or a language switch.
+- **Overview.** The counts of variables, secrets, required variables and groups, a card per env file with its policy, mode and drift, a Check card with the error and warning counts and a button to run it again, and an empty state pointing at `configure-env init` when the project has no schema yet.
 - **Variables.** Every variable in a table grouped by `group` under sticky headings, rendering only the rows in view from 200 rows on (TanStack Virtual). Search matches the name, description and comment; filters pick a type, a group, a file (the value column then shows that file), a status (missing, invalid, drift, or none) and required, secret or protected variables; the sort is schema order, name, type or issues first. The palette's `?focus=` selects the variable and opens its drawer: its description, comment, type and options, its rules (`requiredUnless`, `conflictsWith`, `distinctFrom`, `within`) as links to the variables they name, its default and example, and its value in every file that lists it. A protected variable shows a lock and its reason.
 - **Groups.** A card per group in schema order, the ungrouped variables last (`GET /api/groups`): how many variables it holds and how many are required, secret or protected, how many have a missing or invalid value or drift, and its variables, each linking to it on the variables page. **View** opens the variables page filtered to the group (`/variables?group=<name>`, `?group=null` for the ungrouped ones); the palette jumps to a group's card (`/groups?focus=<name>`).
 - **Values.** Secrets stay masked; a reveal asks `POST /api/reveal` for one value at a time, masks it again after 15 seconds, and keeps it only on screen, never in the query cache. Copy takes the value, `KEY=VALUE` or `export KEY=VALUE` (quoted as the core writes it), or a whole group or file as dotenv, revealing secrets through the API for the copy alone, and says so in a toast. Edit opens a control that fits the type (a select for an enum, a switch for a boolean, a number field for a number, an integer or a port, a URL, email or password field), checked as you type by a dry run of `POST /api/plan` that returns the core's `validateValue` and `checkRules` messages (the API runs them against the rest of the file). Saving (`POST /api/values/set`, or with `generate` for a secret string) and unsetting (`POST /api/values/unset`) show the new value at once and put the old one back if the write fails; a protected value is replaced only once the person says so; a file that changed since it was read (409) shows its value now beside the typed one, to keep it or save on top. Keys: `/` searches, `j` and `k` move between rows, `c` copies the value, `e` edits it, Enter opens the drawer.
 - **Schema.** Adds, edits, reorders and removes the variables and files of `env.schema.json`, with every option the schema supports, and shows a side-by-side diff before it saves against the schema's fingerprint. The browser checks each edit with the core's browser-safe entry (`@configure-env/core/schema`: the schema definitions, value checks and writer edits, with no Node built-ins), and the API checks it again before it writes, so an invalid schema is never written; see [the web README](apps/web/README.md).
-- **Files, apply, check and validate.** The files page shows a card per schema file (policy, mode, template, exists or missing, drift, lines that do not parse) and opens a file's entries in order, edited in place like the variables, and its raw text with secrets masked (`POST /api/files/content`). Apply prompts for the values the chosen files need, as the TUI does (defaults, and a generated value for a secret string), previews the plan with each file's action and a masked unified diff, applies it against the plan's fingerprint after a confirmation, and shows the result per file. Check lists the drift by file and validate the value and rule errors by file and variable; each item links to its variable and fixes it in place (set the value) or applies the file.
+- **Files, apply and check.** The files page shows a card per schema file (policy, mode, template, exists or missing, drift, lines that do not parse) and opens a file's entries in order, edited in place like the variables, and its raw text with secrets masked (`POST /api/files/content`). Apply prompts for the values the chosen files need, as the TUI does (defaults, and a generated value for a secret string), previews the plan with each file's action and a masked unified diff, applies it against the plan's fingerprint after a confirmation, and shows the result per file. Check shows the whole report on one page: the counts at the top with a link to each failing file, severity filters, and a card per file with its problems errors first; each item links to its variable and fixes it in place (set the value) or applies the file.
 - **History.** A History page lists every change to the env files and the schema, from the portal or the CLI, as a timeline with a diff each (secrets masked), filtered by file, variable, actor and date. Undo asks first and writes the previous state only while the file still holds what the change wrote; a secret's change says it can't be undone. The toast after each value or schema edit has an Undo action, and the variable drawer has a History tab. See [apps/web/README.md](apps/web/README.md#history-history).
-- **Open in editor.** Every variable, env file entry, check or validate item and schema error has an **Open in editor** button (its tooltip shows the shortcut `o`, which opens the focused or selected item) that opens the file at its line in your editor through `POST /api/open-in-editor`; a toast says how to set an editor when none was found. See [apps/web/README.md](apps/web/README.md#open-in-editor).
+- **Open in editor.** Every variable, env file entry, check item and schema error has an **Open in editor** button (its tooltip shows the shortcut `o`, which opens the focused or selected item) that opens the file at its line in your editor through `POST /api/open-in-editor`; a toast says how to set an editor when none was found. See [apps/web/README.md](apps/web/README.md#open-in-editor).
 - **Live.** The portal listens to `GET /api/events`: a change on disk refreshes every view, with a toast noting the external change unless the portal itself wrote in the last 2 seconds.
 - **Session.** The launch URL sets the session cookie and redirects to `/`, so the token never reaches the portal. Opened as `/?token=…` instead (as under `pnpm --filter @configure-env/web dev`, which proxies `/api` and `/launch` to `CONFIGURE_ENV_API`), the portal removes the token from the address bar with `history.replaceState` and trades it at `/launch` for the same cookie. A page request no static file matches (a deep link such as `/variables`) gets the portal's `index.html`.
 - **Languages.** The portal speaks English and Spanish. It starts in the browser's first language it speaks (else English), keeps a pick from the header switcher on this device (`configure-env.language` in `localStorage`), and sets `<html lang>`. Plurals follow each language's rules, and the history's dates are relative ("5 minutes ago", "hace 5 minutos") through `Intl`, with the full date on hover. Text the schema holds (descriptions, comments, headers, group names) and messages the engine and the API send (a value's rule error, a refused write) are shown as written, in English.
 - **Copy and motion.** Every string lives in a locale file, `apps/web/src/i18n/en.json` and `es.json`; a unit test fails when either lacks a key, a plural form its language uses, or a placeholder, and the pages are rendered in each language with no fallback. Page entrances, staggered reveals, card spotlights and the expanding file details follow `prefers-reduced-motion` through the design system's `SiteMotionConfig`.
 - **Tests and stories.** Vitest and Testing Library run against msw handlers (`apps/web/src/mocks`), which the portal's Storybook (`pnpm storybook:web`, port 6008) uses too, through a service worker, for every state: healthy, passing, loading, no schema, invalid schema and no session. The handlers keep the sample project in memory (`apps/web/src/mocks/store.ts`), so a value write changes what the next read returns, as the real API does.
 
-`apps/e2e` (`@configure-env/e2e`) proves the portal end to end: Playwright starts a real `configure-env serve` from source over a fresh temporary copy of a fixture project (`apps/e2e/fixtures`: the portfolio example and a project with only a `.env.example`) for each test, and walks the journeys a person takes: open the launch URL, browse, search, reveal and copy a secret, edit a value, add a variable of each type family, rename one, plan and apply, fix drift, validate, see an outside edit, and init a schema from the portal. `@axe-core/playwright` scans every page and open dialog in the light and dark themes and fails on any violation; other tests walk the keyboard paths with their focus rings, check the layout from 360px to 1920px wide, rerun the smoke journeys with reduced motion, and measure the frames of the variables grid's scroll. `pnpm e2e` builds the portal first; install Chromium once with `pnpm --filter @configure-env/e2e exec playwright install chromium`. See [`apps/e2e/README.md`](apps/e2e/README.md).
+`apps/e2e` (`@configure-env/e2e`) proves the portal end to end: Playwright starts a real `configure-env serve` from source over a fresh temporary copy of a fixture project (`apps/e2e/fixtures`: the portfolio example and a project with only a `.env.example`) for each test, and walks the journeys a person takes: open the launch URL, browse, search, reveal and copy a secret, edit a value, add a variable of each type family, rename one, plan and apply, fix what check reports, see an outside edit, and init a schema from the portal. `@axe-core/playwright` scans every page and open dialog in the light and dark themes and fails on any violation; other tests walk the keyboard paths with their focus rings, check the layout from 360px to 1920px wide, rerun the smoke journeys with reduced motion, and measure the frames of the variables grid's scroll. `pnpm e2e` builds the portal first; install Chromium once with `pnpm --filter @configure-env/e2e exec playwright install chromium`. See [`apps/e2e/README.md`](apps/e2e/README.md).
 
 `packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
 

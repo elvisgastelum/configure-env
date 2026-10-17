@@ -46,7 +46,7 @@ Each takes a declared name or a non-empty list, never the variable itself. A val
 - `distinctFrom`: when both are set, the values must differ.
 - `within` (on `ipv4`, `ipv6`, `ip`, `cidr`; one name): the named variable is a `cidr`, and when both are set and valid the address, or the whole block, lies inside its network; another family fails. Errors: `WEB_ADDRESS: must be within APP_SUBNET`. The loader also checks `default` and `example` against the target's `default`, and each template's `values` (with the defaults) against each other.
 
-They hold per file, over the file's own keys; a name the file does not list is ignored there. Templates are not checked. `validate`, `check` and `list` report them, naming keys only; `apply` and `set` refuse to write a file that breaks one (exit 1); `unset` may leave a `requiredUnless` unsatisfied for `validate` to report.
+They hold per file, over the file's own keys; a name the file does not list is ignored there. Templates are not checked. `check` and `list` report them, naming keys only; `apply` and `set` refuse to write a file that breaks one (exit 1); `unset` may leave a `requiredUnless` unsatisfied for `check` to report.
 
 A master key given directly or as a file, never both, and a previous key that must differ:
 
