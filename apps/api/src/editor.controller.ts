@@ -1,6 +1,9 @@
 // POST /api/open-in-editor over src/editor.ts. Behind the same token guard as
 // every route, and answered only for a request from this machine: it starts
-// a process there.
+// a process there. A request a reverse proxy on this machine passes on comes
+// from a loopback socket too, so one that names a forwarding header, or a
+// Host other than the address the server listens on (its public URL's),
+// is refused as well.
 
 import { Body, Controller, HttpCode, Inject, Post, Req } from '@nestjs/common';
 import {
@@ -28,12 +31,36 @@ import type { Project } from './project.ts';
 /** The provider token of the editor launcher. */
 export const EDITOR = Symbol('EDITOR');
 
+/**
+ * The provider token of the `host:port` values of the address the server
+ * listens on, lowercase, as the Host header holds them; known once listening.
+ */
+export const LOCAL_HOSTS = Symbol('LOCAL_HOSTS');
+
+const FORWARDING_HEADERS = ['forwarded', 'x-forwarded-for', 'x-real-ip'];
+
+/** Whether a request comes from this machine itself, not through a proxy. */
+function fromThisMachine(
+  request: Request,
+  localHosts: ReadonlySet<string>,
+): boolean {
+  const host = request.headers.host?.toLowerCase();
+  return (
+    isLoopbackAddress(request.socket.remoteAddress) &&
+    host !== undefined &&
+    localHosts.has(host) &&
+    FORWARDING_HEADERS.every((name) => request.headers[name] === undefined)
+  );
+}
+
 @ApiTags('project')
 @Controller('api')
 export class EditorController {
   constructor(
     @Inject(PROJECT) private readonly project: Project,
     @Inject(EDITOR) private readonly launcher: EditorLauncher,
+    @Inject(LOCAL_HOSTS)
+    private readonly localHosts: () => ReadonlySet<string>,
   ) {}
 
   @Post('open-in-editor')
@@ -63,7 +90,7 @@ export class EditorController {
     @Body({ schema: openInEditorRequest })
     body: z.output<typeof openInEditorRequest>,
   ) {
-    if (!isLoopbackAddress(request.socket.remoteAddress))
+    if (!fromThisMachine(request, this.localHosts()))
       throw new ApiError(
         403,
         'open-in-editor answers only requests from this machine',

@@ -1,6 +1,8 @@
 // `createServer`: the API in-process, for `configure-env serve` and for the
 // standalone src/main.ts. It binds 127.0.0.1 unless told otherwise, and
-// every request passes src/security.ts first.
+// every request passes src/security.ts first. It serves HTTPS when given a
+// certificate, and a public URL (a reverse proxy's) joins the addresses it
+// answers.
 
 import 'reflect-metadata';
 import type { AddressInfo } from 'node:net';
@@ -37,8 +39,17 @@ export interface ServerOptions {
   host?: string;
   /** 0 picks a free port. */
   port: number;
-  /** The per-run secret every request must carry; at least 32 characters. */
+  /** The secret every request must carry; at least 32 characters. */
   token: string;
+  /**
+   * The address clients reach the server at, such as a reverse proxy's
+   * `https://env.example.com`: an http or https origin, without a path.
+   * Its host is answered besides the bound one, and `url` and `launchUrl`
+   * name it.
+   */
+  publicUrl?: string;
+  /** A PEM certificate and its private key: the server speaks HTTPS. */
+  tls?: { cert: string | Buffer; key: string | Buffer };
   /**
    * A directory of static files (the portal's `dist/`) served behind the
    * token; a page request no file matches gets its index.html.
@@ -56,7 +67,7 @@ export interface ServerOptions {
 export interface ApiServer {
   host: string;
   port: number;
-  /** `http://host:port`. */
+  /** The public URL, else `http://host:port` (`https://` with TLS). */
   url: string;
   /** Opens a browser session: sets the token cookie, then redirects to `/`. */
   launchUrl: string;
@@ -69,14 +80,39 @@ const hostPort = (host: string, port: number) =>
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
+/** The public URL's origin; anything else than an http(s) origin throws. */
+function publicOrigin(publicUrl: string): URL {
+  let url: URL | undefined;
+  try {
+    url = new URL(publicUrl);
+  } catch {
+    url = undefined;
+  }
+  if (
+    !url ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(
+      `the public URL must be an http or https origin without a path, such as https://env.example.com; got ${publicUrl}`,
+    );
+  return url;
+}
+
 /** The Nest application for a project, configured but not listening. */
 async function createApp(
   project: Project,
   version: string,
   editor: EditorLauncher = createLauncher(),
+  localHosts: () => ReadonlySet<string> = () => new Set(),
+  tls?: ServerOptions['tls'],
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
-    apiModule(project, version, editor),
+    apiModule(project, version, editor, localHosts),
     // forceCloseConnections: close() ends open keep-alive connections too,
     // so a stopping `configure-env serve` never waits on a browser tab.
     {
@@ -84,6 +120,7 @@ async function createApp(
       abortOnError: false,
       bodyParser: true,
       forceCloseConnections: true,
+      ...(tls ? { httpsOptions: { cert: tls.cert, key: tls.key } } : {}),
     },
   );
   app.useGlobalPipes(new StandardSchemaValidationPipe());
@@ -175,25 +212,48 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       `the token must be at least ${MIN_TOKEN_LENGTH} characters`,
     );
   const host = options.host ?? DEFAULT_HOST;
+  const publicUrl =
+    options.publicUrl === undefined
+      ? undefined
+      : publicOrigin(options.publicUrl);
+  const scheme = options.tls ? 'https' : 'http';
   const project = await resolveProject(options.root, options.schemaPath);
-  const app = await createApp(
-    project,
-    options.version ?? packageJson.version,
-    options.editor,
-  );
 
   let port = options.port;
-  const hosts = () => {
+  /** The Host values of the address the server listens on. */
+  const localHosts = () => {
     const allowed = new Set([hostPort(host, port)]);
     if (LOOPBACK.has(host))
       for (const name of LOOPBACK) allowed.add(hostPort(name, port));
     return allowed;
   };
+  const hosts = () => {
+    const allowed = localHosts();
+    if (publicUrl) allowed.add(publicUrl.host);
+    return allowed;
+  };
+  const origins = () => {
+    const allowed = new Set(
+      [...localHosts()].map((name) => new URL(`${scheme}://${name}`).origin),
+    );
+    if (publicUrl) allowed.add(publicUrl.origin);
+    return allowed;
+  };
+
+  const app = await createApp(
+    project,
+    options.version ?? packageJson.version,
+    options.editor,
+    localHosts,
+    options.tls,
+  );
   app.use(
     securityMiddleware({
       token: options.token,
       hosts,
+      origins,
       cookie: () => `configure_env_token_${port}`,
+      secure: scheme === 'https' || publicUrl?.protocol === 'https:',
     }),
   );
   if (options.staticDir) {
@@ -221,7 +281,9 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
     throw error;
   }
   port = (app.getHttpServer().address() as AddressInfo).port;
-  const url = `http://${hostPort(host, port)}`;
+  const url = publicUrl
+    ? publicUrl.origin
+    : `${scheme}://${hostPort(host, port)}`;
   return {
     host,
     port,
