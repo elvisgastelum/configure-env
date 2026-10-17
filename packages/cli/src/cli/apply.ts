@@ -677,27 +677,19 @@ async function applyInteractive(
     required: true,
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
-  // The picked files a run can plan: a refused or loosening one is left out.
-  const planned = first.files
-    .filter(
-      (file) =>
-        picked.includes(file.path) &&
-        file.reason !== 'refused' &&
-        file.reason !== 'loosens',
-    )
-    .map((file) => file.path);
   try {
     checkGenerated(schema, picked, generated);
-    // The generated values' problems, before any prompt.
-    if (generated.length && planned.length)
+    // The generated values' problems, before any prompt: the values the
+    // picked files hold, and the ones given here, the environment's too.
+    if (generated.length)
       await planOf(run, connection, {
         values: valuesFor(
           schema,
-          first.files.filter((file) => planned.includes(file.path)),
+          first.files.filter((file) => picked.includes(file.path)),
           inputs,
           io.env,
         ),
-        files: planned,
+        files: picked,
         prune: inputs.prune,
         generate: generated,
       });
@@ -730,6 +722,7 @@ async function applyInteractive(
 
   const needed = neededKeys(schema, selected);
   const answers: Record<string, string> = {};
+  const prompted: string[] = [];
   for (const [group, keys] of byGroup(schema, needed)) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
@@ -749,23 +742,31 @@ async function applyInteractive(
       const answer = await ask(prompts, key, spec, initial);
       if (prompts.isCancel(answer)) return cancelled(prompts);
       answers[key] = answer;
+      prompted.push(key);
     }
   }
 
   const values = { ...sets, ...answers };
-  // The picked create-only files that exist stay in the plan, as an
-  // unattended run keeps them, so a --generate value they hold is used.
-  const body = runRequest(run, inputs, values, planned);
+  // Only the selected files are planned and written; a --generate value
+  // still comes from any picked file that holds one, and a prompted value
+  // that conflicts with it is a broken rule, not a refused --generate.
+  const body: PlanRequest = {
+    ...runRequest(
+      run,
+      inputs,
+      values,
+      selected.map((file) => file.path),
+    ),
+    ...(generated.length ? { generateFiles: picked } : {}),
+    ...(prompted.length ? { prompted } : {}),
+  };
   let plan: ApiPlan;
   try {
     plan = await planOf(run, connection, body);
   } catch (error) {
     return closeWith(prompts, error);
   }
-  const all = plan.files.map(runFile(schema));
-  const shown = all.filter((file) =>
-    selected.some((entry) => entry.path === file.path),
-  );
+  const shown = plan.files.map(runFile(schema));
   const planErrors = plan.errors as PlanError[];
   if (planErrors.length) {
     prompts.log.error(planErrors.map(describeError).join('\n'));
@@ -823,7 +824,7 @@ async function applyInteractive(
     return closeWith(prompts, written.error);
   }
   const { files: results, stateError } = written.applied;
-  const resultOf = (file: RunFile) => results[all.indexOf(file)];
+  const resultOf = (file: RunFile) => results[shown.indexOf(file)];
   const left = writtenEmpty(schema, shown, resultOf);
   const deferredLines = left.keys.length
     ? [deferredLine(left.written, left.keys)]
