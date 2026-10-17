@@ -1,0 +1,5 @@
+# Formatting-only commits, skipped by `git blame` (GitHub reads this file;
+# locally: git config blame.ignoreRevsFile .git-blame-ignore-revs).
+
+# style: format the workspace with oxfmt
+118388f9755579ea8ed24032c1c0cfac68d21672
