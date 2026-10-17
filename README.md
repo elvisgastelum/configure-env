@@ -412,6 +412,8 @@ A project that passed `check` before can fail it now: a state folder written by 
 - **`--strict`** makes unknown keys errors, so CI can require pruning.
 - **Deterministic.** Generated files are compared with the `--set` values and the defaults, so the result does not depend on the shell it runs in; with `--use-env` the environment variables count too, as `apply --ci` writes them.
 
+`check` runs through the configure-env API (`GET /api/check`, `POST /api/check` with `--file` or values, `POST /api/check/gitignore` for the fixes): through the project's running `serve` when there is one (see "Portal (serve)"), else a server of its own, on 127.0.0.1 with a one-time token and `--root`, `--schema` and `--state` applied, closed when the run ends. It leaves no daemon behind. `check --env <name>` checks a stored environment's project on its server instead (see "env").
+
 With `--json` it prints the same report (see "JSON output"):
 
 ```json
@@ -649,7 +651,7 @@ What the portal does, page by page:
 - **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. With a persistent token, `url` is the server's address without it, and `token` names where the token is (the token file, or `CONFIGURE_ENV_TOKEN`). Stop it with SIGTERM to `pid`.
 
-`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` loads the server (NestJS), so the other commands start as fast as before.
+`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and `check` load the server (NestJS); `check` starts one of its own only when no `serve` of the project runs.
 
 ### Remote environments
 

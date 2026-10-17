@@ -248,10 +248,7 @@ export async function loadContextSchema(context: Context): Promise<EnvSchema> {
       `invalid schema ${schemaPath}:`,
       ...result.errors.map((error) => `  ${error.path}: ${error.message}`),
     ]);
-  for (const path of context.files ?? []) {
-    if (!result.schema.files.some((file) => file.path === path))
-      throw usageError(`${path}: is not in the schema`);
-  }
+  checkSchemaFiles(result.schema, context.files);
   // The state must never land in an env file, or in a template's place.
   for (const file of result.schema.files) {
     if (isInside(resolve(context.root, file.path), context.statePath))
@@ -260,6 +257,17 @@ export async function loadContextSchema(context: Context): Promise<EnvSchema> {
       );
   }
   return result.schema;
+}
+
+/** The --file paths must be the schema's: one that is not exits 2. */
+export function checkSchemaFiles(
+  schema: EnvSchema,
+  files: readonly string[] | undefined,
+): void {
+  for (const path of files ?? []) {
+    if (!schema.files.some((file) => file.path === path))
+      throw usageError(`${path}: is not in the schema`);
+  }
 }
 
 /** `--set KEY=VALUE` pairs as a record; a pair without `=` is a usage error. */

@@ -4,5 +4,7 @@
 import type { ApiServer, ServerOptions } from './serve.ts';
 
 export declare function loadServer(): Promise<{
-  createServer(options: ServerOptions): Promise<ApiServer>;
+  createServer(
+    options: ServerOptions & { statePath?: string; schemaAnywhere?: boolean },
+  ): Promise<ApiServer>;
 }>;

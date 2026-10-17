@@ -15,6 +15,11 @@ const PACKAGE = fileURLToPath(new URL('../../', import.meta.url));
 /** Each test spawns a process: allow far more than the default 5 s. */
 const TIMEOUT = 10_000;
 const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+// check runs the API in-process, whose Nest decorators are TypeScript's
+// legacy ones: tsx reads them from the API's tsconfig, as `pnpm start` does.
+const TSCONFIG = fileURLToPath(
+  new URL('../../../../apps/api/tsconfig.json', import.meta.url),
+);
 
 const dirs = useProject({
   version: 1,
@@ -47,7 +52,10 @@ function run(
 
 /** Runs the CLI from the package directory, as `pnpm start` does. */
 function cli(args: string[], initCwd: string | undefined) {
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSX_TSCONFIG_PATH: TSCONFIG,
+  };
   if (initCwd === undefined) delete env.INIT_CWD;
   else env.INIT_CWD = initCwd;
   return run(process.execPath, ['--import', TSX, ENTRY, ...args], PACKAGE, env);

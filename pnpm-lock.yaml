@@ -455,6 +455,9 @@ importers:
       '@configure-env/api':
         specifier: workspace:*
         version: link:../../apps/api
+      '@configure-env/api-client':
+        specifier: workspace:*
+        version: link:../api-client
       '@configure-env/core':
         specifier: workspace:*
         version: link:../core
