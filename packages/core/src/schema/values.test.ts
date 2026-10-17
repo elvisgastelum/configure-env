@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { getValue, parseDotenv } from '../engine/dotenv.ts';
 import { type VariableSpec, variableSpec } from './definition.ts';
 import {

@@ -1,7 +1,7 @@
 // Shared by the writer tests: a base document, a variable of every type with
 // every option it takes, and helpers to unwrap edit results.
 
-import { expect } from 'vitest';
+import { expect } from 'vite-plus/test';
 import { VARIABLE_TYPES, type VariableType } from '../schema/definition.ts';
 import type {
   SchemaDocument,

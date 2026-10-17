@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { SCHEMA_ID, SCHEMA_VERSION } from '../schema/definition.ts';
 import { inferSchema, inferType, inferVariables } from './infer.ts';
 

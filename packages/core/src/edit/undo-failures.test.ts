@@ -4,7 +4,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { readChanges } from '../engine/history.ts';
 import { DEFAULT_STATE_PATH, loadState } from '../engine/state.ts';
 import { schemaOf, useTempRoot } from '../engine/test-helpers.ts';
