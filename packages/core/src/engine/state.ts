@@ -12,8 +12,8 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { chmod, mkdir, open, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { chmod, mkdir, open, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
@@ -307,9 +307,54 @@ function databaseExists(path: string): boolean {
   }
 }
 
-/** Creates the database file with mode 600 when missing; its directory gets 700. */
+/** The directory the default state lives in. */
+const STATE_DIR = dirname(DEFAULT_STATE_PATH);
+
+/** The directory the state lives in when it is ours to ignore. */
+export const isStateDir = (dir: string) => basename(dir) === STATE_DIR;
+
+/** The files of the database at `path` its directory's .gitignore names. */
+export const stateIgnoreEntries = (path: string): string[] => {
+  const name = basename(path);
+  return [
+    name,
+    `${name}-journal`,
+    `${name}-wal`,
+    `${name}-shm`,
+    LEGACY_STATE_NAME,
+  ];
+};
+
+/** The comment that opens the state directory's .gitignore. */
+export const STATE_GITIGNORE_COMMENT =
+  '# The state of configure-env on this machine; never commit it.';
+
+/** The .gitignore that keeps the database at `path` and its files out of git. */
+const stateGitignore = (path: string) =>
+  [STATE_GITIGNORE_COMMENT, ...stateIgnoreEntries(path), ''].join('\n');
+
+/**
+ * Writes the state's own .gitignore into its directory, so the state stays
+ * out of git even when the root's .gitignore does not name it: only into a
+ * directory this run created or one named .configure-env, and never over a
+ * file (or symlink) already there. Best effort: a .gitignore it cannot
+ * write never fails the run.
+ */
+async function ignoreStateFiles(path: string, created: boolean): Promise<void> {
+  const dir = dirname(path);
+  if (!created && !isStateDir(dir)) return;
+  await writeFile(join(dir, '.gitignore'), stateGitignore(path), {
+    flag: 'wx',
+  }).catch(() => undefined);
+}
+
+/**
+ * Creates the database file with mode 600 when missing; its directory gets
+ * 700 and a .gitignore for the state's files.
+ */
 async function createDatabaseFile(path: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const created = await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await ignoreStateFiles(path, created !== undefined);
   try {
     const handle = await open(path, 'wx', 0o600);
     await handle.close();

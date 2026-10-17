@@ -25,6 +25,7 @@ import {
   keysOf,
   parseDotenv,
 } from './dotenv.ts';
+import { type GitignoreProblem, gitignoreProblems } from './ignore-check.ts';
 import {
   type FilePlan,
   type PlanError,
@@ -133,6 +134,8 @@ export interface CheckReport {
     failing: number;
   };
   files: FileCheck[];
+  /** What git could commit that it must not; each one an error. */
+  gitignore: GitignoreProblem[];
   errors: PlanError[];
 }
 
@@ -146,6 +149,8 @@ export interface CheckOptions {
   state?: State;
   /** Reports the keys the schema does not list as errors, not warnings. */
   strict?: boolean;
+  /** The state database, whose directory's .gitignore is checked. */
+  statePath?: string;
 }
 
 /** Validates each of the file's variables as the file holds it. */
@@ -360,6 +365,7 @@ export async function checkDrift({
   files,
   state,
   strict = false,
+  statePath,
 }: CheckOptions): Promise<CheckReport> {
   const plan = await planChanges({ schema, root, values, files });
   const report = plan.files.map((filePlan): FileCheck => {
@@ -394,18 +400,27 @@ export async function checkDrift({
       problems,
     };
   });
+  const gitignore = await gitignoreProblems({
+    root,
+    files: report.filter((file) => !file.template).map((file) => file.path),
+    ...(statePath ? { statePath } : {}),
+  });
   const all = report.flatMap((file) => file.problems);
-  const errors = all.filter((problem) => problem.severity === 'error').length;
+  const warnings = all.filter(
+    (problem) => problem.severity === 'warning',
+  ).length;
+  const errors = all.length - warnings + gitignore.length;
   return {
     command: 'check',
     ok: !errors && !plan.errors.length,
     summary: {
       errors,
-      warnings: all.length - errors,
+      warnings,
       files: report.length,
       failing: report.filter((file) => !file.ok).length,
     },
     files: report,
+    gitignore,
     errors: plan.errors,
   };
 }

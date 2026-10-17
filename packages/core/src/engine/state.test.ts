@@ -107,6 +107,54 @@ describe('the state', () => {
     });
   });
 
+  it('ignores its own files with a .gitignore in the directory it creates', async () => {
+    await writeState(statePath(), emptyState());
+    expect(await readFile(join(stateDir(), '.gitignore'), 'utf8')).toBe(
+      [
+        '# The state of configure-env on this machine; never commit it.',
+        'state.db',
+        'state.db-journal',
+        'state.db-wal',
+        'state.db-shm',
+        'state.json',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('adds the .gitignore to a .configure-env directory that has none', async () => {
+    await mkdir(stateDir(), { recursive: true });
+    await writeState(statePath(), emptyState());
+    expect(await exists(join(stateDir(), '.gitignore'))).toBe(true);
+  });
+
+  it('leaves a .gitignore the directory already has alone', async () => {
+    await mkdir(stateDir(), { recursive: true });
+    await writeFile(join(stateDir(), '.gitignore'), 'mine\n');
+    await writeState(statePath(), emptyState());
+    expect(await readFile(join(stateDir(), '.gitignore'), 'utf8')).toBe(
+      'mine\n',
+    );
+  });
+
+  it('writes no .gitignore into an existing directory of another name', async () => {
+    const path = join(temp.dirs.root, 'local.db');
+    await writeState(path, emptyState());
+    expect(await exists(join(temp.dirs.root, '.gitignore'))).toBe(false);
+  });
+
+  it('names a database of another name in the .gitignore of a directory it creates', async () => {
+    const path = join(temp.dirs.root, 'secrets', 'local.db');
+    await writeState(path, emptyState());
+    const text = await readFile(
+      join(temp.dirs.root, 'secrets', '.gitignore'),
+      'utf8',
+    );
+    expect(text.split('\n')).toEqual(
+      expect.arrayContaining(['local.db', 'local.db-wal', 'state.json']),
+    );
+  });
+
   it('never holds the value, only its HMAC', async () => {
     const state = emptyState();
     recordFingerprint(state, '.env', 'KEY', SECRET);

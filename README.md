@@ -231,7 +231,7 @@ The state is `.configure-env/state.db` under the root, a SQLite database, or the
 
 The schema ships with the package as drizzle-kit migrations, applied when a run opens the database; a database written by a newer version is refused, never changed. A `.configure-env/state.json` written by an earlier version (the `state.json` next to the database) is read as it is until the first run that writes the state, which imports it in its transaction, checks every fingerprint arrived, and removes the file once the transaction commits. An import interrupted before the removal is finished by the next run; a `state.json` whose salt differs from the database's is refused (exit 1) until you remove one of them.
 
-Fingerprints are per file: the same value copied to a second file is recorded there too. A state that is not valid exits 1, naming its path; it is never guessed at or replaced. `init` adds `.configure-env/` to `.gitignore`.
+Fingerprints are per file: the same value copied to a second file is recorded there too. A state that is not valid exits 1, naming its path; it is never guessed at or replaced. `init` adds `.configure-env/` to `.gitignore`, and the first run that writes the state gives its directory a `.gitignore` of its own naming the database, its SQLite side files (`state.db-journal`, `state.db-wal`, `state.db-shm`) and `state.json`, so the state stays out of git even without the root's line. It writes one only into a directory it created or one named `.configure-env`, never over a `.gitignore` already there; one it cannot write never fails the run.
 
 Limits: the state knows only this machine's history. A fresh clone has none, so its first value is accepted, and `git clean -fdx` deletes it. Generated, created and appended entries carry the comment line `protected: <reason>`, or `protected`, after the variable's own comment. Templates hold placeholders, so the field has no effect on them.
 
@@ -393,6 +393,15 @@ Without a terminal (or with `--ci`) it prints one line per problem, `path: <mess
 | `rule`            | error                          | a rule between variables is broken (`requiredUnless`, `conflictsWith`, `distinctFrom`, `within`) | `set`             |
 | `protected`       | error                          | a protected value no longer matches the one the state recorded                 | none: a person decides                |
 | `unknown-key`     | warning; error with `--strict` | a file holds a key the schema does not list for it                             | `apply --prune`                       |
+
+Git-ignore problems come after the files, in the report's `gitignore` list, each an error:
+
+| Problem (`code`)    | Reported when                                                                                                    | Fix                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `state-not-ignored` | the state folder (`.configure-env/`) has no `.gitignore` of its own, or it lacks one of the state's files       | the missing lines in `.configure-env/.gitignore` |
+| `file-not-ignored`  | in a git work tree, git does not ignore an env file that holds real values (not a template), by the repository's own rules | `/<path>` in the root's `.gitignore`            |
+
+A project that passed `check` before can fail it now: a state folder written by an earlier version has no `.gitignore` of its own, and an env file the repository does not ignore could be committed with its values. Outside a git work tree only the state folder is checked. A `.gitignore` that is a symlink is never written; the line names what to add by hand.
 
 - **Messages never show a value.** An invalid value is shown after `got`, masked for a secret. A mode that `apply` would loosen says `apply never adds a permission; chmod it by hand` instead of `run configure-env apply to fix it`.
 - **One problem per cause.** A key reported as `missing-key` is not reported again as an `invalid-value`.
