@@ -14,7 +14,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { isInside } from '@configure-env/core';
 import { CliError, type Context, displayPath, usageError } from './common.ts';
 import type { Io } from './io.ts';
@@ -362,9 +362,10 @@ async function realTarget(path: string): Promise<string> {
   }
   // A dangling symlink: create the file it points to.
   const link = await lstat(path).catch(() => undefined);
-  return link?.isSymbolicLink()
-    ? realTarget(resolve(dirname(path), await readlink(path)))
-    : path;
+  if (link?.isSymbolicLink())
+    return realTarget(resolve(dirname(path), await readlink(path)));
+  // A missing file: in its folder as resolved, a symlinked one included.
+  return join(await realTarget(dirname(path)), basename(path));
 }
 
 /** A configuration that changed between its read and its write. */
@@ -491,7 +492,7 @@ export async function installMcp(
     }
     if (file !== target.path && !bounds.some((bound) => isInside(bound, file)))
       throw usageError(
-        `${show(target.path)} is a symlink to ${file}, outside the ${choices.scope === 'user' ? 'home folder' : 'project'}`,
+        `${show(target.path)} leads to ${file} through a symlink, outside the ${choices.scope === 'user' ? 'home folder' : 'project'}`,
         'register the server in that file yourself, or replace the link',
       );
     const entry =

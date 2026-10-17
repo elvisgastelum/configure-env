@@ -527,9 +527,21 @@ describe('install mcp', () => {
     const result = await install(['--ci', '--agent', 'codex']);
     expect(result.code).toBe(2);
     expect(result.err.join('\n')).toMatch(
-      /\.codex\/config\.toml is a symlink to .*, outside the project/,
+      /\.codex\/config\.toml leads to .* through a symlink, outside the project/,
     );
     expect(await readFile(outside, 'utf8')).toBe('export A=1\n');
+  });
+
+  it('refuses a project config in a folder symlinked outside the project', async () => {
+    const outside = join(home, 'out');
+    await mkdir(outside, { recursive: true });
+    await symlink(outside, join(dirs.root, '.cursor'));
+    const result = await install(['--ci', '--agent', 'cursor']);
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(
+      /\.cursor\/mcp\.json leads to .* through a symlink, outside the project/,
+    );
+    await expect(stat(join(outside, 'mcp.json'))).rejects.toThrow();
   });
 
   it('refuses a dangling project link that points outside the project', async () => {
