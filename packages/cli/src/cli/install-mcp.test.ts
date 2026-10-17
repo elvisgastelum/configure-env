@@ -416,6 +416,28 @@ describe('install mcp', () => {
     await expect(stat(join(dirs.root, '.cursor'))).rejects.toThrow();
   });
 
+  it('keeps the agent folders that existed before a rolled-back run', async () => {
+    await mkdir(join(dirs.root, '.cursor'), { recursive: true });
+    await mkdir(join(dirs.root, '.gemini'), { recursive: true });
+    await writeFile(join(dirs.root, '.gemini/notes.txt'), 'mine');
+    hooks.afterTemp = async (temp) => {
+      if (temp.includes('.gemini')) throw new Error('disk full');
+    };
+    const result = await install([
+      '--ci',
+      '--agent',
+      'cursor',
+      '--agent',
+      'gemini',
+    ]);
+    expect(result.code).toBe(1);
+    expect((await stat(join(dirs.root, '.cursor'))).isDirectory()).toBe(true);
+    await expect(stat(join(dirs.root, '.cursor/mcp.json'))).rejects.toThrow();
+    expect(await readFile(join(dirs.root, '.gemini/notes.txt'), 'utf8')).toBe(
+      'mine',
+    );
+  });
+
   it('takes away the folders a rolled-back run made', async () => {
     hooks.afterTemp = async (temp) => {
       if (temp.includes('.gemini')) throw new Error('disk full');

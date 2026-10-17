@@ -304,6 +304,35 @@ describe('the MCP write tools', () => {
     );
   });
 
+  it('leaves out --create when the default file exists', async () => {
+    await writeEnv('HOST=a.test\n');
+    const client = await connect();
+    const result = await call(client, 'request_secret', { key: 'API_KEY' });
+    const { command } = JSON.parse(result.text) as { command: string };
+    expect(command).toBe(
+      `configure-env set --root ${dirs.root} --prompt API_KEY`,
+    );
+  });
+
+  it('leaves out --create when several files leave the default open', async () => {
+    await writeFile(
+      join(dirs.root, 'env.schema.json'),
+      JSON.stringify({
+        ...SCHEMA,
+        files: [
+          { path: '.env', policy: 'merge', variables: '*' },
+          { path: '.env.local', policy: 'merge', variables: '*' },
+        ],
+      }),
+    );
+    const client = await connect();
+    const result = await call(client, 'request_secret', { key: 'API_KEY' });
+    const { command } = JSON.parse(result.text) as { command: string };
+    expect(command).toBe(
+      `configure-env set --root ${dirs.root} --prompt API_KEY`,
+    );
+  });
+
   it('refuses to request a secret for a file that is not in the schema', async () => {
     const client = await connect();
     const result = await call(client, 'request_secret', {
