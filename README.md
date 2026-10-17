@@ -18,7 +18,8 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | `unset`    | remove one variable                                |
 | `list`     | list the variables and where they are set          |
 | `history`  | list the latest changes to env files and the schema |
-| `install`  | install the agent skill for Claude Code and others |
+| `install`  | install the agent skill, or register the MCP server, for Claude Code and others |
+| `mcp`      | serve the env files to an agent over MCP, never revealing a secret |
 
 Each command runs as an interactive TUI for people, or with `--ci` for unattended runs.
 
@@ -689,6 +690,40 @@ npx @elvisgastelum/configure-env install skill --scope user --mode copy --agent 
 | `--force`         | replace an existing skill folder or link, swapping the new one in; a link is removed, never what it points at |
 
 In a terminal it asks for what the options leave out; with `--ci`, `--json` or no terminal the defaults are `--scope project --mode copy --agent claude`. An existing skill is never replaced without `--force` (exit 2), except what the mode would make: a symlink to the same folder, or with `--mode copy` a folder identical to the skill (the same files and bytes), which is reported `unchanged` and left as it is, with `--force` too; `--force` updates a differing copy, building the new skill next to the old one and swapping it in, so a failure keeps the old one. If the old one cannot be put back, the error names where it was left, to move back; if it cannot be removed after the swap, a `configure-env: warning:` line on stderr names it, to delete, since an agent could load it as a second skill. Each skill prints one line, such as `installed  .claude/skills/configure-env (copy)` or `linked     ~/.claude/skills/configure-env (symlink)`. A run that fails part-way, such as on the second `--agent`, exits 1 after printing the skills it installed, which stay. `--scope local` trusts a `.git` folder or file (a worktree, a submodule or `git init --separate-git-dir`) only when it leads to a git dir as git checks one (`HEAD`, `objects` and `refs`), and a worktree's or submodule's git dir only when it names it back; any other `.git` counts as no repository.
+
+### MCP server
+
+`configure-env mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server for the project on stdin and stdout, so an agent without a shell (Claude Desktop, an IDE chat) can configure the env files too. Its tools run the commands above with `--ci --json`, so they keep their checks, masking and guards:
+
+| Tool | What it does |
+| ---- | ------------ |
+| `list_variables`, `get_value`, `check`, `history`, `get_schema` | read the project; a secret is masked |
+| `set_values` | set values in one file; refuses a secret variable |
+| `generate_secret` | give secrets a random value made on this machine, never returned |
+| `request_secret` | changes nothing: answers the command the user types the secret with, `configure-env set --root <root> --prompt KEY`, which runs from any folder (with `--create` for a missing file) |
+| `unset`, `apply` | remove variables; write the files, with `generate` and `defer` for secrets |
+| `fix_gitignore` | add the git-ignore lines `check` reports missing |
+| `update_schema` | replace the schema with a validated document, at the fingerprint `get_schema` gave; refuses one that would remove a secret variable or its `"secret": true`, or show a value a schema file already holds: a key declared without `"secret": true`, or a file the schema newly lists that holds values of non-secret keys |
+
+No tool returns a secret's value, and none reveals one: the server masks every value the env files hold for a secret variable in whatever a tool answers, a secret in a file whose `variables` leave it out included: a secret of 4 characters or more inside other values too, such as a password in a URL, a shorter one where it is a whole value. A key the schema does not declare has its value masked in its own entry. Key and file names are never masked. When the schema cannot be read, a tool answers only the error. Unmasking a secret is left to a person editing the schema. A secret goes in only through a value the server generates, or one the user types in a terminal. Every tool argument passes through the model, which is why `set_values` refuses secrets. The history records the server's changes as `cli`, since it runs the CLI's commands. The server only keeps the agent away from secrets when it is the agent's only way in: an agent that also has a shell can still read `.env`, so deny that too (below).
+
+Register it with `install mcp`, which merges a `configure-env` server into each agent's configuration and keeps every other entry:
+
+```sh
+configure-env install mcp                       # asks for the scope, agents and runner
+configure-env install mcp --ci --scope project --agent claude --agent cursor
+npx @elvisgastelum/configure-env install mcp --scope user --agent codex --runner global
+```
+
+| Agent    | `--scope project`        | `--scope user`               |
+| -------- | ------------------------ | ---------------------------- |
+| `claude` | `.mcp.json`              | `~/.claude.json`             |
+| `cursor` | `.cursor/mcp.json`       | `~/.cursor/mcp.json`         |
+| `vscode` | `.vscode/mcp.json`       | VS Code's user folder, `mcp.json` |
+| `codex`  | `.codex/config.toml`     | `~/.codex/config.toml`       |
+| `gemini` | `.gemini/settings.json`  | `~/.gemini/settings.json`    |
+
+`--runner npx` (the default) starts `npx -y @elvisgastelum/configure-env mcp`; `--runner global` starts `configure-env mcp` from the `PATH`. VS Code also gets `--root ${workspaceFolder}`. A server registered the same way is reported `unchanged`; a different one is never replaced without `--force` (exit 2), and a configuration that is not plain JSON, such as a VS Code file with comments, is refused (exit 2), as is a Codex `config.toml` that registers `configure-env` other than as its own `[mcp_servers.configure-env]` table (under `[mcp_servers]`, as a dotted key, or split across the file), or that holds its servers in an inline `mcp_servers = { ... }` table, under which TOML allows no table; `--force` replaces that table together with its subtables. Every file is checked before any is written. A configuration that is a symlink, or sits in a symlinked folder, such as one kept in a dotfiles folder, is written where it leads, and the link stays, as long as it points inside the project (`--scope project`) or the home folder (`--scope user`), else it exits 2 (two agents whose configurations are one file write it once, or exit 2 when they would register the server differently); one that another program changes while `install mcp` runs is left alone (exit 1). `--json` prints `{ command, subject: "mcp", ok, server, servers: [{ agent, scope, path, status, command, args }] }`, `status` one of `created`, `added`, `updated`, `unchanged`. When a write fails, the configurations the run already wrote are put back as they were and it exits 1; `--json` then prints `ok: false`, an empty `servers` and `errors: [{ kind: "file", path, message }]`.
 
 The skill tells the agent not to read real env files directly. Agent permissions can enforce that: in Claude Code, deny the read in `.claude/settings.json`, and list your project's real env files:
 

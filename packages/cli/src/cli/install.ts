@@ -1,5 +1,6 @@
 // `configure-env install skill`: installs the agent skill the package ships,
-// for the user or the project, as a symlink or a copy.
+// for the user or the project, as a symlink or a copy. `install mcp` (in
+// install-mcp.ts) registers the MCP server in the agents' configurations.
 
 import { randomBytes } from 'node:crypto';
 import {
@@ -30,6 +31,19 @@ import {
   usageError,
 } from './common.ts';
 import { INSTALL_HELP } from './help.ts';
+import {
+  MCP_AGENTS,
+  MCP_SCOPES,
+  type McpAgent,
+  type McpChoices,
+  type McpScope,
+  RUNNERS,
+  type Runner,
+  installMcp,
+  launchOf,
+  shownPath,
+  targetOf,
+} from './install-mcp.ts';
 import type { Io } from './io.ts';
 import { PACKAGE_ROOT } from './package-root.ts';
 
@@ -44,11 +58,12 @@ const OPTIONS = {
   scope: { type: 'string' },
   mode: { type: 'string' },
   agent: { type: 'string', multiple: true },
+  runner: { type: 'string' },
   force: { type: 'boolean' },
 } as const;
 
 /** What `install` installs. */
-const SUBJECTS = ['skill'];
+const SUBJECTS = ['skill', 'mcp'];
 
 /** The skill folder the package ships, next to its package.json. */
 export const SKILL_SOURCE = fileURLToPath(
@@ -414,6 +429,9 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
       `configure-env install takes: ${SUBJECTS.join(', ')}`,
     );
   if (extra.length) throw usageError(`unexpected argument: ${extra[0]}`);
+  if (subject === 'mcp') return installMcpCommand(io, options);
+  if (options.runner !== undefined)
+    throw usageError('--runner is for install mcp');
 
   const given: Partial<Choices> = {
     scope: oneOf('--scope', SCOPES, options.scope),
@@ -563,4 +581,117 @@ export async function installCommand(args: string[], io: Io): Promise<number> {
     warn();
   }
   return 0;
+}
+
+type InstallOptions = ReturnType<
+  typeof parseArgs<{ args: string[]; options: typeof OPTIONS }>
+>['values'];
+
+/**
+ * The scope, runner and agents: the options, else asked in a terminal, else
+ * the defaults (project, npx, claude). Undefined when cancelled.
+ */
+async function chooseMcp(
+  { prompts, io }: Context,
+  interactive: boolean,
+  given: Partial<McpChoices>,
+  base: (scope: McpScope) => string,
+): Promise<McpChoices | undefined> {
+  let { scope, runner, agents } = given;
+  if (interactive && scope === undefined) {
+    const hints: Record<McpScope, string> = {
+      project: 'in the project, committed with it',
+      user: 'in your home, for every project',
+    };
+    const picked = await prompts.select({
+      message: 'Where should the MCP server be registered?',
+      options: MCP_SCOPES.map((value) => ({ value, hint: hints[value] })),
+      initialValue: 'project' as McpScope,
+    });
+    if (prompts.isCancel(picked)) return undefined;
+    scope = picked;
+  }
+  const where = scope ?? 'project';
+  if (interactive && agents === undefined) {
+    const home = io.env.HOME || io.env.USERPROFILE || homedir();
+    const shown = (agent: McpAgent) =>
+      shownPath(
+        targetOf(agent, where, base(where), io.env).path,
+        where,
+        base(where),
+        home,
+      );
+    const picked = await prompts.multiselect({
+      message: 'Which agents should start it?',
+      options: MCP_AGENTS.map((value) => ({ value, hint: shown(value) })),
+      initialValues: ['claude' as McpAgent],
+      required: true,
+    });
+    if (prompts.isCancel(picked)) return undefined;
+    agents = picked;
+  }
+  if (interactive && runner === undefined) {
+    const command = (value: Runner) => {
+      const launch = launchOf(value, 'claude');
+      return [launch.command, ...launch.args].join(' ');
+    };
+    const picked = await prompts.select({
+      message: 'How should the agents start it?',
+      options: [
+        {
+          value: 'npx' as Runner,
+          hint: `${command('npx')}: no install needed`,
+        },
+        {
+          value: 'global' as Runner,
+          hint: `${command('global')}: configure-env on the PATH`,
+        },
+      ],
+      initialValue: 'npx' as Runner,
+    });
+    if (prompts.isCancel(picked)) return undefined;
+    runner = picked;
+  }
+  return {
+    scope: where,
+    runner: runner ?? 'npx',
+    agents: agents ?? ['claude'],
+  };
+}
+
+/** `install mcp`: the choices, then the configurations written. */
+async function installMcpCommand(
+  io: Io,
+  options: InstallOptions,
+): Promise<number> {
+  if (options.mode !== undefined)
+    throw usageError('--mode is for install skill');
+  const given: Partial<McpChoices> = {
+    scope: oneOf('--scope', MCP_SCOPES, options.scope),
+    runner: oneOf('--runner', RUNNERS, options.runner),
+    agents: options.agent && [
+      ...new Set(
+        options.agent.map((agent) => oneOf('--agent', MCP_AGENTS, agent)!),
+      ),
+    ],
+  };
+  const context = await contextOf(io, options);
+  const interactive = !context.ci && !context.json && io.isTTY;
+  const found = await findRepository(context.root);
+  const repository = found && 'common' in found ? found : undefined;
+  const home = io.env.HOME || io.env.USERPROFILE || homedir();
+  const base = (scope: McpScope) =>
+    scope === 'user' ? home : (repository?.top ?? context.root);
+
+  if (interactive) context.prompts.intro('configure-env install mcp');
+  const choices = await chooseMcp(context, interactive, given, base);
+  if (!choices) {
+    context.prompts.cancel('Cancelled; nothing was installed.');
+    return 130;
+  }
+  return installMcp(context, choices, {
+    force: Boolean(options.force),
+    base: base(choices.scope),
+    interactive,
+  });
 }

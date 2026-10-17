@@ -59,8 +59,10 @@ Commands:
   unset     remove variables from one file
   list      show each file's variables: set, valid, value (secrets masked)
   history   list the latest changes the CLI and the portal made
-  install   install the agent skill: configure-env install skill
+  install   install the agent skill or register the MCP server:
+            configure-env install skill, configure-env install mcp
   serve     start the local portal for the project in a browser
+  mcp       serve the env files to an agent over MCP, secrets masked
 
 Run configure-env <command> --help for the command's own options.
 
@@ -387,6 +389,10 @@ Examples:
 ${EXIT_CODES}`;
 
 export const INSTALL_HELP = `Usage: configure-env install skill [options]
+       configure-env install mcp [options]
+
+install skill
+-------------
 
 Installs the agent skill the package ships (skills/configure-env), which
 teaches an agent to work with env files through configure-env, for each
@@ -426,7 +432,7 @@ In a terminal it asks for the scope, the mode and the agents the options
 leave out; with --ci, --json or no terminal they default to project, copy
 and claude.
 
-Options:
+Options for install skill:
   --scope <scope>  project, local or user
   --mode <mode>    copy or symlink
   --agent <agent>  claude or agents; repeat for both (default: claude)
@@ -439,11 +445,58 @@ Global options:
   --no-color    plain output; NO_COLOR is honoured too
   -h, --help    show the help
 
+install mcp
+-----------
+Registers configure-env mcp, the MCP server for agents, as the server
+configure-env in each --agent's configuration, keeping every other entry:
+
+  agent   project                 user
+  claude  .mcp.json               ~/.claude.json
+  cursor  .cursor/mcp.json        ~/.cursor/mcp.json
+  vscode  .vscode/mcp.json        VS Code's user folder, mcp.json
+  codex   .codex/config.toml      ~/.codex/config.toml
+  gemini  .gemini/settings.json   ~/.gemini/settings.json
+
+--scope is project (the git top level of the root, else the root; to
+commit) or user (your home folder, for every project). --runner picks the
+command the agents start: npx (npx -y @elvisgastelum/configure-env mcp,
+the default) or global (configure-env mcp, installed on the PATH). VS Code
+also gets --root \${workspaceFolder}; the others start it in the project.
+
+A server already registered the same way is reported unchanged; a
+different one is never replaced without --force (exit 2). A configuration
+that is not plain JSON (VS Code's may hold comments) is refused, exit 2,
+and so is a Codex config.toml that registers configure-env other than as
+its own [mcp_servers.configure-env] table, or holds its servers in an
+inline mcp_servers = { ... } table.
+Every file is checked before any is written, and each is written whole
+next to itself and renamed into place, keeping its mode. A symlink, or a
+symlinked folder, is followed, and stays, when it leads inside the project
+(project) or the home folder (user); else it exits 2. Two agents sharing
+one file write it once, or exit 2 when they would register the server
+differently. A file another program changes meanwhile is left alone
+(exit 1). When a write fails, the files the run already wrote are put
+back as they were (exit 1).
+
+In a terminal it asks for the scope, the agents and the runner the options
+leave out; with --ci, --json or no terminal they default to project,
+claude and npx.
+
+Options for install mcp:
+  --scope <scope>    project or user
+  --agent <agent>    claude, cursor, vscode, codex or gemini; repeat for
+                     more (default: claude)
+  --runner <runner>  npx or global
+  --force            replace a different configure-env server
+
 Examples:
   configure-env install skill
   configure-env install skill --ci --scope project --mode copy
   configure-env install skill --scope local --mode symlink --agent claude --agent agents
   configure-env install skill --scope user --force
+  configure-env install mcp
+  configure-env install mcp --ci --scope project --agent claude --agent cursor
+  configure-env install mcp --scope user --agent codex --runner global
 
 ${EXIT_CODES}`;
 
@@ -494,5 +547,40 @@ Examples:
   configure-env serve --port 5000 --no-open
   configure-env serve --json --no-open
   configure-env serve --host 0.0.0.0 --unsafe-expose
+
+${EXIT_CODES}`;
+
+export const MCP_HELP = `Usage: configure-env mcp [options]
+
+Runs a Model Context Protocol server for the project on stdin and stdout,
+for an agent (Claude Code, Cursor, VS Code, Codex, Gemini CLI) to start.
+It stops when the client closes the connection.
+
+Its tools run the configure-env commands with --ci --json, so they keep
+their checks and guards:
+
+  read   list_variables, get_value, check, history, get_schema
+  write  set_values, generate_secret, unset, apply, fix_gitignore,
+         update_schema
+  ask    request_secret
+
+No tool returns a secret's value: they mask it, and none reveals one.
+A key the schema does not declare has its value masked in its entry.
+set_values refuses a secret variable, and update_schema a schema that
+would remove a secret variable or its "secret": true, or show a value a
+schema file already holds: a key declared without it, or a newly listed
+file's values. A secret goes in only through a value the server
+generates (generate_secret, apply's generate), or one the user types in a
+terminal with the command request_secret answers, which runs from any
+folder: configure-env set --root <root> --prompt KEY.
+
+Register it with configure-env install mcp, or in an agent's MCP
+configuration as the command configure-env with the argument mcp.
+
+${GLOBAL}
+
+Examples:
+  configure-env mcp
+  configure-env mcp --root ./service --schema ./service/env.schema.json
 
 ${EXIT_CODES}`;

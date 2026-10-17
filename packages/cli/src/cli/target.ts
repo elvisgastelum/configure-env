@@ -12,9 +12,22 @@ import {
 } from '@configure-env/core';
 import { CliError, type Context, usageError } from './common.ts';
 
+/** The schema files a variable command may edit: those not a template. */
+const editableFiles = (schema: EnvSchema) =>
+  schema.files.filter((spec) => !isTemplate(spec));
+
 /**
- * The one file a set, get or unset works on: the --file path, else the only
- * non-template file. A template needs `allowTemplate` when `guard` is set.
+ * The file set, get and unset work on without --file: the only one that is
+ * not a template; undefined when there are several, or none.
+ */
+export function defaultFile(schema: EnvSchema): FileSpec | undefined {
+  const candidates = editableFiles(schema);
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/**
+ * The one file a set, get or unset works on: the --file path, else
+ * {@link defaultFile}. A template needs `allowTemplate` when `guard` is set.
  */
 export function chooseFile(
   schema: EnvSchema,
@@ -27,15 +40,14 @@ export function chooseFile(
   if (files?.length) {
     file = schema.files.find((spec) => spec.path === files[0]);
   } else {
-    const candidates = schema.files.filter((spec) => !isTemplate(spec));
-    if (candidates.length !== 1)
+    file = defaultFile(schema);
+    if (!file)
       throw usageError(
-        candidates.length
+        editableFiles(schema).length
           ? 'the schema has more than one file; pass --file with one of:'
           : 'the schema has no file but templates; pass --file with one of:',
         ...schema.files.map((spec) => `  ${spec.path}`),
       );
-    file = candidates[0];
   }
   if (!file) throw usageError('the schema lists no file');
   if (guard && isTemplate(file) && !allowTemplate)

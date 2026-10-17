@@ -4,7 +4,7 @@
 // @configure-env/api, which `serve` imports dynamically, so it lands in its
 // own chunk that no other command loads. The published dependencies (zod,
 // @clack/prompts, better-sqlite3 with its native binding, drizzle-orm, the
-// API's NestJS runtime and launch-editor) stay imports. The core's migrations
+// API's NestJS runtime, launch-editor and the MCP SDK) stay imports. The core's migrations
 // are copied to dist/migrations by scripts/copy-migrations.mjs, the portal to
 // dist/web by scripts/copy-web.mjs.
 //
@@ -67,6 +67,7 @@ export default defineConfig({
         'reflect-metadata',
         'rxjs',
         'launch-editor',
+        '@modelcontextprotocol/sdk',
       ],
     },
   },
