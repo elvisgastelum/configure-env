@@ -9,9 +9,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { VARIABLE_NAME, schemaFingerprint } from '@configure-env/core';
+import {
+  type SchemaDocument,
+  VARIABLE_NAME,
+  recordHistory,
+  schemaChanges,
+  schemaFingerprint,
+  writeSchemaFile,
+} from '@configure-env/core';
 import { readFile } from 'node:fs/promises';
-import { CliError, contextOf } from './common.ts';
+import { relative } from 'node:path';
+import {
+  CliError,
+  type Context,
+  contextOf,
+  loadContextSchema,
+} from './common.ts';
 import type { Io, Prompts } from './io.ts';
 import { main } from './main.ts';
 
@@ -216,7 +229,7 @@ export function createMcpServer(options: McpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
-      const path = await schemaPath(options);
+      const path = (await contextFor(options)).schemaPath;
       let text: string;
       try {
         text = await readFile(path, 'utf8');
@@ -232,12 +245,259 @@ export function createMcpServer(options: McpOptions): McpServer {
     },
   );
 
+  server.registerTool(
+    'set_values',
+    {
+      title: 'Set values',
+      description:
+        'Sets variables in one file, validated against the schema, keeping every other line. Refuses a secret variable: use generate_secret or request_secret for those.',
+      inputSchema: {
+        file,
+        values: z
+          .record(key, z.string())
+          .refine(
+            (values) => Object.keys(values).length > 0,
+            'one value at least',
+          )
+          .describe('The values by variable name.'),
+        create: z
+          .boolean()
+          .optional()
+          .describe('Create the file when it does not exist.'),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const secrets = await secretKeys(options, Object.keys(input.values));
+      if (secrets.length)
+        return textResult(
+          `${secrets.join(', ')}: secret; its value never goes through the chat. Call generate_secret for a value the project makes, or request_secret for one only the user has.`,
+          true,
+        );
+      return resultOf(
+        await run([
+          'set',
+          ...globals(options, input.file),
+          ...(input.create ? ['--create'] : []),
+          ...Object.entries(input.values).map(
+            ([name, value]) => `${name}=${value}`,
+          ),
+        ]),
+      );
+    },
+  );
+
+  server.registerTool(
+    'generate_secret',
+    {
+      title: 'Generate secrets',
+      description:
+        "Gives variables a random value made on this machine, as the schema's rules allow, keeping a value already set. The value is never returned.",
+      inputSchema: {
+        file,
+        keys: z.array(key).min(1).describe('The variables to generate.'),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    async (input) =>
+      resultOf(
+        await run([
+          'set',
+          ...globals(options, input.file),
+          ...input.keys.map((name) => `--generate=${name}`),
+        ]),
+      ),
+  );
+
+  server.registerTool(
+    'request_secret',
+    {
+      title: 'Ask the user for a secret',
+      description:
+        'Changes nothing: answers the command the user runs in their own terminal to type a secret, so it never passes through the chat. Relay it to the user, then call check.',
+      inputSchema: { key, file },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const schema = await loadContextSchema(await contextFor(options));
+      if (!Object.hasOwn(schema.variables, input.key))
+        return textResult(`${input.key}: is not in the schema`, true);
+      const flags = [
+        ...(options.root === undefined
+          ? []
+          : [`--root ${quote(options.root)}`]),
+        ...(options.schema === undefined
+          ? []
+          : [`--schema ${quote(options.schema)}`]),
+        ...(input.file === undefined ? [] : [`--file ${quote(input.file)}`]),
+      ];
+      const command = [
+        'configure-env set',
+        ...flags,
+        `--prompt ${input.key}`,
+      ].join(' ');
+      return textResult(
+        JSON.stringify({
+          key: input.key,
+          command,
+          npx: command.replace(
+            /^configure-env/,
+            'npx @elvisgastelum/configure-env',
+          ),
+          message: `Ask the user to run this in their terminal (in Claude Code: ! ${command}); it prompts for ${input.key} without echoing it. Never ask them to paste the value here.`,
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'unset',
+    {
+      title: 'Remove variables',
+      description:
+        'Removes variables from one file, keeping every other line. A protected value is refused; ask the user before removing a secret.',
+      inputSchema: {
+        file,
+        keys: z.array(key).min(1).describe('The variables to remove.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) =>
+      resultOf(
+        await run(['unset', ...globals(options, input.file), ...input.keys]),
+      ),
+  );
+
+  server.registerTool(
+    'apply',
+    {
+      title: 'Write the env files',
+      description:
+        'Writes the env files the schema describes, keeping what they hold. Secrets go in through generate (made here) or defer (left for the user); a required value that is missing fails the run and names it.',
+      inputSchema: {
+        file,
+        generate: z
+          .array(key)
+          .optional()
+          .describe('Secrets to give a random value made on this machine.'),
+        defer: z
+          .array(key)
+          .optional()
+          .describe('Values to leave unset for the user to give later.'),
+        prune: z
+          .boolean()
+          .optional()
+          .describe('Remove the keys the schema does not declare.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) =>
+      resultOf(
+        await run([
+          'apply',
+          ...globals(options, input.file),
+          ...(input.generate ?? []).map((name) => `--generate=${name}`),
+          ...(input.defer ?? []).map((name) => `--defer=${name}`),
+          ...(input.prune ? ['--prune'] : []),
+        ]),
+      ),
+  );
+
+  server.registerTool(
+    'fix_gitignore',
+    {
+      title: 'Fix git-ignore lines',
+      description:
+        'Adds the git-ignore lines check reports missing, so git never commits an env file or the state; answers the check after.',
+      inputSchema: {
+        strict: z
+          .boolean()
+          .optional()
+          .describe('Report unknown keys as errors in the check after.'),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    async (input) =>
+      resultOf(
+        await run([
+          'check',
+          ...globals(options),
+          '--fix',
+          ...(input.strict ? ['--strict'] : []),
+        ]),
+      ),
+  );
+
+  server.registerTool(
+    'update_schema',
+    {
+      title: 'Update the schema',
+      description:
+        'Replaces the schema (env.schema.json) with a document, validated first. Pass the fingerprint get_schema gave: a schema changed since is refused.',
+      inputSchema: {
+        document: z
+          .record(z.string(), z.unknown())
+          .describe('The whole schema document, as JSON.'),
+        fingerprint: z.string().describe('The fingerprint get_schema gave.'),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const context = await contextFor(options);
+      const result = await writeSchemaFile(
+        context.schemaPath,
+        input.document as SchemaDocument,
+        { fingerprint: input.fingerprint },
+      );
+      if (!result.ok)
+        return textResult(
+          JSON.stringify({
+            ok: false,
+            kind: result.kind,
+            message:
+              result.kind === 'stale'
+                ? 'the schema changed since it was read; call get_schema and make the edit again'
+                : 'the edit was refused; nothing was written',
+            errors: result.errors,
+          }),
+          true,
+        );
+      const history = await recordHistory(
+        context.statePath,
+        'cli',
+        result.written
+          ? schemaChanges(
+              relative(context.root, context.schemaPath),
+              result.previous,
+              result.file.text,
+            )
+          : [],
+      );
+      return textResult(
+        JSON.stringify({
+          ok: true,
+          written: result.written,
+          fingerprint: result.file.fingerprint,
+          ...(history.warnings.length ? { warnings: history.warnings } : {}),
+        }),
+      );
+    },
+  );
+
   return server;
 }
 
-/** The absolute schema path, as the commands resolve it. */
-async function schemaPath(options: McpOptions): Promise<string> {
-  const context = await contextOf(
+/** The context the commands resolve from the server's global options. */
+function contextFor(options: McpOptions): Promise<Context> {
+  return contextOf(
     {
       stdout: () => undefined,
       stderr: () => undefined,
@@ -249,7 +509,23 @@ async function schemaPath(options: McpOptions): Promise<string> {
     {
       ...(options.root === undefined ? {} : { root: options.root }),
       ...(options.schema === undefined ? {} : { schema: options.schema }),
+      ...(options.state === undefined ? {} : { state: options.state }),
     },
   );
-  return context.schemaPath;
 }
+
+/** The variables among `keys` the schema marks secret. */
+async function secretKeys(
+  options: McpOptions,
+  keys: readonly string[],
+): Promise<string[]> {
+  const schema = await loadContextSchema(await contextFor(options));
+  return keys.filter(
+    (name) =>
+      Object.hasOwn(schema.variables, name) && schema.variables[name]!.secret,
+  );
+}
+
+/** A shell word: quoted when it holds anything but safe characters. */
+const quote = (word: string) =>
+  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;

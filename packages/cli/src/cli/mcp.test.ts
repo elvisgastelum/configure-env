@@ -1,7 +1,7 @@
 // `configure-env mcp`: the tools an agent calls, through a real MCP client.
 // No tool output ever holds a secret's value.
 
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -15,7 +15,7 @@ const SCHEMA = {
   variables: {
     HOST: { type: 'string', default: 'localhost' },
     PORT: { type: 'port', default: 8080 },
-    API_KEY: { type: 'string', secret: true },
+    API_KEY: { type: 'string', secret: true, required: true },
   },
   files: [{ path: '.env', policy: 'merge', variables: '*' }],
 };
@@ -64,6 +64,7 @@ async function call(
 }
 
 const writeEnv = (text: string) => writeFile(join(dirs.root, '.env'), text);
+const readEnv = () => readFile(join(dirs.root, '.env'), 'utf8');
 
 describe('configure-env mcp', () => {
   it('prints its help', async () => {
@@ -203,5 +204,186 @@ describe('the MCP server', () => {
     const result = await call(client, 'list_variables');
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/invalid schema/);
+  });
+});
+
+describe('the MCP write tools', () => {
+  it('sets values, validated, keeping the other lines', async () => {
+    await writeEnv('# keep me\nHOST=old.test\n');
+    const client = await connect();
+    const result = await call(client, 'set_values', {
+      values: { HOST: 'new.test', PORT: '9000' },
+    });
+    expect(result.isError).toBe(false);
+    const env = await readEnv();
+    expect(env).toContain('# keep me');
+    expect(env).toMatch(/^HOST=new\.test$/m);
+    expect(env).toMatch(/^PORT=9000$/m);
+  });
+
+  it('refuses an invalid value and writes nothing', async () => {
+    await writeEnv('PORT=8080\n');
+    const client = await connect();
+    const result = await call(client, 'set_values', {
+      values: { PORT: 'not-a-port' },
+    });
+    expect(result.isError).toBe(true);
+    expect(await readEnv()).toBe('PORT=8080\n');
+  });
+
+  it('refuses a secret and points to generate_secret and request_secret', async () => {
+    await writeEnv('HOST=a.test\n');
+    const client = await connect();
+    const result = await call(client, 'set_values', {
+      values: { HOST: 'b.test', API_KEY: SECRET },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/API_KEY: secret/);
+    expect(result.text).toMatch(/generate_secret/);
+    expect(result.text).toMatch(/request_secret/);
+    expect(result.text).not.toContain(SECRET);
+    expect(await readEnv()).toBe('HOST=a.test\n');
+  });
+
+  it('generates a secret without returning it', async () => {
+    await writeEnv('HOST=a.test\n');
+    const client = await connect();
+    const result = await call(client, 'generate_secret', { keys: ['API_KEY'] });
+    expect(result.isError).toBe(false);
+    const value = /^API_KEY=(.+)$/m.exec(await readEnv())?.[1];
+    expect(value).toBeDefined();
+    expect(value!.length).toBeGreaterThanOrEqual(16);
+    expect(result.text).not.toContain(value!);
+  });
+
+  it('hands the user the command to type a secret, changing nothing', async () => {
+    await writeEnv('HOST=a.test\n');
+    const client = await connect();
+    const result = await call(client, 'request_secret', {
+      key: 'API_KEY',
+      file: '.env',
+    });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({
+      key: 'API_KEY',
+      command: 'configure-env set --file .env --prompt API_KEY',
+      npx: 'npx @elvisgastelum/configure-env set --file .env --prompt API_KEY',
+    });
+    expect(await readEnv()).toBe('HOST=a.test\n');
+  });
+
+  it('refuses to request a variable the schema does not declare', async () => {
+    const client = await connect();
+    const result = await call(client, 'request_secret', { key: 'NOPE' });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/NOPE: is not in the schema/);
+  });
+
+  it('removes variables, marked destructive', async () => {
+    await writeEnv('HOST=a.test\nPORT=8080\n');
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(
+      tools.find((tool) => tool.name === 'unset')?.annotations?.destructiveHint,
+    ).toBe(true);
+    const result = await call(client, 'unset', { keys: ['PORT'] });
+    expect(result.isError).toBe(false);
+    expect(await readEnv()).toBe('HOST=a.test\n');
+  });
+
+  it('applies the schema, deferring a secret to the user', async () => {
+    const client = await connect();
+    const result = await call(client, 'apply', { defer: ['API_KEY'] });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({ deferred: ['API_KEY'] });
+    expect(await readEnv()).toMatch(/^HOST=localhost$/m);
+    expect(await readEnv()).not.toMatch(/^API_KEY=./m);
+  });
+
+  it('applies the schema, generating a secret it never returns', async () => {
+    const client = await connect();
+    const result = await call(client, 'apply', { generate: ['API_KEY'] });
+    expect(result.isError).toBe(false);
+    const value = /^API_KEY=(.+)$/m.exec(await readEnv())?.[1];
+    expect(value).toBeDefined();
+    expect(result.text).not.toContain(value!);
+  });
+
+  it('fills a deferred secret with generate_secret', async () => {
+    const client = await connect();
+    await call(client, 'apply', { defer: ['API_KEY'] });
+    const result = await call(client, 'generate_secret', { keys: ['API_KEY'] });
+    expect(result.isError).toBe(false);
+    const value = /^API_KEY=(.+)$/m.exec(await readEnv())?.[1];
+    expect(value).toBeDefined();
+    expect(result.text).not.toContain(value!);
+  });
+
+  it('fixes the git-ignore lines check reports', async () => {
+    await writeEnv('HOST=a.test\n');
+    const git = await import('node:child_process');
+    git.execFileSync('git', ['init', '-q'], { cwd: dirs.root });
+    const client = await connect();
+    const before = await call(client, 'check');
+    expect(before.text).toMatch(/gitignore/i);
+    const result = await call(client, 'fix_gitignore');
+    expect(await readFile(join(dirs.root, '.gitignore'), 'utf8')).toMatch(
+      /^\/\.env$/m,
+    );
+    expect(result.text).toMatch(/fixed/);
+  });
+
+  it('updates the schema at the fingerprint it was read with', async () => {
+    const client = await connect();
+    const read = JSON.parse((await call(client, 'get_schema')).text) as {
+      fingerprint: string;
+    };
+    const document = {
+      ...SCHEMA,
+      variables: { ...SCHEMA.variables, MODE: { type: 'string' } },
+    };
+    const result = await call(client, 'update_schema', {
+      document,
+      fingerprint: read.fingerprint,
+    });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({ ok: true, written: true });
+    const saved = JSON.parse(
+      await readFile(join(dirs.root, 'env.schema.json'), 'utf8'),
+    ) as { variables: Record<string, unknown> };
+    expect(saved.variables).toHaveProperty('MODE');
+    const history = await call(client, 'history');
+    expect(history.text).toMatch(/schema/);
+
+    const stale = await call(client, 'update_schema', {
+      document,
+      fingerprint: read.fingerprint,
+    });
+    expect(stale.isError).toBe(true);
+    expect(JSON.parse(stale.text)).toMatchObject({ ok: false, kind: 'stale' });
+  });
+
+  it('refuses an invalid schema document and writes nothing', async () => {
+    const client = await connect();
+    const read = JSON.parse((await call(client, 'get_schema')).text) as {
+      fingerprint: string;
+      text: string;
+    };
+    const result = await call(client, 'update_schema', {
+      document: {
+        version: 1,
+        variables: { HOST: { type: 'nope' } },
+        files: [],
+      },
+      fingerprint: read.fingerprint,
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.text)).toMatchObject({
+      ok: false,
+      kind: 'invalid',
+    });
+    expect(await readFile(join(dirs.root, 'env.schema.json'), 'utf8')).toBe(
+      read.text,
+    );
   });
 });

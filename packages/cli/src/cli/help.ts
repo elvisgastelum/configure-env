@@ -505,10 +505,18 @@ for an agent (Claude Code, Cursor, VS Code, Codex, Gemini CLI) to start.
 It stops when the client closes the connection.
 
 Its tools run the configure-env commands with --ci --json, so they keep
-their checks and guards: list_variables, get_value, check, history and
-get_schema read the project.
+their checks and guards:
+
+  read   list_variables, get_value, check, history, get_schema
+  write  set_values, generate_secret, unset, apply, fix_gitignore,
+         update_schema
+  ask    request_secret
 
 No tool returns a secret's value: they mask it, and none reveals one.
+set_values refuses a secret variable. A secret goes in only through a
+value the server generates (generate_secret, apply's generate), or one the
+user types in a terminal with the command request_secret answers:
+configure-env set --prompt KEY.
 
 Register it with configure-env install mcp, or in an agent's MCP
 configuration as the command configure-env with the argument mcp.
