@@ -303,7 +303,7 @@ async function remoteTarget(
   io: Io,
   values: GlobalValues,
   name: string,
-): Promise<TargetRun & { connection: Connection }> {
+): Promise<TargetRun & { connection: Connection; schemaPath: string }> {
   for (const option of ['root', 'schema', 'state'] as const)
     if (values[option] !== undefined)
       throw usageError(
@@ -335,6 +335,7 @@ async function remoteTarget(
     json: Boolean(values.json),
     prompts: io.prompts ?? clackPrompts,
     connection,
+    schemaPath: project.data.schemaPath,
     connect: async () => connection,
   };
 }
@@ -388,4 +389,34 @@ export async function openTarget(
   if (name === LOCAL)
     return localTarget(io, await contextOf(io, { ...values, env: LOCAL }));
   return remoteTarget(io, values, name);
+}
+
+/**
+ * The server of a project whose schema may be missing or invalid, such as
+ * the one init writes: nothing is read before it connects. `local` has its
+ * paths; another environment names its schema file as its server does.
+ */
+export interface ServerRun extends TargetRun {
+  /** The local paths; absent for another environment, whose server owns them. */
+  context?: Context;
+  /** The schema file as messages name it: shown from the cwd, or `name:path`. */
+  title: string;
+}
+
+/** The server the selected environment names, without reading its schema. */
+export async function openServer(
+  io: Io,
+  values: GlobalValues,
+): Promise<ServerRun> {
+  const name = selectedEnvironment(io, values);
+  if (name === LOCAL) {
+    const context = await contextOf(io, { ...values, env: LOCAL });
+    return {
+      ...localTarget(io, context),
+      context,
+      title: displayPath(io.cwd, context.schemaPath),
+    };
+  }
+  const target = await remoteTarget(io, values, name);
+  return { ...target, title: `${name}:${target.schemaPath}` };
 }

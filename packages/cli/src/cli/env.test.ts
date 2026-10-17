@@ -267,7 +267,7 @@ describe('--env and CONFIGURE_ENV_ENV on a local-only command', () => {
     const flag = await cli(['apply', '--ci', '--env', 'prod']);
     expect(flag).toMatchObject({ code: 2, out: [] });
     expect(flag.err).toEqual([
-      'configure-env: --env prod: this command runs on the local project only; check, list, get, set, unset and history run against an environment',
+      'configure-env: --env prod: this command runs on the local project only; check, init, list, get, set, unset and history run against an environment',
       'drop --env to run it here',
     ]);
     const variable = await cli(['apply', '--ci'], {
@@ -275,7 +275,7 @@ describe('--env and CONFIGURE_ENV_ENV on a local-only command', () => {
     });
     expect(variable.code).toBe(2);
     expect(variable.err).toEqual([
-      'configure-env: CONFIGURE_ENV_ENV prod: this command runs on the local project only; check, list, get, set, unset and history run against an environment',
+      'configure-env: CONFIGURE_ENV_ENV prod: this command runs on the local project only; check, init, list, get, set, unset and history run against an environment',
       'unset CONFIGURE_ENV_ENV to run it here',
     ]);
     await expect(stat(join(dirs.root, 'shared.env'))).rejects.toThrow();

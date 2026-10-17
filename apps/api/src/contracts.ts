@@ -7,11 +7,19 @@ import {
   type DriftStatus,
   FILE_POLICIES,
   GITIGNORE_CODES,
+  type IgnoreStatus,
   PROBLEM_CODES,
   VARIABLE_NAME,
   variableSpec,
 } from '@configure-env/core';
 import { z } from 'zod';
+
+const IGNORE_STATUSES = [
+  'created',
+  'added',
+  'present',
+  'symlink',
+] as const satisfies readonly IgnoreStatus[];
 
 const DRIFT_STATUSES = [
   'current',
@@ -84,6 +92,14 @@ export const schemaResponse = named(
     initFrom: z.string().optional().meta({
       description:
         'While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema.',
+    }),
+    text: z.string().optional().meta({
+      description:
+        'GET /api/schema only: the schema file as text, the bytes the fingerprint identifies. Absent when it cannot be read.',
+    }),
+    gitignore: z.enum(IGNORE_STATUSES).optional().meta({
+      description:
+        'After POST /api/schema/init writes: what it did to .gitignore (created, added the state directory, found it present, or left a symlink alone). Absent when it could not update it; a warning says why.',
     }),
   }),
 );
@@ -851,6 +867,42 @@ export const initSchemaRequest = named(
     fingerprint: z.string().min(1).nullable().optional().meta({
       description:
         'To replace an existing schema, its fingerprint; without it an existing schema is kept (409).',
+    }),
+    variables: z.record(z.string(), z.unknown()).optional().meta({
+      description:
+        'The variables to write in place of the inferred ones, such as the inferred ones with the types a person picked; the schema is validated with them.',
+    }),
+    preview: z.boolean().optional().meta({
+      description:
+        'Answer the schema init would write, its refusals included, and write nothing: no schema, no .gitignore, no history.',
+    }),
+  }),
+);
+
+export const replaceSchemaRequest = named(
+  'ReplaceSchemaRequest',
+  z.strictObject({
+    fingerprint: z.string().min(1).meta({
+      description:
+        'The fingerprint of the schema the document replaces, as GET /api/schema gave it; a schema changed since is refused (409).',
+    }),
+    document: z.record(z.string(), z.unknown()).meta({
+      description: 'The whole schema document, validated before it is written.',
+    }),
+    keepSecretsMasked: z.boolean().optional().meta({
+      description:
+        "Refuse (403) a document that would show a hidden value: a secret variable dropped or no longer `secret: true`, or a key an env file already holds a value for declared without `secret: true` or held in a file the document newly lists. configure-env mcp's update_schema sets it.",
+    }),
+  }),
+);
+
+export const schemaUnmaskRefusedResponse = named(
+  'SchemaUnmaskRefused',
+  z.object({
+    statusCode: z.literal(403),
+    message: z.string(),
+    keys: z.array(z.string()).meta({
+      description: 'The keys the document would unmask, sorted.',
     }),
   }),
 );

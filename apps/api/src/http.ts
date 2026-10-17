@@ -25,6 +25,20 @@ export const PROJECT = Symbol('PROJECT');
 /** The provider token of the configure-env version. */
 export const VERSION = Symbol('VERSION');
 
+/**
+ * The header naming the client that sends a request, as the typed client
+ * sets it (@configure-env/api-client's CLIENT_HEADER), lower-cased as Node
+ * reads it.
+ */
+export const CLIENT_HEADER = 'x-configure-env-client';
+
+/**
+ * Who a write is recorded as in the history: the CLI, by the header its
+ * requests carry, else the portal.
+ */
+export const actorOf = (client: string | undefined): 'cli' | 'portal' =>
+  client === 'cli' ? 'cli' : 'portal';
+
 /** A `$ref` to the schema's OpenAPI component. */
 export const ref = (schema: z.ZodType) => {
   const id = components.get(schema)?.id;

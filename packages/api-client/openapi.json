@@ -59,6 +59,74 @@
         },
         "summary": "The schema file and its errors, with JSON paths",
         "tags": ["project"]
+      },
+      "put": {
+        "operationId": "replaceSchema",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceSchemaRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schema"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An invalid body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "With keepSecretsMasked: the document would show a hidden value; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaUnmaskRefused"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The schema changed since the fingerprint was read; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The edit would make the schema invalid, or the schema is invalid now; nothing was written. The errors carry JSON paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaEditRefused"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Replaces the whole schema document, against its fingerprint",
+        "tags": ["schema"]
       }
     },
     "/api/variables": {
@@ -2405,6 +2473,15 @@
             "nullable": true,
             "type": "string",
             "minLength": 1
+          },
+          "variables": {
+            "description": "The variables to write in place of the inferred ones, such as the inferred ones with the types a person picked; the schema is validated with them.",
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "preview": {
+            "description": "Answer the schema init would write, its refusals included, and write nothing: no schema, no .gitignore, no history.",
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -2860,6 +2937,27 @@
         "required": ["fingerprint", "order"],
         "additionalProperties": false
       },
+      "ReplaceSchemaRequest": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The fingerprint of the schema the document replaces, as GET /api/schema gave it; a schema changed since is refused (409)."
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "The whole schema document, validated before it is written."
+          },
+          "keepSecretsMasked": {
+            "description": "Refuse (403) a document that would show a hidden value: a secret variable dropped or no longer `secret: true`, or a key an env file already holds a value for declared without `secret: true` or held in a file the document newly lists. configure-env mcp's update_schema sets it.",
+            "type": "boolean"
+          }
+        },
+        "required": ["fingerprint", "document"],
+        "additionalProperties": false
+      },
       "Reveal": {
         "type": "object",
         "properties": {
@@ -2932,6 +3030,15 @@
           "initFrom": {
             "description": "While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema.",
             "type": "string"
+          },
+          "text": {
+            "description": "GET /api/schema only: the schema file as text, the bytes the fingerprint identifies. Absent when it cannot be read.",
+            "type": "string"
+          },
+          "gitignore": {
+            "description": "After POST /api/schema/init writes: what it did to .gitignore (created, added the state directory, found it present, or left a symlink alone). Absent when it could not update it; a warning says why.",
+            "type": "string",
+            "enum": ["created", "added", "present", "symlink"]
           }
         },
         "required": ["path", "valid", "document", "errors"],
@@ -2987,6 +3094,27 @@
           }
         },
         "required": ["path", "message"],
+        "additionalProperties": false
+      },
+      "SchemaUnmaskRefused": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [403]
+          },
+          "message": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The keys the document would unmask, sorted."
+          }
+        },
+        "required": ["statusCode", "message", "keys"],
         "additionalProperties": false
       },
       "SetValuesRequest": {

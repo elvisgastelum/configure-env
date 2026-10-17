@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -53,11 +61,17 @@ const diskText = () => readFile(join(root, 'env.schema.json'), 'utf8');
 
 const history = () => readChanges(join(root, DEFAULT_STATE_PATH));
 
+/** What a first init answers about .gitignore: there was none. */
+const CREATED = { gitignore: 'created' };
+
 /**
  * The response is the schema now on disk, and names the change it recorded
  * in the history, with the text written.
  */
-async function expectWritten(response: request.Response) {
+async function expectWritten(
+  response: request.Response,
+  extra: Record<string, unknown> = {},
+) {
   expect(response.status).toBe(200);
   const text = await diskText();
   const last = (await history()).at(-1);
@@ -68,6 +82,7 @@ async function expectWritten(response: request.Response) {
     errors: [],
     fingerprint: schemaFingerprint(text),
     change: last?.id,
+    ...extra,
   });
   expect(last).toMatchObject({
     actor: 'portal',
@@ -101,7 +116,7 @@ describe('history', () => {
 
   it('records a new schema as a change that cannot be undone', async () => {
     await start({});
-    await expectWritten(await send('post', '/api/schema/init', {}));
+    await expectWritten(await send('post', '/api/schema/init', {}), CREATED);
     expect(await history()).toMatchObject([
       { beforeValue: null, beforeFingerprint: null, restorable: false },
     ]);
@@ -353,7 +368,7 @@ describe('POST /api/schema/init', () => {
     const missing = await getSchema();
     expect(missing.body.valid).toBe(false);
     expect(missing.body.initFrom).toBe('.env.example');
-    await expectWritten(await send('post', '/api/schema/init', {}));
+    await expectWritten(await send('post', '/api/schema/init', {}), CREATED);
     expect((await getSchema()).body).not.toHaveProperty('initFrom');
   });
 
@@ -377,7 +392,7 @@ describe('POST /api/schema/init', () => {
   it('infers a schema from .env.example when there is none', async () => {
     await start({ '.env.example': EXAMPLE });
     const response = await send('post', '/api/schema/init', {});
-    await expectWritten(response);
+    await expectWritten(response, CREATED);
     expect(await onDisk()).toMatchObject({
       version: 1,
       variables: {
@@ -391,7 +406,7 @@ describe('POST /api/schema/init', () => {
   it('starts an empty schema without an example', async () => {
     await start({});
     const response = await send('post', '/api/schema/init', {});
-    await expectWritten(response);
+    await expectWritten(response, CREATED);
     expect(await onDisk()).toMatchObject({ variables: {}, files: [] });
   });
 
@@ -405,13 +420,15 @@ describe('POST /api/schema/init', () => {
     const response = await send('post', '/api/schema/init', {
       fingerprint: BASE,
     });
-    await expectWritten(response);
+    await expectWritten(response, CREATED);
     expect(Object.keys((await onDisk()).variables)).toEqual(['PORT', 'DEBUG']);
   });
 
   it('adds the state directory to .gitignore, as configure-env init does', async () => {
     await start({ '.env.example': EXAMPLE, '.gitignore': 'node_modules' });
-    await expectWritten(await send('post', '/api/schema/init', {}));
+    await expectWritten(await send('post', '/api/schema/init', {}), {
+      gitignore: 'added',
+    });
     expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
       'node_modules\n.configure-env/\n',
     );
@@ -419,7 +436,7 @@ describe('POST /api/schema/init', () => {
 
   it('creates .gitignore when there is none', async () => {
     await start({});
-    await expectWritten(await send('post', '/api/schema/init', {}));
+    await expectWritten(await send('post', '/api/schema/init', {}), CREATED);
     expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
       '.configure-env/\n',
     );
@@ -472,7 +489,7 @@ describe('POST /api/schema/init', () => {
     const response = await send('post', '/api/schema/init', {
       from: 'config/sample.env',
     });
-    await expectWritten(response);
+    await expectWritten(response, CREATED);
     expect((await onDisk()).files).toEqual([
       { path: 'config/sample.env', policy: 'merge', variables: '*' },
     ]);
@@ -488,5 +505,272 @@ describe('POST /api/schema/init', () => {
       from: 'missing.env',
     });
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('POST /api/schema/init, as configure-env init sends it', () => {
+  const EXAMPLE = 'PORT=8080\nNAME=web\n';
+  const cli = (body: object) =>
+    send('post', '/api/schema/init', body).set('X-Configure-Env-Client', 'cli');
+
+  it('previews the schema it would write, writing nothing', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const preview = await send('post', '/api/schema/init', { preview: true });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toEqual({
+      path: 'env.schema.json',
+      valid: true,
+      document: {
+        $schema: expect.any(String),
+        version: 1,
+        variables: {
+          PORT: { type: 'integer', default: 8080 },
+          NAME: { type: 'string', default: 'web' },
+        },
+        files: [{ path: '.env.example', policy: 'merge', variables: '*' }],
+      },
+      errors: [],
+    });
+    await expect(diskText()).rejects.toThrow(/ENOENT/);
+    await expect(readFile(join(root, '.gitignore'), 'utf8')).rejects.toThrow(
+      /ENOENT/,
+    );
+    expect(await history()).toEqual([]);
+  });
+
+  it('refuses a preview as the write would: a schema there, a source missing', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const exists = await send('post', '/api/schema/init', {
+      preview: true,
+      from: 'missing.env',
+    });
+    // The schema there is named first, as configure-env init names it.
+    expect(exists.status).toBe(409);
+    expect(exists.body.schema.fingerprint).toBe(BASE);
+    const missing = await send('post', '/api/schema/init', {
+      preview: true,
+      from: 'missing.env',
+      fingerprint: BASE,
+    });
+    expect(missing.status).toBe(404);
+    expect(await diskText()).toBe(TEXT);
+  });
+
+  it('writes the variables given in place of the inferred ones', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const response = await send('post', '/api/schema/init', {
+      variables: {
+        PORT: { type: 'port', default: 8080 },
+        NAME: { type: 'integer' },
+      },
+    });
+    await expectWritten(response, CREATED);
+    expect((await onDisk()).variables).toEqual({
+      PORT: { type: 'port', default: 8080 },
+      NAME: { type: 'integer' },
+    });
+  });
+
+  it('refuses invalid variables with JSON paths, writing nothing', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const response = await send('post', '/api/schema/init', {
+      variables: { PORT: { type: 'nope' } },
+    });
+    expect(response.status).toBe(422);
+    expect(response.body.errors[0].path).toMatch(/^variables\.PORT/);
+    await expect(diskText()).rejects.toThrow(/ENOENT/);
+  });
+
+  it('replaces a schema byte for byte as configure-env init writes it', async () => {
+    const fourSpaces = `${JSON.stringify(SCHEMA, null, 4)}\n`;
+    await start({ 'env.schema.json': fourSpaces, '.env.example': EXAMPLE });
+    const response = await send('post', '/api/schema/init', {
+      fingerprint: schemaFingerprint(fourSpaces),
+    });
+    expect(response.status).toBe(200);
+    expect(await diskText()).toBe(
+      `${JSON.stringify(response.body.document, null, 2)}\n`,
+    );
+  });
+
+  it('records the change as the cli’s when the cli sends it', async () => {
+    await start({ '.env.example': EXAMPLE });
+    expect((await cli({})).status).toBe(200);
+    expect(await history()).toMatchObject([
+      { actor: 'cli', file: 'env.schema.json', operation: 'schema' },
+    ]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the schema with the mode the umask leaves',
+    async () => {
+      await start({});
+      const previous = process.umask(0o002);
+      try {
+        expect((await cli({})).status).toBe(200);
+      } finally {
+        process.umask(previous);
+      }
+      const { mode } = await stat(join(root, 'env.schema.json'));
+      expect(mode & 0o777).toBe(0o664);
+    },
+  );
+
+  it('records no history when .gitignore cannot be updated', async () => {
+    await start({ '.env.example': EXAMPLE });
+    await mkdir(join(root, '.gitignore'));
+    const response = await cli({});
+    expect(response.status).toBe(200);
+    expect(response.body).not.toHaveProperty('gitignore');
+    expect(response.body).not.toHaveProperty('change');
+    expect(response.body.warnings).toEqual([
+      'cannot update .gitignore: EISDIR; add .configure-env/ to it yourself',
+    ]);
+    expect(await diskText()).toContain('"PORT"');
+    expect(await history()).toEqual([]);
+  });
+
+  it('answers what it did to .gitignore', async () => {
+    await start({ '.gitignore': '.configure-env/\n' });
+    const present = await cli({});
+    expect(present.body.gitignore).toBe('present');
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'ignore'), 'node_modules\n');
+      await rm(join(root, '.gitignore'));
+      await symlink(join(outside, 'ignore'), join(root, '.gitignore'));
+      const read = await request(server.url)
+        .get('/api/schema')
+        .set('Authorization', bearer);
+      const symlinked = await cli({ fingerprint: read.body.fingerprint });
+      expect(symlinked.body).toMatchObject({
+        gitignore: 'symlink',
+        warnings: [
+          'cannot update .gitignore: it is a symlink; add .configure-env/ to it yourself',
+        ],
+      });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('GET /api/schema', () => {
+  it('gives the text the fingerprint identifies', async () => {
+    const text = '{ "version": 1, "variables": {}, "files": [] }\n';
+    await start({ 'env.schema.json': text });
+    const read = await request(server.url)
+      .get('/api/schema')
+      .set('Authorization', bearer);
+    expect(read.body).toMatchObject({
+      text,
+      fingerprint: schemaFingerprint(text),
+    });
+  });
+
+  it('gives no text for a schema it cannot read', async () => {
+    await start({});
+    const read = await request(server.url)
+      .get('/api/schema')
+      .set('Authorization', bearer);
+    expect(read.body).not.toHaveProperty('text');
+    expect(read.body.errors[0].message).toBe(
+      'cannot read env.schema.json: ENOENT',
+    );
+  });
+});
+
+describe('PUT /api/schema', () => {
+  const NEXT = {
+    ...SCHEMA,
+    variables: { ...SCHEMA.variables, DEBUG: { type: 'boolean' } },
+  };
+  const put = (body: object, client?: string) => {
+    const call = send('put', '/api/schema', body);
+    return client ? call.set('X-Configure-Env-Client', client) : call;
+  };
+
+  it('replaces the schema at its fingerprint, recorded in the history', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const response = await put({ fingerprint: BASE, document: NEXT });
+    await expectWritten(response);
+    expect((await onDisk()).variables.DEBUG).toEqual({ type: 'boolean' });
+    expect(await history()).toMatchObject([
+      { actor: 'portal', beforeValue: TEXT, operation: 'schema' },
+    ]);
+  });
+
+  it('records the cli as the actor when the cli sends it', async () => {
+    await start({ 'env.schema.json': TEXT });
+    expect(
+      (await put({ fingerprint: BASE, document: NEXT }, 'cli')).status,
+    ).toBe(200);
+    expect(await history()).toMatchObject([{ actor: 'cli' }]);
+  });
+
+  it('writes and records nothing for the same document', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const same = await put({ fingerprint: BASE, document: SCHEMA });
+    expect(same.status).toBe(200);
+    expect(same.body.fingerprint).toBe(BASE);
+    expect(same.body.change).toBeUndefined();
+    expect(await history()).toEqual([]);
+  });
+
+  it('refuses a stale fingerprint or an invalid document, writing nothing', async () => {
+    await start({ 'env.schema.json': TEXT });
+    const stale = await put({ fingerprint: 'sha256:0', document: NEXT });
+    expect(stale.status).toBe(409);
+    expect(stale.body.schema.fingerprint).toBe(BASE);
+    const invalid = await put({ fingerprint: BASE, document: { version: 2 } });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.errors.length).toBeGreaterThan(0);
+    expect(await diskText()).toBe(TEXT);
+    const missing = await put({ fingerprint: BASE });
+    expect(missing.status).toBe(400);
+  });
+
+  it('with keepSecretsMasked, refuses to unmask a secret or a held key', async () => {
+    await start({ 'env.schema.json': TEXT, '.env': 'TOKEN=abc\nLEGACY=x\n' });
+    const rest = Object.fromEntries(
+      Object.entries(SCHEMA.variables).filter(([name]) => name !== 'TOKEN'),
+    );
+    const dropped = await put({
+      fingerprint: BASE,
+      document: { ...SCHEMA, variables: rest },
+      keepSecretsMasked: true,
+    });
+    expect(dropped.status).toBe(403);
+    expect(dropped.body).toMatchObject({ statusCode: 403, keys: ['TOKEN'] });
+    const declared = await put({
+      fingerprint: BASE,
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, LEGACY: { type: 'string' } },
+      },
+      keepSecretsMasked: true,
+    });
+    expect(declared.status).toBe(403);
+    expect(declared.body.keys).toEqual(['LEGACY']);
+    expect(await diskText()).toBe(TEXT);
+    // Without it, the portal's person may make the change.
+    expect(
+      (
+        await put({
+          fingerprint: BASE,
+          document: { ...SCHEMA, variables: rest },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('with keepSecretsMasked, writes a change that hides what it shows', async () => {
+    await start({ 'env.schema.json': TEXT, '.env': 'TOKEN=abc\n' });
+    const response = await put({
+      fingerprint: BASE,
+      document: NEXT,
+      keepSecretsMasked: true,
+    });
+    await expectWritten(response);
   });
 });

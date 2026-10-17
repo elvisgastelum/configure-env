@@ -23,7 +23,7 @@ const GLOBAL = `Global options:
                    not a template)
   --env <name>     the environment to run against: local (this project,
                    the default) or one env add stored; CONFIGURE_ENV_ENV
-                   too. check, list, get, set, unset and history run
+                   too. check, init, list, get, set, unset and history run
                    against another one
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
@@ -232,6 +232,12 @@ each one; with --ci (or --json) it writes them as inferred.
 Once the schema is written, it adds .configure-env/ (where the protected
 variables' state lives) to .gitignore, creating it when missing.
 
+It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only,
+on 127.0.0.1. With --env <name> it writes that environment's schema on
+its server instead; --root, --schema and --state are then the server's
+and exit 2.
+
 Options:
   --from <file>  the env file to infer from, inside the root
                  (default: .env.example when it exists)
@@ -243,6 +249,7 @@ Examples:
   configure-env init
   configure-env init --ci --from config/app.env.example
   configure-env init --force
+  configure-env init --env staging --ci
 
 ${EXIT_CODES}`;
 
@@ -664,6 +671,12 @@ file's values. A secret goes in only through a value the server
 generates (generate_secret, apply's generate), or one the user types in a
 terminal with the command request_secret answers, which runs from any
 folder: configure-env set --root <root> --prompt KEY.
+
+Every tool takes an optional env, an environment configure-env env add
+stored, passed on as --env: the tool then works on that server's project
+through the configure-env API, without the --root, --schema and --state
+the server was started with. request_secret then answers the command to
+run from this folder: configure-env set --env <name> --prompt KEY.
 
 Register it with configure-env install mcp, or in an agent's MCP
 configuration as the command configure-env with the argument mcp.
