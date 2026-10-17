@@ -47,6 +47,7 @@ describe('GET /api/schema', () => {
       document: fixtureSchema,
       errors: [],
       fingerprint: schemaFingerprint(JSON.stringify(fixtureSchema, null, 2)),
+      text: JSON.stringify(fixtureSchema, null, 2),
     });
   });
 });
