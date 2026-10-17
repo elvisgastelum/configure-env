@@ -21,6 +21,7 @@ import {
   schemaChanges,
   schemaFingerprint,
   unquoteValue,
+  validateDocument,
   writeSchemaFile,
 } from '@configure-env/core';
 import { readFile } from 'node:fs/promises';
@@ -460,8 +461,8 @@ export function createMcpServer(options: McpOptions): McpServer {
     },
     async (input) => {
       const context = await contextFor(options);
-      const unmasked = await unmaskedSecrets(
-        context.schemaPath,
+      const unmasked = await unmaskedKeys(
+        context,
         input.fingerprint,
         input.document,
       );
@@ -470,7 +471,7 @@ export function createMcpServer(options: McpOptions): McpServer {
           JSON.stringify({
             ok: false,
             kind: 'secret',
-            message: `the edit would unmask ${unmasked.join(', ')}: a secret variable keeps \`"secret": true\` and stays in the schema; ask the user to change it themselves. Nothing was written.`,
+            message: `the edit would unmask ${unmasked.join(', ')}: a secret variable keeps \`"secret": true\` and stays in the schema, and a key the env files already hold is declared with \`"secret": true\`; ask the user to change it themselves. Nothing was written.`,
           }),
           true,
         );
@@ -564,31 +565,51 @@ const quote = (word: string) =>
 const MASK = '••••';
 
 /**
- * The secret variables of the schema at `fingerprint` that `document` would
- * unmask: removed, or no longer `secret: true`. A schema changed since the
- * fingerprint answers none; the write then refuses it as stale.
+ * The keys the schema at `fingerprint` keeps hidden that `document` would
+ * show an agent: a secret variable removed or no longer `secret: true`, or
+ * a key a schema file (of either schema) already holds a value for, newly
+ * declared without `secret: true`. A schema changed since the fingerprint,
+ * or an invalid document, answers none; the write then refuses it.
  */
-async function unmaskedSecrets(
-  path: string,
+async function unmaskedKeys(
+  context: Context,
   fingerprint: string,
   document: Record<string, unknown>,
 ): Promise<string[]> {
-  const text = await readFile(path, 'utf8').catch(() => undefined);
+  const text = await readFile(context.schemaPath, 'utf8').catch(
+    () => undefined,
+  );
   if (text === undefined || schemaFingerprint(text) !== fingerprint) return [];
-  const current = parseSchemaText(text);
-  if (!current.ok) return [];
-  const next = (document.variables ?? {}) as Record<string, unknown>;
-  return Object.entries(current.schema.variables)
-    .filter(([, spec]) => spec.secret)
-    .map(([name]) => name)
-    .filter((name) => {
-      const spec = Object.hasOwn(next, name) ? next[name] : undefined;
-      return !(
-        typeof spec === 'object' &&
-        spec !== null &&
-        (spec as { secret?: unknown }).secret === true
-      );
-    });
+  const next = validateDocument(document as SchemaDocument);
+  if (!next.ok) return [];
+  // An invalid current schema hides everything: it masks nothing it can read.
+  const parsed = parseSchemaText(text);
+  const current: EnvSchema = parsed.ok
+    ? parsed.schema
+    : { ...next.schema, variables: {}, files: [] };
+  const unmasked = new Set(
+    Object.keys(current.variables).filter(
+      (name) => isSecret(current, name) && !isSecret(next.schema, name),
+    ),
+  );
+  const paths = new Set(
+    [...current.files, ...next.schema.files].map((file) => file.path),
+  );
+  for (const path of paths) {
+    const held = await readFile(resolve(context.root, path), 'utf8').catch(
+      () => undefined,
+    );
+    if (held === undefined) continue;
+    const doc = parseDotenv(held);
+    for (const name of keysOf(doc))
+      if (
+        getValue(doc, name) &&
+        isHidden(current, name) &&
+        !isHidden(next.schema, name)
+      )
+        unmasked.add(name);
+  }
+  return [...unmasked].sort();
 }
 
 /**

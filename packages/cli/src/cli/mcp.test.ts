@@ -508,3 +508,81 @@ describe('the masking of every answer', () => {
     }
   });
 });
+
+describe('update_schema and the keys the env files hold', () => {
+  const held = ['tok', 'w'.repeat(20)].join('-');
+
+  /** The schema's fingerprint, read through get_schema. */
+  async function fingerprint(client: Client): Promise<string> {
+    return (
+      JSON.parse((await call(client, 'get_schema')).text) as {
+        fingerprint: string;
+      }
+    ).fingerprint;
+  }
+
+  it('refuses to declare a held key without secret: true', async () => {
+    await writeEnv(`HOST=a.test\nLEGACY_TOKEN=${held}\n`);
+    const client = await connect();
+    const result = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, LEGACY_TOKEN: { type: 'string' } },
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.text)).toMatchObject({ kind: 'secret' });
+    expect(result.text).toMatch(/would unmask LEGACY_TOKEN/);
+    expect(result.text).not.toContain(held);
+  });
+
+  it('declares a held key that stays secret', async () => {
+    await writeEnv(`HOST=a.test\nLEGACY_TOKEN=${held}\n`);
+    const client = await connect();
+    const result = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: {
+          ...SCHEMA.variables,
+          LEGACY_TOKEN: { type: 'string', secret: true },
+        },
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(result.isError).toBe(false);
+    const got = await call(client, 'get_value', { key: 'LEGACY_TOKEN' });
+    expect(got.text).not.toContain(held);
+  });
+
+  it('refuses a new file whose held keys it declares without secret: true', async () => {
+    await writeFile(join(dirs.root, '.npmrc.env'), `NPM_TOKEN=${held}\n`);
+    const client = await connect();
+    const result = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, NPM_TOKEN: { type: 'string' } },
+        files: [
+          ...SCHEMA.files,
+          { path: '.npmrc.env', policy: 'merge', variables: ['NPM_TOKEN'] },
+        ],
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/would unmask NPM_TOKEN/);
+  });
+
+  it('adds a non-secret variable no file holds yet', async () => {
+    await writeEnv('HOST=a.test\n');
+    const client = await connect();
+    const result = await call(client, 'update_schema', {
+      document: {
+        ...SCHEMA,
+        variables: { ...SCHEMA.variables, MODE: { type: 'string' } },
+      },
+      fingerprint: await fingerprint(client),
+    });
+    expect(result.isError).toBe(false);
+  });
+});

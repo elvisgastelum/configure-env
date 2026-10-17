@@ -703,7 +703,7 @@ In a terminal it asks for what the options leave out; with `--ci`, `--json` or n
 | `request_secret` | changes nothing: answers the command the user types the secret with, `configure-env set --prompt KEY` |
 | `unset`, `apply` | remove variables; write the files, with `generate` and `defer` for secrets |
 | `fix_gitignore` | add the git-ignore lines `check` reports missing |
-| `update_schema` | replace the schema with a validated document, at the fingerprint `get_schema` gave; refuses one that would remove a secret variable or its `"secret": true` |
+| `update_schema` | replace the schema with a validated document, at the fingerprint `get_schema` gave; refuses one that would remove a secret variable or its `"secret": true`, or declare without `"secret": true` a key a schema file already holds a value for |
 
 No tool returns a secret's value, and none reveals one: the server masks every value the env files hold for a secret variable, or for a key the schema does not declare, in whatever a tool answers, a secret in a file whose `variables` leave it out included; a value under 8 characters is masked only where it is a whole value, so it does not garble other text. When the schema cannot be read, a tool answers only the error. Unmasking a secret is left to a person editing the schema. A secret goes in only through a value the server generates, or one the user types in a terminal. Every tool argument passes through the model, which is why `set_values` refuses secrets. The server only keeps the agent away from secrets when it is the agent's only way in: an agent that also has a shell can still read `.env`, so deny that too (below).
 
