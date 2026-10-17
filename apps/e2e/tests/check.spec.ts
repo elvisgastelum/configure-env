@@ -1,15 +1,65 @@
-// Journey 7: fix the drift check reports, in place.
+// Journey 7: fix every problem check reports, in place: drift and values.
 
 import { dotenvValue, expect, test } from '../src/fixtures.ts';
 import { navigate } from '../src/portal.ts';
 
-test('fix drift until every file matches the schema', async ({
+test('check reports the broken value and fixing it clears it @smoke', async ({
+  portal: page,
+  served,
+}) => {
+  await navigate(page, 'Check');
+  const run = page.getByRole('button', { name: 'Run check' });
+  await run.click();
+  // The rerun is announced without moving the focus.
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Check finished' }),
+  ).toHaveText('Check finished: 3 errors, 0 warnings.');
+  await expect(run).toBeFocused();
+  const summary = page.getByRole('region', { name: 'Summary' });
+  await expect(summary).toContainText('3 errors');
+  await expect(summary).toContainText('3 of 3 files failing');
+
+  // The summary links to the failing file, which takes the focus.
+  await summary.getByRole('link', { name: /^\.env 1 error/ }).click();
+  const env = page.getByRole('region', { name: '.env', exact: true });
+  await expect(env).toBeFocused();
+  await expect(env).toContainText('must be digits (country code first)');
+
+  await env
+    .getByRole('button', {
+      name: 'Set VITE_CONTACT_WHATSAPP in .env',
+      exact: true,
+    })
+    .click();
+  await env
+    .getByRole('textbox', {
+      name: 'New value of VITE_CONTACT_WHATSAPP in .env',
+      exact: true,
+    })
+    .fill('526381177267');
+  await env.getByRole('button', { name: 'Save', exact: true }).click();
+  // The fixed entry leaves the report; its toast stays.
+  await expect(
+    page.getByText('Saved VITE_CONTACT_WHATSAPP in .env'),
+  ).toBeVisible();
+
+  // The report runs again: .env passes.
+  await expect(summary).toContainText('2 of 3 files failing');
+  await expect(env).toContainText('Passes');
+  expect(dotenvValue(await served.read('.env'), 'VITE_CONTACT_WHATSAPP')).toBe(
+    '526381177267',
+  );
+});
+
+test('fix every problem until every file passes', async ({
   portal: page,
   served,
 }) => {
   await navigate(page, 'Check');
   await page.getByRole('button', { name: 'Run check' }).click();
-  await expect(page.getByText('3 files drift from the schema.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Summary' })).toContainText(
+    '3 of 3 files failing',
+  );
 
   // A missing key: set its value where check lists it.
   await page
@@ -31,7 +81,7 @@ test('fix drift until every file matches the schema', async ({
     .toBe('8080');
   await expect(
     page.getByRole('region', { name: '.env.example', exact: true }),
-  ).toContainText('Nothing to fix.');
+  ).toContainText('Passes');
 
   // An invalid value: replace it.
   await page
@@ -54,7 +104,7 @@ test('fix drift until every file matches the schema', async ({
     .toBe('off');
   await expect(
     page.getByRole('region', { name: '.env', exact: true }),
-  ).toContainText('Nothing to fix.');
+  ).toContainText('Passes');
 
   // A file that does not exist: apply it alone.
   await page
@@ -75,15 +125,13 @@ test('fix drift until every file matches the schema', async ({
     )
     .toBe('elvisgastelum-com');
 
-  await expect(
-    page.getByText('Every env file matches the schema.'),
-  ).toBeVisible();
+  await expect(page.getByText('Every env file passes.')).toBeVisible();
 });
 
 test('applying one file from check keeps its result until Done', async ({
   portal: page,
 }) => {
-  // The file stops drifting once written and its "Apply <path>" button
+  // The file passes once written and its "Apply <path>" button
   // leaves the report; the dialog it opened must stay until Done.
   await navigate(page, 'Check');
   await page

@@ -11,7 +11,6 @@
     "files": "Files",
     "schema": "Schema",
     "check": "Check",
-    "validate": "Validate",
     "history": "History",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
@@ -42,7 +41,6 @@
     "files": "Files",
     "actions": "Actions",
     "runCheck": "Run check",
-    "runValidate": "Run validate",
     "theme": "Switch to the {{theme}} theme",
     "language": "Switch to {{language}}"
   },
@@ -108,16 +106,11 @@
     "health": {
       "title": "Health",
       "check": "Check",
-      "checkHint": "Do the env files match what the schema would write?",
-      "validate": "Validate",
-      "validateHint": "Do the values follow their rules?",
+      "checkHint": "Do the env files match the schema, and their values its rules?",
       "passing": "Passing",
-      "issues_one": "{{count}} issue",
-      "issues_other": "{{count}} issues",
       "errors_one": "{{count}} error",
       "errors_other": "{{count}} errors",
       "runCheck": "Run check",
-      "runValidate": "Run validate",
       "report": "Open the report",
       "failed": "Could not run: {{message}}"
     },
@@ -758,51 +751,55 @@
     }
   },
   "check": {
-    "lead": "The drift report of configure-env check, by file. Each item links to its variable and fixes in place: set the value, or apply the file.",
+    "lead": "Every problem configure-env check finds, by file: drift from the schema, values that break their rules, and keys the schema does not declare. Fix each in place: set the value, or apply the file.",
     "error": "The check could not run: {{message}}",
     "valuesError": "Values cannot be set right now: {{message}}",
     "loading": "Running check",
     "run": "Run check",
+    "announce": "Check finished: {{errors}}, {{warnings}}.",
     "applyAll": "Apply every file",
     "applyFile": "Apply {{path}}",
-    "passing": "Every env file matches the schema.",
-    "summary_one": "{{count}} file drifts from the schema.",
-    "summary_other": "{{count}} files drift from the schema.",
-    "summaryErrors": "Check found value errors.",
-    "valueErrors": "Value errors",
-    "nothing": "Nothing to fix.",
+    "applyPrune": "Apply {{path}} and prune",
+    "passing": "Every env file passes.",
+    "passes": "Passes",
+    "errors_one": "{{count}} error",
+    "errors_other": "{{count}} errors",
+    "warnings_one": "{{count}} warning",
+    "warnings_other": "{{count}} warnings",
+    "summary": {
+      "title": "Summary",
+      "failing_one": "{{failing}} of {{count}} file failing",
+      "failing_other": "{{failing}} of {{count}} files failing",
+      "jump": "Files with errors"
+    },
+    "planErrors": "Errors outside the files",
+    "filter": {
+      "label": "Show problems",
+      "all": "All",
+      "error": "Errors",
+      "warning": "Warnings"
+    },
+    "noMatch": "No problems match this filter.",
+    "severity": {
+      "error": "Error",
+      "warning": "Warning"
+    },
+    "fix": {
+      "apply": "Apply fixes it",
+      "prune": "Apply and prune fixes it"
+    },
+    "with": "With",
     "set": "Set",
     "setLabel": "Set {{name}} in {{file}}",
     "openFile": "Open {{path}}",
-    "item": {
-      "absent": "The file does not exist yet",
+    "code": {
+      "missing-file": "The file does not exist yet",
       "differs": "Its content differs from what apply writes",
-      "refused": "Refused: {{message}}",
-      "missing": "is missing",
-      "unknown": "is not in the schema",
+      "missing-key": "is missing",
       "mode": "Mode {{actual}}, the schema wants {{expected}}",
-      "line": "Line {{line}} is not a valid entry"
+      "invalid-line": "Line {{line}} is not a valid entry",
+      "unknown-key": "is not in the schema for this file"
     }
-  },
-  "validate": {
-    "lead": "The value and rule errors of configure-env validate, by file and variable. Fix a value in place; the report runs again after.",
-    "error": "Validate could not run: {{message}}",
-    "loading": "Running validate",
-    "run": "Run validate",
-    "passing": "Every value follows its rules.",
-    "errorCount_one": "{{count}} error",
-    "errorCount_other": "{{count}} errors",
-    "inFiles_one": "in {{count}} file.",
-    "inFiles_other": "in {{count}} files.",
-    "noErrors": "No errors.",
-    "fix": "Fix",
-    "fixLabel": "Fix {{name}} in {{file}}",
-    "with": "With",
-    "lines": "Lines",
-    "line": "Line {{line}} {{message}}",
-    "openFile": "Open {{path}}",
-    "file": "The file",
-    "warnings": "Warnings"
   },
   "history": {
     "lead": "Every change to the env files and the schema, from the portal or the CLI. Undo puts a change back only while the file still holds what it wrote.",

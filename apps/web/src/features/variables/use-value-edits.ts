@@ -25,7 +25,6 @@ import {
   checkQuery,
   filesQuery,
   unwrap,
-  validateQuery,
   variablesQuery,
 } from '../../lib/api';
 
@@ -71,7 +70,7 @@ function send(request: EditRequest, fingerprint: string | null) {
 /** Every read a value write can change. */
 export async function refreshAfterEdit(queryClient: QueryClient) {
   await Promise.all(
-    [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
+    [variablesQuery, filesQuery, checkQuery].map((query) =>
       queryClient.invalidateQueries({ queryKey: query.queryKey }),
     ),
   );

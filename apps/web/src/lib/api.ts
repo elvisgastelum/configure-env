@@ -11,11 +11,9 @@ import {
   getGetGroupsQueryKey,
   getGetProjectQueryKey,
   getGetSchemaQueryKey,
-  getGetValidateQueryKey,
   getGetVariablesQueryKey,
   getProject,
   getSchema,
-  getValidate,
   getVariables,
   readFileContent,
 } from '@configure-env/api-client';
@@ -84,11 +82,6 @@ export const checkQuery = queryOptions({
   queryFn: ({ signal }) => unwrap(getCheck(undefined, { signal })),
 });
 
-export const validateQuery = queryOptions({
-  queryKey: getGetValidateQueryKey(),
-  queryFn: ({ signal }) => unwrap(getValidate(undefined, { signal })),
-});
-
 /**
  * One file's lines, secrets masked, for its raw view. Under `files`, so a
  * write that refreshes the files refreshes it too.
@@ -102,8 +95,8 @@ export const fileContentQuery = (file: string) =>
 /** Every read a schema write can change, besides the schema itself. */
 export async function refreshAfterSchemaWrite(queryClient: QueryClient) {
   await Promise.all(
-    [variablesQuery, groupsQuery, filesQuery, checkQuery, validateQuery].map(
-      (query) => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+    [variablesQuery, groupsQuery, filesQuery, checkQuery].map((query) =>
+      queryClient.invalidateQueries({ queryKey: query.queryKey }),
     ),
   );
 }

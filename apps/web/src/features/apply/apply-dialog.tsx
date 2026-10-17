@@ -37,17 +37,21 @@ type Step = 'values' | 'preview' | 'confirm' | 'result';
 
 /**
  * `configure-env apply` in the portal: the needed values, the plan with its
- * diffs, a confirmation, then the result per file. Every file, or `files`.
+ * diffs, a confirmation, then the result per file. Every file, or `files`;
+ * with `prune`, the keys the schema does not declare are removed too.
  */
 export function ApplyDialog({
   open,
   onOpenChange,
   files,
+  prune = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Only these schema files; every file when absent. */
   files?: string[];
+  /** Remove the keys the schema does not declare, as `apply --prune`. */
+  prune?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -57,7 +61,11 @@ export function ApplyDialog({
         className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"
       >
         {open && (
-          <ApplyFlow files={files} onClose={() => onOpenChange(false)} />
+          <ApplyFlow
+            files={files}
+            prune={prune}
+            onClose={() => onOpenChange(false)}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -73,9 +81,11 @@ function conflictPlan(error: unknown): Plan | undefined {
 
 function ApplyFlow({
   files,
+  prune,
   onClose,
 }: {
   files?: string[];
+  prune: boolean;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -84,9 +94,14 @@ function ApplyFlow({
   const fileInfo = useQuery(filesQuery);
   const schema = useQuery(schemaQuery);
   const first = useQuery({
-    queryKey: ['apply', 'first-plan', files ?? null],
+    queryKey: ['apply', 'first-plan', files ?? null, prune],
     queryFn: ({ signal }) =>
-      unwrap(planChanges(files ? { files } : {}, { signal })),
+      unwrap(
+        planChanges(
+          { ...(files ? { files } : {}), ...(prune ? { prune } : {}) },
+          { signal },
+        ),
+      ),
     gcTime: 0,
   });
 
@@ -122,6 +137,7 @@ function ApplyFlow({
   const inputs = (replace: readonly string[]) => ({
     ...(Object.keys(values).length ? { values } : {}),
     ...(files ? { files } : {}),
+    ...(prune ? { prune } : {}),
     ...(replace.length ? { replaceProtected: [...replace] } : {}),
   });
 
@@ -317,11 +333,14 @@ function ApplyFlow({
  */
 export function ApplyButton({
   files,
+  prune,
   label,
   variant = 'default',
   show = true,
 }: {
   files?: string[];
+  /** Remove the keys the schema does not declare, as `apply --prune`. */
+  prune?: boolean;
   /** The button's text; Apply by default. */
   label?: string;
   variant?: 'default' | 'outline';
@@ -336,7 +355,12 @@ export function ApplyButton({
           {label ?? t('apply.open')}
         </Button>
       )}
-      <ApplyDialog open={open} onOpenChange={setOpen} files={files} />
+      <ApplyDialog
+        open={open}
+        onOpenChange={setOpen}
+        files={files}
+        prune={prune}
+      />
     </>
   );
 }

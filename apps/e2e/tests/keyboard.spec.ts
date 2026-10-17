@@ -41,11 +41,6 @@ const PAGES: {
     action: (page) => page.getByRole('button', { name: 'Run check' }),
   },
   {
-    path: '/validate',
-    heading: 'Validate',
-    action: (page) => page.getByRole('button', { name: 'Run validate' }),
-  },
-  {
     path: '/history',
     heading: 'History',
     action: (page) => page.getByRole('combobox', { name: 'File' }),

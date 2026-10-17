@@ -17,7 +17,6 @@ import {
   Layers,
   Palette,
   ScanSearch,
-  ShieldCheck,
   Variable,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,7 +25,6 @@ import {
   filesQuery,
   groupsQuery,
   schemaQuery,
-  validateQuery,
   variablesQuery,
 } from '../lib/api';
 import { LANGUAGES, currentLanguage, setLanguage } from '../i18n';
@@ -34,7 +32,7 @@ import { NAV_ITEMS } from '../lib/nav';
 
 /**
  * The ⌘K palette: every page, every variable, group and env file of the schema,
- * and the actions (run check or validate, switch the theme or the
+ * and the actions (run check, switch the theme or the
  * language). The shell owns its open state, so the header's search button
  * opens it too.
  */
@@ -157,16 +155,6 @@ export default function CommandMenu({
           >
             <ScanSearch aria-hidden="true" />
             {t('palette.runCheck')}
-          </CommandItem>
-          <CommandItem
-            value={`action ${t('palette.runValidate')}`}
-            onSelect={run(() => {
-              void queryClient.invalidateQueries(validateQuery);
-              void navigate({ to: '/validate' });
-            })}
-          >
-            <ShieldCheck aria-hidden="true" />
-            {t('palette.runValidate')}
           </CommandItem>
           {THEME_PREFERENCES.map((preference) => {
             const label = t('palette.theme', {

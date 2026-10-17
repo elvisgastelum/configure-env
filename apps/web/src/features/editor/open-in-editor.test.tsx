@@ -104,17 +104,17 @@ describe('Open in editor buttons', () => {
     );
   });
 
-  it('open the validation items: a variable at its entry, a bad line at its line', async () => {
+  it('open the check items: a variable at its entry, a bad line at its line', async () => {
     server.use(...scenarios.everyProblem);
     const sent = openRequests();
     const user = userEvent.setup();
-    await renderApp('/validate');
+    await renderApp('/check');
 
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Open DB_PASSWORD in .env in editor',
-      }),
-    );
+    // DB_PASSWORD breaks a rule and its protection: one button each.
+    const [password] = await screen.findAllByRole('button', {
+      name: 'Open DB_PASSWORD in .env in editor',
+    });
+    await user.click(password!);
     await user.click(
       screen.getByRole('button', { name: 'Open line 6 of .env in editor' }),
     );
@@ -255,10 +255,10 @@ describe('the o shortcut', () => {
     server.use(...scenarios.everyProblem);
     const sent = openRequests();
     const user = userEvent.setup();
-    await renderApp('/validate');
+    await renderApp('/check');
 
     (
-      await screen.findByRole('button', { name: 'Fix API_URL in .env' })
+      await screen.findByRole('button', { name: 'Set API_URL in .env' })
     ).focus();
     await user.keyboard('o');
 

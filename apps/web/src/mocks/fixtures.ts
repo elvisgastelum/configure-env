@@ -9,7 +9,6 @@ import type {
   Plan,
   Project,
   Schema,
-  Validate,
   Variables,
 } from '@configure-env/api-client';
 
@@ -358,17 +357,38 @@ export const everyActionPlan: Plan = {
   ],
 };
 
+/** The default check: one invalid value in `.env`. */
 export const check: Check = {
+  command: 'check',
   ok: false,
-  drift: true,
-  files: [],
-  errors: [{ kind: 'value', key: 'API_URL', message: 'is not a URL' }],
+  summary: { errors: 1, warnings: 0, files: 1, failing: 1 },
+  files: [
+    {
+      path: '.env',
+      policy: 'merge',
+      template: false,
+      status: 'current',
+      ok: false,
+      problems: [
+        {
+          severity: 'error',
+          code: 'invalid-value',
+          key: 'API_URL',
+          message: 'is not a URL',
+          shown: 'localhost:4000',
+          fix: 'set',
+        },
+      ],
+    },
+  ],
+  errors: [],
 };
 
-/** A drift report with every kind of item check gives, for the check page. */
-export const driftCheck: Check = {
+/** A report with one of every kind of problem check gives, for the check page. */
+export const checkReport: Check = {
+  command: 'check',
   ok: false,
-  drift: true,
+  summary: { errors: 7, warnings: 1, files: 3, failing: 2 },
   errors: [
     { kind: 'value', key: 'LOG_LEVEL', message: 'must be one of debug, info' },
   ],
@@ -376,126 +396,173 @@ export const driftCheck: Check = {
     {
       path: '.env',
       policy: 'merge',
+      template: false,
       status: 'missing-keys',
-      drift: true,
-      missingKeys: ['API_KEY'],
-      unknownKeys: ['EXTRA'],
-      invalid: [
-        { key: 'API_URL', message: 'is not a URL', shown: 'localhost:4000' },
-      ],
-      rules: [
-        {
-          rule: 'distinctFrom',
-          key: 'DB_PASSWORD',
-          others: ['API_KEY'],
-          message: 'must differ from API_KEY',
-        },
-      ],
-      invalidLines: [6],
-      protected: [
-        {
-          kind: 'protected',
-          key: 'DB_PASSWORD',
-          message: 'no longer matches the value the state recorded',
-          reason: 'The database was created with it.',
-        },
-      ],
       mode: { actual: '644', expected: '600' },
-    },
-    {
-      path: '.env.example',
-      policy: 'generate',
-      status: 'current',
-      drift: false,
-      missingKeys: [],
-      unknownKeys: [],
-      invalid: [],
-      rules: [],
-      invalidLines: [],
-      protected: [],
-    },
-    {
-      path: 'config/app.env',
-      policy: 'generate',
-      status: 'missing',
-      drift: true,
-      missingKeys: [],
-      unknownKeys: [],
-      invalid: [],
-      rules: [],
-      invalidLines: [],
-      protected: [],
-    },
-  ],
-};
-
-export const validate: Validate = {
-  ok: false,
-  files: [
-    {
-      path: '.env',
-      template: false,
-      exists: true,
       ok: false,
-      errors: [{ key: 'API_URL', message: 'is not a URL' }],
-      warnings: [],
-    },
-  ],
-};
-
-/** A validate report with value, rule, protected and line errors. */
-export const validationReport: Validate = {
-  ok: false,
-  files: [
-    {
-      path: '.env',
-      template: false,
-      exists: true,
-      ok: false,
-      errors: [
-        { key: 'API_URL', message: 'is not a URL' },
+      problems: [
         {
+          severity: 'error',
+          code: 'mode',
+          message: 'mode 644, expected 600',
+          fix: 'apply',
+        },
+        {
+          severity: 'error',
+          code: 'missing-key',
+          key: 'API_KEY',
+          message: 'is missing',
+          fix: 'apply',
+        },
+        {
+          severity: 'error',
+          code: 'invalid-line',
+          line: 6,
+          message: 'is not a valid entry',
+        },
+        {
+          severity: 'error',
+          code: 'invalid-value',
+          key: 'API_URL',
+          message: 'is not a URL',
+          shown: 'localhost:4000',
+          fix: 'set',
+        },
+        {
+          severity: 'error',
+          code: 'rule',
           key: 'DB_PASSWORD',
           keys: ['DB_PASSWORD', 'API_KEY'],
           message: 'must differ from API_KEY',
+          fix: 'set',
         },
         {
-          kind: 'protected',
+          severity: 'error',
+          code: 'protected',
           key: 'DB_PASSWORD',
-          message: 'no longer matches the value the state recorded',
+          message: 'no longer matches the value recorded on 2026-09-30',
           reason: 'The database was created with it.',
         },
-        { line: 6, message: 'is not a valid entry' },
+        {
+          severity: 'warning',
+          code: 'unknown-key',
+          key: 'EXTRA',
+          message: 'is not in the schema for this file',
+          fix: 'prune',
+        },
       ],
-      warnings: [{ key: 'EXTRA', message: 'is not in the schema' }],
     },
     {
       path: '.env.example',
+      policy: 'generate',
       template: true,
-      exists: true,
+      status: 'current',
       ok: true,
-      errors: [],
-      warnings: [],
+      problems: [],
     },
     {
       path: 'config/app.env',
+      policy: 'generate',
       template: false,
-      exists: true,
+      status: 'missing',
       ok: false,
-      errors: [{ key: 'PORT', message: 'must be a port between 1 and 65535' }],
-      warnings: [],
+      problems: [
+        {
+          severity: 'error',
+          code: 'missing-file',
+          message: 'missing',
+          fix: 'apply',
+        },
+      ],
     },
   ],
 };
 
-export const passingCheck: Check = {
+/** Only warnings: unknown keys, which do not fail the check. */
+export const warningsCheck: Check = {
+  command: 'check',
   ok: true,
-  drift: false,
+  summary: { errors: 0, warnings: 2, files: 2, failing: 0 },
+  errors: [],
+  files: [
+    {
+      path: '.env',
+      policy: 'merge',
+      template: false,
+      status: 'current',
+      ok: true,
+      problems: [
+        {
+          severity: 'warning',
+          code: 'unknown-key',
+          key: 'EXTRA',
+          message: 'is not in the schema for this file',
+          fix: 'prune',
+        },
+        {
+          severity: 'warning',
+          code: 'unknown-key',
+          key: 'LEGACY_TOKEN',
+          message: 'is not in the schema for this file',
+          fix: 'prune',
+        },
+      ],
+    },
+    {
+      path: '.env.example',
+      policy: 'generate',
+      template: true,
+      status: 'current',
+      ok: true,
+      problems: [],
+    },
+  ],
+};
+
+/** `count` env files, every fifth one failing on an invalid port. */
+export function manyFilesCheck(count = 24): Check {
+  const files = Array.from(
+    { length: count },
+    (_, index): Check['files'][number] => {
+      const failing = index % 5 === 0;
+      return {
+        path: `services/service-${String(index + 1).padStart(2, '0')}.env`,
+        policy: 'merge',
+        template: false,
+        status: 'current',
+        ok: !failing,
+        problems: failing
+          ? [
+              {
+                severity: 'error',
+                code: 'invalid-value',
+                key: 'PORT',
+                message: 'must be a port between 1 and 65535',
+                shown: 'http',
+                fix: 'set',
+              },
+            ]
+          : [],
+      };
+    },
+  );
+  const failing = files.filter((file) => !file.ok).length;
+  return {
+    command: 'check',
+    ok: failing === 0,
+    summary: { errors: failing, warnings: 0, files: count, failing },
+    errors: [],
+    files,
+  };
+}
+
+export const passingCheck: Check = {
+  command: 'check',
+  ok: true,
+  summary: { errors: 0, warnings: 0, files: 0, failing: 0 },
   files: [],
   errors: [],
 };
-
-export const passingValidate: Validate = { ok: true, files: [] };
 
 /** A large schema: `count` string variables, a group per hundred. */
 export function manyVariables(count: number): Variables['variables'] {
