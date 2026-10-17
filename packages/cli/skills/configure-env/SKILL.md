@@ -11,7 +11,7 @@ metadata:
 
 Use this skill whenever a task creates, reads, changes or checks env files (`.env`, `.env.example`, `*.env`) or `env.schema.json`, the source of truth for the files, their policies and the variables' rules. The CLI validates every value, writes atomically with the schema mode, and keeps every byte it does not change.
 
-When the `configure-env` MCP server's tools are available (`list_variables`, `check`, `set_values`, `generate_secret`, `request_secret`…), prefer them to the CLI: they follow the same rules and never return a secret. Relay what `request_secret` answers to the user; never ask them to paste a secret into the chat. Register the server with `install mcp`.
+When the `configure-env` MCP server's tools are available (`list_variables`, `check`, `set_values`, `generate_secret`, `request_secret`…), prefer them to the CLI: they follow the same rules and never return a secret. Relay what `request_secret` answers to the user; never ask them to paste a secret into the chat. Every tool takes an optional `env`, an environment `configure-env env add` stored, to work on that server's project instead of this one. Register the server with `install mcp`.
 
 Otherwise invoke it as `pnpm exec configure-env` when `@elvisgastelum/configure-env` is a dependency, else `npx --yes @elvisgastelum/configure-env`, from the project root (or `--root <dir>`).
 

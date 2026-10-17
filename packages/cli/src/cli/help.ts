@@ -649,6 +649,12 @@ generates (generate_secret, apply's generate), or one the user types in a
 terminal with the command request_secret answers, which runs from any
 folder: configure-env set --root <root> --prompt KEY.
 
+Every tool takes an optional env, an environment configure-env env add
+stored, passed on as --env: the tool then works on that server's project
+through the configure-env API, without the --root, --schema and --state
+the server was started with. request_secret then answers the command to
+run from this folder: configure-env set --env <name> --prompt KEY.
+
 Register it with configure-env install mcp, or in an agent's MCP
 configuration as the command configure-env with the argument mcp.
 
