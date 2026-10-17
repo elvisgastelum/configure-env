@@ -11,6 +11,11 @@ import { STATE, holdState, readState, useProject } from './test-helpers.ts';
 
 const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));
 const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+// set runs the API in-process, whose Nest decorators are TypeScript's
+// legacy ones: tsx reads them from the API's tsconfig, as `pnpm start` does.
+const TSCONFIG = fileURLToPath(
+  new URL('../../../../apps/api/tsconfig.json', import.meta.url),
+);
 
 const dirs = useProject({
   version: 1,
@@ -21,7 +26,10 @@ const dirs = useProject({
 it('waits for a held write transaction, then records the fingerprint', async () => {
   const state = join(dirs.root, STATE);
   const release = await holdState(state);
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSX_TSCONFIG_PATH: TSCONFIG,
+  };
   delete env.INIT_CWD;
   const child = spawn(
     process.execPath,
