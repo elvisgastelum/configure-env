@@ -795,6 +795,7 @@ The toolchain is [Vite+](https://viteplus.dev): packages depend on `vite-plus`, 
 | `pnpm build`           | bundle `packages/cli/src/` and `@configure-env/core` into `packages/cli/dist/` with `vp pack` (JavaScript, declarations and source maps), the API into `apps/api/dist/`, and the portal into `apps/web/dist/` |
 | `pnpm smoke`           | pack the package, install the tarball in a temporary project and run the CLI through `npx`, `serve` included |
 | `pnpm link:local`      | build, then `npm link` so `configure-env` is on your PATH without publishing |
+| `pnpm relink:local`    | rebuild every package with the task cache off, then `npm link` again: use it when the link looks stale |
 | `pnpm unlink:local`    | remove that global link                                              |
 | `pnpm storybook`       | start the design system's Storybook on port 6007                     |
 | `pnpm build-storybook` | build the design system's Storybook to `packages/design-system/storybook-static/` |
@@ -805,7 +806,7 @@ The toolchain is [Vite+](https://viteplus.dev): packages depend on `vite-plus`, 
 | `pnpm e2e:screenshots` | regenerate the README's portal screenshots in `docs/portal/`          |
 | `pnpm changeset`       | describe a change for the next release                               |
 
-The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.
+The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source, or `pnpm relink:local` to rebuild everything from scratch (no cached task output, the portal included). It belongs to the active Node version: re-run it after switching versions.
 
 CI sets up Vite+, Node.js and pnpm with `voidzero-dev/setup-vp`, then runs `vp check` (format and lint), typecheck, schema:check, gen:api:check and test on every pull request and on every push to `main`, then builds the package and runs `pnpm smoke` on Linux, macOS and Windows with Node 22 and 24 (the smoke test installs with `--ignore-scripts`, so better-sqlite3 must load its prebuilt binary), and `npm publish --dry-run` once. It restores and saves the Vite Task cache between runs, so unchanged tasks are replayed. A third job builds the design system's Storybook and runs `pnpm test:storybook`, then builds the portal's Storybook.
 
