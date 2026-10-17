@@ -58,7 +58,7 @@ import {
 import type { Project } from './project.ts';
 import { currentSchema } from './schema.ts';
 import { protectedState } from './state.ts';
-import { EDITOR, EditorController } from './editor.controller.ts';
+import { EDITOR, EditorController, LOCAL_HOSTS } from './editor.controller.ts';
 import type { EditorLauncher } from './editor.ts';
 import { EventsController } from './events.controller.ts';
 import { HistoryController } from './history.controller.ts';
@@ -276,11 +276,15 @@ export class ProjectController {
   }
 }
 
-/** The module for a bound project; `editor` opens a file in the user's editor. */
+/**
+ * The module for a bound project; `editor` opens a file in the user's
+ * editor, and `localHosts` are the Host values of the listening address.
+ */
 export function apiModule(
   project: Project,
   version: string,
   editor: EditorLauncher,
+  localHosts: () => ReadonlySet<string>,
 ) {
   @Module({
     controllers: [
@@ -296,6 +300,7 @@ export function apiModule(
       { provide: PROJECT, useValue: project },
       { provide: VERSION, useValue: version },
       { provide: EDITOR, useValue: editor },
+      { provide: LOCAL_HOSTS, useValue: localHosts },
       { provide: ProjectEvents, useValue: new ProjectEvents(project) },
     ],
   })

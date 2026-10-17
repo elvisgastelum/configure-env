@@ -20,6 +20,13 @@ export interface SecurityOptions {
   hosts: () => ReadonlySet<string>;
   /** The cookie name; it carries the port, as cookies are not port-scoped. */
   cookie: () => string;
+  /**
+   * The origins (`scheme://host[:port]`) the Origin header may hold; known
+   * once listening. Without it, `http://` followed by one of the hosts.
+   */
+  origins?: () => ReadonlySet<string>;
+  /** Marks the session cookie Secure: the browser reaches the server over HTTPS. */
+  secure?: boolean;
 }
 
 type Request = IncomingMessage & { originalUrl?: string };
@@ -71,7 +78,7 @@ export function securityMiddleware(options: SecurityOptions) {
       );
 
     const origin = req.headers.origin;
-    if (origin !== undefined && !hosts.has(originHost(origin)))
+    if (origin !== undefined && !allowedOrigin(origin, hosts, options))
       return deny(
         res,
         403,
@@ -117,14 +124,21 @@ export function securityMiddleware(options: SecurityOptions) {
   };
 }
 
-/** `http://host:port` as `host:port`; never a member of the allowed set otherwise. */
-function originHost(origin: string): string {
+/** Whether an Origin header names this server: one of the allowed origins. */
+function allowedOrigin(
+  origin: string,
+  hosts: ReadonlySet<string>,
+  options: SecurityOptions,
+): boolean {
+  let url: URL;
   try {
-    const url = new URL(origin);
-    return url.protocol === 'http:' && url.pathname === '/' ? url.host : '';
+    url = new URL(origin);
   } catch {
-    return '';
+    return false;
   }
+  if (url.pathname !== '/') return false;
+  if (options.origins) return options.origins().has(url.origin);
+  return url.protocol === 'http:' && hosts.has(url.host);
 }
 
 const unauthorized = (res: ServerResponse) =>
@@ -192,7 +206,7 @@ function launch(
     Location: '/',
     'Cache-Control': 'no-store',
     'Referrer-Policy': 'no-referrer',
-    'Set-Cookie': `${options.cookie()}=${encodeURIComponent(options.token)}; HttpOnly; SameSite=Strict; Path=/`,
+    'Set-Cookie': `${options.cookie()}=${encodeURIComponent(options.token)}; HttpOnly; SameSite=Strict; Path=/${options.secure ? '; Secure' : ''}`,
   });
   res.end();
 }
