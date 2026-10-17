@@ -8,6 +8,7 @@ import { openDrawer, rowOf, useTheme, variablesOf } from '../src/portal.ts';
 const ROUTES = [
   '/',
   '/variables',
+  '/groups',
   '/files',
   '/schema',
   '/check',

@@ -32,6 +32,7 @@ import type {
   fileInfo,
   fileValue,
   filesResponse,
+  groupsResponse,
   revealResponse,
   validateResponse,
   variablesResponse,
@@ -102,6 +103,34 @@ const ruleMessage = (problem: RuleProblem) =>
   problem.rule === 'conflictsWith'
     ? `set only one of ${ruleKeys(problem).join(', ')}`
     : problem.message;
+
+type Group = z.output<typeof groupsResponse>['groups'][number];
+
+/** The variables by group heading, in schema order; the ungrouped ones last. */
+export function listGroups(schema: EnvSchema): z.output<typeof groupsResponse> {
+  const groups = new Map<string | null, Group>();
+  for (const [name, spec] of Object.entries(schema.variables)) {
+    const heading = spec.group ?? null;
+    let group = groups.get(heading);
+    if (!group) {
+      group = {
+        name: heading,
+        variables: [],
+        required: 0,
+        secret: 0,
+        protected: 0,
+      };
+      groups.set(heading, group);
+    }
+    group.variables.push(name);
+    if (spec.required) group.required++;
+    if (spec.secret) group.secret++;
+    if (spec.protected !== undefined) group.protected++;
+  }
+  const ungrouped = groups.get(null);
+  groups.delete(null);
+  return { groups: [...groups.values(), ...(ungrouped ? [ungrouped] : [])] };
+}
 
 /** Each variable's spec and its status in every file that lists it. */
 export async function listVariables(

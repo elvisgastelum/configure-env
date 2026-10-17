@@ -27,7 +27,14 @@ import { useShortcuts } from './use-shortcuts';
 import { VariablesToolbar } from './variables-toolbar';
 
 /** Every variable: find it, understand it, and see its value per file. */
-export function VariablesPage({ focus }: { focus?: string }) {
+export function VariablesPage({
+  focus,
+  group,
+}: {
+  focus?: string;
+  /** The group to filter to first; null for the ungrouped variables. */
+  group?: string | null;
+}) {
   const { t } = useTranslation();
   const schema = useQuery(schemaQuery);
   const status = schema.data ? schemaStatus(schema.data) : undefined;
@@ -50,22 +57,31 @@ export function VariablesPage({ focus }: { focus?: string }) {
       {status === 'invalid' && schema.data && (
         <InvalidSchema schema={schema.data} />
       )}
-      {status === 'valid' && <VariablesBrowser focus={focus} />}
+      {status === 'valid' && <VariablesBrowser focus={focus} group={group} />}
     </div>
   );
 }
 
-function VariablesBrowser({ focus }: { focus?: string }) {
+function VariablesBrowser({
+  focus,
+  group,
+}: {
+  focus?: string;
+  group?: string | null;
+}) {
   const { t } = useTranslation();
   const variables = useQuery(variablesQuery);
   const files = useQuery(filesQuery);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() =>
+    group === undefined ? EMPTY_FILTERS : { ...EMPTY_FILTERS, group },
+  );
   const [sort, setSort] = useState<SortOrder>('schema');
   const [selected, setSelected] = useState<string | undefined>(focus);
   const [opened, setOpened] = useState<string | undefined>(focus);
   // The value being edited: a file of the opened variable.
   const [editing, setEditing] = useState<string>();
   const [lastFocus, setLastFocus] = useState(focus);
+  const [lastGroup, setLastGroup] = useState(group);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // A new palette jump selects its variable.
@@ -76,6 +92,12 @@ function VariablesBrowser({ focus }: { focus?: string }) {
       setOpened(focus);
       setEditing(undefined);
     }
+  }
+
+  // A new group link filters to its group.
+  if (group !== lastGroup) {
+    setLastGroup(group);
+    if (group !== undefined) setFilters({ ...EMPTY_FILTERS, group });
   }
 
   const list = useMemo(() => variables.data?.variables ?? [], [variables.data]);

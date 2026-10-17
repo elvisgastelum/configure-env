@@ -91,6 +91,36 @@
         "tags": ["project"]
       }
     },
+    "/api/groups": {
+      "get": {
+        "operationId": "getGroups",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Groups"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The schema is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidSchema"
+                }
+              }
+            }
+          }
+        },
+        "summary": "The variables by group heading, with their counts; the ungrouped last",
+        "tags": ["project"]
+      }
+    },
     "/api/files": {
       "get": {
         "operationId": "getFiles",
@@ -2094,6 +2124,53 @@
           }
         },
         "required": ["file", "status"],
+        "additionalProperties": false
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "nullable": true,
+            "description": "The group heading; null for the variables without one.",
+            "type": "string"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its variable names, in schema order."
+          },
+          "required": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "secret": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "protected": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["name", "variables", "required", "secret", "protected"],
+        "additionalProperties": false
+      },
+      "Groups": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Group"
+            }
+          }
+        },
+        "required": ["groups"],
         "additionalProperties": false
       },
       "Health": {

@@ -107,6 +107,22 @@ describe('the variables table', () => {
     expect(rowNames()).toHaveLength(5);
   });
 
+  it('starts filtered to the group the link names', async () => {
+    const { user } = await openVariables('/variables?group=Network');
+
+    expect(rowNames()).toEqual(['API_URL', 'PORT']);
+    expect(screen.getByRole('combobox', { name: 'Group' })).toHaveTextContent(
+      'Network',
+    );
+    await choose(user, 'Group', 'Any group');
+    expect(rowNames()).toHaveLength(5);
+  });
+
+  it('starts filtered to the ungrouped variables', async () => {
+    await openVariables('/variables?group=null');
+    expect(rowNames()).toEqual(['API_KEY', 'LOG_LEVEL']);
+  });
+
   it('filters by the required, secret and protected flags', async () => {
     const { user } = await openVariables();
 

@@ -27,6 +27,7 @@ import { useTranslation } from 'react-i18next';
 import {
   checkQuery,
   filesQuery,
+  groupsQuery,
   schemaQuery,
   unwrap,
   validateQuery,
@@ -62,7 +63,13 @@ function useInitSchema() {
       );
       written.warnings?.forEach((warning) => toast.warning(warning));
       await Promise.all(
-        [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
+        [
+          variablesQuery,
+          groupsQuery,
+          filesQuery,
+          checkQuery,
+          validateQuery,
+        ].map((query) =>
           queryClient.invalidateQueries({ queryKey: query.queryKey }),
         ),
       );

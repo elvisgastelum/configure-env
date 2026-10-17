@@ -75,6 +75,28 @@ describe('navigation', () => {
     expect(router.state.location.search).toEqual({ focus: 'config/app.env' });
   });
 
+  it('jumps to a group from the palette', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+
+    await user.keyboard('{Control>}k{/Control}');
+    const palette = await screen.findByRole('dialog', {
+      name: 'Command palette',
+    });
+    const groups = await within(palette).findByRole('group', {
+      name: 'Groups',
+    });
+    await user.click(within(groups).getByText('Database'));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Groups' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.search).toEqual({ focus: 'Database' });
+    expect(
+      await screen.findByRole('article', { name: 'Database' }),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
   it('switches the theme from the palette', async () => {
     const user = userEvent.setup();
     await renderApp();

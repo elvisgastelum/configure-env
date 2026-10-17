@@ -33,28 +33,18 @@
   },
   "palette": {
     "title": "Command palette",
-    "description": "Jump to any page, variable or file, or run an action.",
+    "description": "Jump to any page, variable, group or file, or run an action.",
     "placeholder": "Type a variable, a file or an action…",
     "empty": "Nothing matches.",
     "pages": "Pages",
     "variables": "Variables",
+    "groups": "Groups",
     "files": "Files",
     "actions": "Actions",
     "runCheck": "Run check",
     "runValidate": "Run validate",
     "theme": "Switch to the {{theme}} theme",
     "language": "Switch to {{language}}"
-  },
-  "placeholder": {
-    "soon": "Coming soon",
-    "focus": "Jumped to {{name}}.",
-    "variables": "Every variable with its spec and its value in each file.",
-    "groups": "Variables by their group heading.",
-    "files": "Each env file with its policy, mode, drift and parse errors.",
-    "schema": "The schema document and its errors.",
-    "check": "The drift report of configure-env check.",
-    "validate": "The rule and value errors of configure-env validate.",
-    "history": "Every change to the env files and the schema, with undo."
   },
   "theme": {
     "label": "Theme",
@@ -622,6 +612,35 @@
       "close": "Close",
       "errors": "The schema refuses this edit:"
     }
+  },
+  "groups": {
+    "lead": "The variables by their group heading: what each group holds, and what is wrong with its values.",
+    "error": "The groups could not load: {{message}}",
+    "loading": "Loading the groups",
+    "empty": "The schema has no variables yet.",
+    "ungrouped": "Ungrouped",
+    "count_one": "{{count}} variable",
+    "count_other": "{{count}} variables",
+    "flags": {
+      "required_one": "{{count}} required",
+      "required_other": "{{count}} required",
+      "secret_one": "{{count}} secret",
+      "secret_other": "{{count}} secrets",
+      "protected_one": "{{count}} protected",
+      "protected_other": "{{count}} protected"
+    },
+    "problems": {
+      "missing_one": "{{count}} missing",
+      "missing_other": "{{count}} missing",
+      "invalid_one": "{{count}} invalid",
+      "invalid_other": "{{count}} invalid",
+      "drift_one": "{{count}} drift",
+      "drift_other": "{{count}} drift"
+    },
+    "allSet": "All set",
+    "members": "Variables in {{name}}",
+    "view": "View {{name}} in Variables",
+    "viewShort": "View"
   },
   "files": {
     "lead": "Each env file the schema lists: its policy, mode and drift. Open one to see its entries and its raw text.",
