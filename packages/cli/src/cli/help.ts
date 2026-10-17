@@ -50,8 +50,9 @@ terminal UI or unattended with --ci.
 
 Commands:
   apply     write the env files the schema describes (the default)
-  check     change nothing; report every problem by file: drift, invalid
-            values and lines, broken rules, unknown keys
+  check     report every problem by file: drift, invalid values and
+            lines, broken rules, unknown keys, what git does not ignore;
+            changes nothing but the git-ignore lines it may fix
   init      write a starting env.schema.json, inferred from .env.example
   set       set variables in one file, keeping every other line
   get       print one variable's value
@@ -133,8 +134,8 @@ ${EXIT_CODES}`;
 
 export const CHECK_HELP = `Usage: configure-env check [options]
 
-Changes nothing. Prints one report of every problem, by file in schema
-order, each an error or a warning:
+Changes nothing, unless it fixes git-ignore problems. Prints one report of
+every problem, by file in schema order, each an error or a warning:
 
   missing        a file that does not exist (create-only and templates too)
   differs        a generated file whose content differs from the schema
@@ -152,6 +153,18 @@ order, each an error or a warning:
   unknown key    a key the schema does not list for the file: a warning,
                  an error with --strict; apply --prune removes it
 
+Then what git could commit that it must not, each an error:
+
+  state not ignored  the state folder (.configure-env/) has no .gitignore
+                     of its own, or it lacks one of the state's files
+  not ignored        in a git work tree, an env file that holds real
+                     values (not a template) the repository does not ignore
+
+In a terminal it offers to fix them, each selected first; --fix fixes
+them without asking. A fix adds the missing lines: to the state folder's
+.gitignore, or /<path> to the root's. A .gitignore that is a symlink is
+never written.
+
 Templates hold placeholders, so only their lines and keys are checked.
 Messages never show a value. Without --json, one line per problem,
 \`path: ok\` for a file without any, then the counts. Exits 1 on any
@@ -165,6 +178,7 @@ Options:
   --set KEY=VALUE  a value to compare with; repeat for more
   --use-env        compare with the environment variables too
   --strict         report the keys the schema does not list as errors
+  --fix            add the missing git-ignore lines without asking
 
 ${GLOBAL}
 
@@ -174,6 +188,7 @@ Examples:
   configure-env check --ci --strict
   configure-env check --file .env --strict
   configure-env check --ci --json
+  configure-env check --ci --fix
 
 ${EXIT_CODES}`;
 

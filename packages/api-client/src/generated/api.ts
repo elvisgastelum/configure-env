@@ -326,6 +326,49 @@ export interface FileCheck {
   problems: Problem[];
 }
 
+export type GitignoreProblemSeverity =
+  (typeof GitignoreProblemSeverity)[keyof typeof GitignoreProblemSeverity];
+
+export const GitignoreProblemSeverity = {
+  error: 'error',
+} as const;
+
+/**
+ * state-not-ignored: the state folder's own .gitignore is missing or lacks a state file; file-not-ignored: in a git work tree, an env file holding real values the repository does not ignore.
+ */
+export type GitignoreProblemCode =
+  (typeof GitignoreProblemCode)[keyof typeof GitignoreProblemCode];
+
+export const GitignoreProblemCode = {
+  'state-not-ignored': 'state-not-ignored',
+  'file-not-ignored': 'file-not-ignored',
+} as const;
+
+/**
+ * Why it is not fixed automatically: that .gitignore is a symlink.
+ */
+export type GitignoreProblemBlocked =
+  (typeof GitignoreProblemBlocked)[keyof typeof GitignoreProblemBlocked];
+
+export const GitignoreProblemBlocked = {
+  symlink: 'symlink',
+} as const;
+
+export interface GitignoreProblem {
+  severity: GitignoreProblemSeverity;
+  /** state-not-ignored: the state folder's own .gitignore is missing or lacks a state file; file-not-ignored: in a git work tree, an env file holding real values the repository does not ignore. */
+  code: GitignoreProblemCode;
+  /** The state folder or the env file, relative to the root. */
+  path: string;
+  /** The .gitignore the fix writes, relative to the root. */
+  gitignore: string;
+  /** The lines the fix adds. */
+  entries: string[];
+  message: string;
+  /** Why it is not fixed automatically: that .gitignore is a symlink. */
+  blocked?: GitignoreProblemBlocked;
+}
+
 export type PlanErrorKind = (typeof PlanErrorKind)[keyof typeof PlanErrorKind];
 
 export const PlanErrorKind = {
@@ -347,6 +390,8 @@ export interface Check {
   ok: boolean;
   summary: CheckSummary;
   files: FileCheck[];
+  /** What git could commit that it must not; each an error. */
+  gitignore: GitignoreProblem[];
   errors: PlanError[];
 }
 
@@ -564,6 +609,26 @@ export interface FileValue {
   value?: string;
   /** Why it is invalid; never holds the value. */
   error?: string;
+}
+
+export interface GitignoreFix {
+  gitignore: string;
+  created: boolean;
+  /** The lines it added. */
+  added: string[];
+}
+
+export interface FixGitignore {
+  /** Each .gitignore written; a problem it may not fix is left. */
+  fixed: GitignoreFix[];
+  check: Check;
+}
+
+export interface FixGitignoreRequest {
+  /** The git-ignore problems to fix, by their path; every one when absent. */
+  paths?: string[];
+  /** Treat keys the schema does not list for a file as errors in the check it answers. */
+  strict?: boolean;
 }
 
 export interface Group {
@@ -3184,6 +3249,160 @@ export function useGetCheck<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export type fixGitignoreResponse200 = {
+  data: FixGitignore;
+  status: 200;
+};
+
+export type fixGitignoreResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type fixGitignoreResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type fixGitignoreResponseSuccess = fixGitignoreResponse200 & {
+  headers: Headers;
+};
+export type fixGitignoreResponseError = (
+  | fixGitignoreResponse422
+  | fixGitignoreResponse503
+) & {
+  headers: Headers;
+};
+
+export type fixGitignoreResponse =
+  | fixGitignoreResponseSuccess
+  | fixGitignoreResponseError;
+
+export const getFixGitignoreUrl = () => {
+  return `/api/check/gitignore`;
+};
+
+/**
+ * @summary Adds the missing git-ignore lines the check reports, as configure-env check --fix does; answers the check after
+ */
+export const fixGitignore = async (
+  fixGitignoreRequest: FixGitignoreRequest,
+  options?: RequestInit,
+): Promise<fixGitignoreResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  const res = await fetch(getFixGitignoreUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(fixGitignoreRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: fixGitignoreResponse['data'] = body ? JSON.parse(body) : {};
+  return {
+    data,
+    status: res.status,
+    headers: res.headers,
+  } as fixGitignoreResponse;
+};
+
+export const getFixGitignoreMutationKey = () => ['fixGitignore'] as const;
+
+export const getFixGitignoreMutationOptions = <
+  TError = InvalidSchema | ApiError,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fixGitignore>>,
+    TError,
+    FixGitignoreMutationVariables,
+    TContext
+  >;
+  fetch?: RequestInit;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof fixGitignore>>,
+  TError,
+  FixGitignoreMutationVariables,
+  TContext
+> => {
+  const mutationKey = getFixGitignoreMutationKey();
+  const { mutation: mutationOptions, fetch: fetchOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, fetch: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof fixGitignore>>,
+    FixGitignoreMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return fixGitignore(data, fetchOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FixGitignoreMutationResult = NonNullable<
+  Awaited<ReturnType<typeof fixGitignore>>
+>;
+export type FixGitignoreMutationBody = FixGitignoreRequest;
+export type FixGitignoreMutationError = InvalidSchema | ApiError;
+export type FixGitignoreMutationVariables = { data: FixGitignoreRequest };
+
+/**
+ * @summary Adds the missing git-ignore lines the check reports, as configure-env check --fix does; answers the check after
+ */
+export const useFixGitignore = <
+  TError = InvalidSchema | ApiError,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof fixGitignore>>,
+      TError,
+      FixGitignoreMutationVariables,
+      TContext
+    >;
+    fetch?: RequestInit;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof fixGitignore>>,
+  TError,
+  FixGitignoreMutationVariables,
+  TContext
+> => {
+  return useMutation(getFixGitignoreMutationOptions(options), queryClient);
+};
 
 export type setValuesResponse200 = {
   data: ValuesEdit;

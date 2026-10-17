@@ -751,7 +751,7 @@
     }
   },
   "check": {
-    "lead": "Every problem configure-env check finds, by file: drift from the schema, values that break their rules, and keys the schema does not declare. Fix each in place: set the value, or apply the file.",
+    "lead": "Every problem configure-env check finds, by file: drift from the schema, values that break their rules, keys the schema does not declare, and what git could commit. Fix each in place: set the value, apply the file, or add the git-ignore lines.",
     "error": "The check could not run: {{message}}",
     "valuesError": "Values cannot be set right now: {{message}}",
     "loading": "Running check",
@@ -799,6 +799,23 @@
       "mode": "Mode {{actual}}, the schema wants {{expected}}",
       "invalid-line": "Line {{line}} is not a valid entry",
       "unknown-key": "is not in the schema for this file"
+    },
+    "gitignore": {
+      "title": "What git could commit",
+      "lead": "Files git would commit that hold this machine's state or real values. Each fix adds the lines shown to a .gitignore, as configure-env check --fix does.",
+      "fix": "Fix",
+      "fixLabel": "Fix {{path}}",
+      "fixAll": "Fix all",
+      "adds": "Fixing adds {{entries}} to {{gitignore}}.",
+      "symlink": "{{gitignore}} is a symlink, so it is not written: add {{entries}} to it yourself.",
+      "created": "Created {{gitignore}} with {{entries}}.",
+      "added": "Added {{entries}} to {{gitignore}}.",
+      "nothing": "Nothing was left to fix.",
+      "error": "The fix failed: {{message}}",
+      "code": {
+        "state-not-ignored": "does not keep the state out of git.",
+        "file-not-ignored": "is not git-ignored, so its values could be committed."
+      }
     }
   },
   "history": {

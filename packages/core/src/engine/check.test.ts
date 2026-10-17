@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -330,6 +331,39 @@ describe('checkDrift', () => {
       ok: false,
       errors: [{ kind: 'value', key: 'PORT' }],
     });
+  });
+});
+
+describe('checkDrift and git', () => {
+  it('reports each git-ignore problem as an error, failing the report', async () => {
+    const result = spawnSync('git', ['init', '-q'], { cwd: root() });
+    expect(result.status).toBe(0);
+    await applied();
+    await writeFile(join(root(), '.gitignore'), '/gen/app.env\n');
+    await mkdir(join(root(), '.configure-env'));
+    const report = await check();
+    expect(report.gitignore.map((p) => [p.code, p.path])).toEqual([
+      ['state-not-ignored', '.configure-env'],
+      ['file-not-ignored', 'merge.env'],
+      ['file-not-ignored', 'local.env'],
+    ]);
+    expect(report).toMatchObject({
+      ok: false,
+      summary: { errors: 3, warnings: 0, files: 3, failing: 0 },
+    });
+  });
+
+  it('checks the state directory the state path names', async () => {
+    await applied();
+    await mkdir(join(root(), 'other', '.configure-env'), { recursive: true });
+    const report = await checkDrift({
+      schema: testSchema(),
+      root: root(),
+      statePath: 'other/.configure-env/state.db',
+    });
+    expect(report.gitignore.map((p) => p.path)).toEqual([
+      'other/.configure-env',
+    ]);
   });
 });
 

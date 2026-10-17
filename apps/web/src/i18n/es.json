@@ -777,7 +777,7 @@
     }
   },
   "check": {
-    "lead": "Cada problema que encuentra configure-env check, por archivo: desviaciones del esquema, valores que incumplen sus reglas y claves que el esquema no declara. Corrige cada uno ahí mismo: define el valor o aplica el archivo.",
+    "lead": "Cada problema que encuentra configure-env check, por archivo: desviaciones del esquema, valores que incumplen sus reglas claves que el esquema no declara y lo que git podría confirmar. Corrige cada uno ahí mismo: define el valor, aplica el archivo o añade las líneas de .gitignore.",
     "error": "No se pudo ejecutar la comprobación: {{message}}",
     "valuesError": "Ahora no se pueden definir valores: {{message}}",
     "loading": "Ejecutando la comprobación",
@@ -828,6 +828,23 @@
       "mode": "Modo {{actual}}, el esquema pide {{expected}}",
       "invalid-line": "La línea {{line}} no es una entrada válida",
       "unknown-key": "no está en el esquema de este archivo"
+    },
+    "gitignore": {
+      "title": "Lo que git podría confirmar",
+      "lead": "Archivos que git confirmaría y que guardan el estado de esta máquina o valores reales. Cada corrección añade las líneas indicadas a un .gitignore, como hace configure-env check --fix.",
+      "fix": "Corregir",
+      "fixLabel": "Corregir {{path}}",
+      "fixAll": "Corregir todo",
+      "adds": "La corrección añade {{entries}} a {{gitignore}}.",
+      "symlink": "{{gitignore}} es un enlace simbólico, así que no se escribe: añade {{entries}} tú mismo.",
+      "created": "Se creó {{gitignore}} con {{entries}}.",
+      "added": "Se añadió {{entries}} a {{gitignore}}.",
+      "nothing": "No quedaba nada por corregir.",
+      "error": "La corrección falló: {{message}}",
+      "code": {
+        "state-not-ignored": "no mantiene el estado fuera de git.",
+        "file-not-ignored": "no está ignorado por git, así que sus valores podrían confirmarse."
+      }
     }
   },
   "history": {

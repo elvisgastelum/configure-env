@@ -11,7 +11,7 @@ The CLI reads a JSON schema that lists the env files (their paths and write poli
 | Command    | Purpose                                            |
 | ---------- | -------------------------------------------------- |
 | `apply`    | write the env files the schema describes           |
-| `check`    | change nothing; report every problem by file       |
+| `check`    | report every problem by file; fixes git-ignore lines |
 | `init`     | start a schema for a project                       |
 | `set`      | set one variable                                   |
 | `get`      | print one variable                                 |
@@ -231,7 +231,7 @@ The state is `.configure-env/state.db` under the root, a SQLite database, or the
 
 The schema ships with the package as drizzle-kit migrations, applied when a run opens the database; a database written by a newer version is refused, never changed. A `.configure-env/state.json` written by an earlier version (the `state.json` next to the database) is read as it is until the first run that writes the state, which imports it in its transaction, checks every fingerprint arrived, and removes the file once the transaction commits. An import interrupted before the removal is finished by the next run; a `state.json` whose salt differs from the database's is refused (exit 1) until you remove one of them.
 
-Fingerprints are per file: the same value copied to a second file is recorded there too. A state that is not valid exits 1, naming its path; it is never guessed at or replaced. `init` adds `.configure-env/` to `.gitignore`.
+Fingerprints are per file: the same value copied to a second file is recorded there too. A state that is not valid exits 1, naming its path; it is never guessed at or replaced. `init` adds `.configure-env/` to `.gitignore`, and the first run that writes the state gives its directory a `.gitignore` of its own naming the database, its SQLite side files (`state.db-journal`, `state.db-wal`, `state.db-shm`) and `state.json`, so the state stays out of git even without the root's line. It writes one only into a directory it created or one named `.configure-env`, never over a `.gitignore` already there; one it cannot write never fails the run.
 
 Limits: the state knows only this machine's history. A fresh clone has none, so its first value is accepted, and `git clean -fdx` deletes it. Generated, created and appended entries carry the comment line `protected: <reason>`, or `protected`, after the variable's own comment. Templates hold placeholders, so the field has no effect on them.
 
@@ -298,7 +298,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | Command | What it does                                                         |
 | ------- | -------------------------------------------------------------------- |
 | `apply` | writes the env files the schema describes; the default command       |
-| `check` | changes nothing; reports every problem by file, exits 1 on any error |
+| `check` | reports every problem by file, exits 1 on any error; writes only the git-ignore lines it fixes |
 | `init`  | writes a starting `env.schema.json`, inferred from an example env file |
 | `set`   | sets variables in one file, keeping every other byte                   |
 | `get`   | prints one variable's value                                            |
@@ -368,7 +368,7 @@ configure-env apply --ci --json
 
 ### check
 
-`check` writes nothing. It prints one report of every problem the env files have against the schema, file by file in schema order, and exits 1 when any problem is an error. Warnings alone exit 0.
+`check` writes nothing but the git-ignore lines it fixes. It prints one report of every problem the env files have against the schema, file by file in schema order, and exits 1 when any problem is an error. Warnings alone exit 0.
 
 ```text
 config/app.env: ok
@@ -393,6 +393,15 @@ Without a terminal (or with `--ci`) it prints one line per problem, `path: <mess
 | `rule`            | error                          | a rule between variables is broken (`requiredUnless`, `conflictsWith`, `distinctFrom`, `within`) | `set`             |
 | `protected`       | error                          | a protected value no longer matches the one the state recorded                 | none: a person decides                |
 | `unknown-key`     | warning; error with `--strict` | a file holds a key the schema does not list for it                             | `apply --prune`                       |
+
+Git-ignore problems come after the files, in the report's `gitignore` list, each an error:
+
+| Problem (`code`)    | Reported when                                                                                                    | Fix                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `state-not-ignored` | the state folder (`.configure-env/`) has no `.gitignore` of its own, or it lacks one of the state's files       | the missing lines in `.configure-env/.gitignore` |
+| `file-not-ignored`  | in a git work tree, git does not ignore an env file that holds real values (not a template), by the repository's own rules | `/<path>` in the root's `.gitignore`            |
+
+A project that passed `check` before can fail it now: a state folder written by an earlier version has no `.gitignore` of its own, and an env file the repository does not ignore could be committed with its values. Outside a git work tree only the state folder is checked. Each line says how to fix it: `local.env: not git-ignored; its values could be committed (check --fix adds /local.env to .gitignore)`. In a terminal, `check` then asks which to fix, every one selected first; `--fix` fixes them without asking, with `--ci` or `--json` too, and the report it prints is the one after the fix, preceded by what it wrote (`Added /local.env to .gitignore`, `Created .configure-env/.gitignore with …`). A `.gitignore` that is a symlink is never written; the line names what to add by hand.
 
 - **Messages never show a value.** An invalid value is shown after `got`, masked for a secret. A mode that `apply` would loosen says `apply never adds a permission; chmod it by hand` instead of `run configure-env apply to fix it`.
 - **One problem per cause.** A key reported as `missing-key` is not reported again as an `invalid-value`.
@@ -420,12 +429,14 @@ With `--json` it prints the same report (see "JSON output"):
       ]
     }
   ],
+  "gitignore": [],
   "errors": []
 }
 ```
 
 ```sh
 configure-env check
+configure-env check --ci --fix
 WEB_PORT=9090 configure-env check --use-env
 configure-env check --ci --strict
 configure-env check --file .env --strict
@@ -562,7 +573,7 @@ configure-env history --json
 
 ### JSON output
 
-With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`; a run that fails part-way prints `ok: false`, the skills it installed before the failure, and `errors` with one `file` error (exit 1); a previous skill it could not remove adds `warnings`, a list of texts naming it (only when non-empty). `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `serve` prints one line once it listens, `{ "command": "serve", "url", "port", "pid" }`, where `url` is the launch URL with the token. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "summary", "files", "errors" }`: `ok` is false on any error-severity problem or run error; `summary` holds `errors`, `warnings`, `files` (the files checked) and `failing` (the files with an error). Each file has `path`, `policy`, `template`, `status` (`current`, `missing`, `differs`, `missing-keys` or `refused`), `mode` (`{ "actual", "expected" }`, only when it differs), `ok` (no error) and `problems`. Each problem has `severity` (`error` or `warning`), `code` (see "check"), `message` (never a value), and, when they apply, `key`, `keys` (every key a broken rule between variables names, when more than one), `line` (for an invalid line), `shown` (the invalid value, masked for a secret), `reason` (the schema's, for a protected value) and `fix` (`apply`, `prune` or `set`; absent when a person decides). `errors` holds the run errors, such as an invalid `--set` value, with `kind`, `key` or `path`, and `message`.
+With `--json`, `apply` prints `{ "command": "apply", "ok", "errors", "files", "deferred" }`; each file has `path`, `policy`, `action` (`create`, `update`, `mode`, `unchanged` or `skip`), `status` (the line above), `addedKeys`, `prunedKeys` (the keys `--prune` removed; `[]` without it), `written` (whether its content was written; a chmod writes none), `reason` for a skipped file (`exists`, `refused` or `loosens`) with its `error`, and `mode: { "from": "644", "to": "600" }` when the run changed its mode, and `deferred` lists the `--defer` keys written empty, only for the files that were written: it is `[]` when the run fails and writes nothing. A failure about a key, such as a misused `--generate` or `--defer` or a `--generate` value that cannot be made, prints the same failure document, with `files` empty and the command's exit code (1 or 2); each error has `kind`, `key` (or `path`) and `message`, never a value, and a broken conflict between variables adds `keys`, both names. The kind is `value` for a value that breaks its rules (exit 1), `file` for a file path that is not safe to use (exit 1), `usage` for options that misuse a key, such as `--defer` of an optional variable or two files holding different `--generate` values (exit 2), and `protected` for a change to a protected value, with the schema's `reason` when it gives one (exit 2). A run that replaced a protected value adds `replaced`, a list of `{ "file", "key" }`, and one with a warning adds `warnings`, a list of its texts (only when non-empty); a state that could not be written after the files were makes `ok` false with a `file` error for it (exit 1), and so does each file whose mode the run would not loosen (`mode not loosened (400, schema says 600)`). Other usage errors, such as a missing schema or an unknown option, go to stderr only. `init` prints `{ "command": "init", "ok", "schema", "from", "variables", "gitignore" }`, `gitignore` being `created`, `added` or `present`. `install skill` prints `{ "command": "install", "ok", "source", "skills" }`; each skill has `agent`, `scope`, `mode`, the absolute `path`, `status` (`installed`, `linked` or `unchanged`) and `replaced`, and with `--scope local` `exclude: { "file", "entry", "status" }`, `status` being `added` or `present`; a run that fails part-way prints `ok: false`, the skills it installed before the failure, and `errors` with one `file` error (exit 1); a previous skill it could not remove adds `warnings`, a list of texts naming it (only when non-empty). `set` prints `{ "command": "set", "ok", "file", "keys" }`, each key with `key`, `status` and `value` (or `masked` for a secret), and `replaced: true` when `--replace-protected` replaced it; `unset` prints the same with `key`, `status` and `replaced` only. `list` prints an array with one entry per variable: `file`, `key`, `set`, `valid` (`null` when not checked), `error`, `value` (or `masked`), `description` and `unknown`. `serve` prints one line once it listens, `{ "command": "serve", "url", "port", "pid" }`, where `url` is the launch URL with the token. `get` prints `{ "key", "value", "set" }`, with `masked` in place of `value` for a secret without `--reveal`, and `{ "key", "set": false }` (exit 1) for a key that is not set. `check` prints `{ "command": "check", "ok", "summary", "files", "gitignore", "errors" }`, with `fixed` after `--fix`: `ok` is false on any error-severity problem, git-ignore problem or run error; `summary` holds `errors`, `warnings`, `files` (the files checked) and `failing` (the files with an error). Each file has `path`, `policy`, `template`, `status` (`current`, `missing`, `differs`, `missing-keys` or `refused`), `mode` (`{ "actual", "expected" }`, only when it differs), `ok` (no error) and `problems`. Each problem has `severity` (`error` or `warning`), `code` (see "check"), `message` (never a value), and, when they apply, `key`, `keys` (every key a broken rule between variables names, when more than one), `line` (for an invalid line), `shown` (the invalid value, masked for a secret), `reason` (the schema's, for a protected value) and `fix` (`apply`, `prune` or `set`; absent when a person decides). Each `gitignore` problem has `severity` (`error`), `code` (`state-not-ignored` or `file-not-ignored`), `path` (the state folder or the env file), `gitignore` (the file the fix writes), `entries` (the lines it adds), `message`, and `blocked: "symlink"` when that `.gitignore` is a symlink it will not write; they count in `summary.errors`. `fixed` lists each `.gitignore` written, `{ "gitignore", "created", "added" }`. `errors` holds the run errors, such as an invalid `--set` value, with `kind`, `key` or `path`, and `message`.
 
 ### Exit codes
 
@@ -603,7 +614,7 @@ What the portal does, page by page:
 - **Overview**: the schema's health, the env files and how they match the schema.
 - **Variables**: every variable with its value in each env file; search, filter, reveal and copy a secret, edit a value in place, open it in your editor. A [dark theme](docs/portal/variables-dark.png) and Spanish follow the switches in the header.
 - **Schema**: add, edit, rename (with every reference rewritten) and remove variables and files, each change reviewed as a diff before it is written. [Screenshot](docs/portal/schema.png).
-- **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. [Screenshot](docs/portal/check.png).
+- **Check**: the report of `check`, every problem of every file on one page, errors first, each fixed in place, and a plan of what apply would write before it writes. Its **What git could commit** section lists the git-ignore problems, each with the lines its fix adds, and fixes one (**Fix**) or all (**Fix all**) as `check --fix` does; a `.gitignore` that is a symlink is named, never written. [Screenshot](docs/portal/check.png).
 - **History**: every change made through the CLI or the portal, with undo.
 - A file changed outside the portal (by an editor, `git checkout` or another command) shows up without a reload.
 
@@ -760,7 +771,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
 | `POST /api/files/content` | one schema file's lines as it holds them, secrets masked: `{ "file": ".env" }`                |
-| `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, and the counts (`?strict=true` makes unknown keys errors) |
+| `GET /api/check`     | the report of `configure-env check`: every problem by file with its severity, code and fix, the git-ignore problems, and the counts (`?strict=true` makes unknown keys errors) |
 | `GET /api/history`   | the history of edits, newest first: `file`, `key`, `actor` (`cli` or `portal`), `from` and `to` (a date, its whole UTC day, or a timestamp) filter it; `page` and `limit` (50 by default, at most 200) page it; secrets masked |
 | `GET /api/events`    | Server-Sent Events: `changed`, with `{ "paths": [...] }`, when the schema or an env file changes on disk |
 | `GET /api/openapi.json` | the OpenAPI document                                                                         |
@@ -775,6 +786,7 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `POST /api/values/unset`                  | removes keys from one file, each with the comment the engine wrote above it                   |
 | `POST /api/plan`                          | what `apply` would do to each file, with masked line diffs and a plan fingerprint; writes nothing |
 | `POST /api/apply`                         | writes the plan shown: the same inputs and the plan's `fingerprint`                           |
+| `POST /api/check/gitignore`               | adds the missing git-ignore lines the check reports, as `check --fix` does: every problem, or those whose `path` is in `paths`; it finds them itself, never writes through a symlink, and answers `fixed` with the check after (`check`) |
 | `POST /api/schema/variables`              | declares a variable                                                                           |
 | `PUT` / `DELETE /api/schema/variables/{name}` | changes a variable's fields (`null` removes one) / removes it (`cleanup` drops its references) |
 | `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |

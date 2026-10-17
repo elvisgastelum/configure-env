@@ -256,6 +256,7 @@ describe('check over the current values', () => {
           ],
         },
       ],
+      gitignore: [],
       errors: [],
     });
   });
