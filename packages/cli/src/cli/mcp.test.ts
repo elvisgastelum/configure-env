@@ -543,6 +543,33 @@ describe('the masking of every answer', () => {
     expect(JSON.parse(host.text)).toMatchObject({ value: 'http://u:••••@h/' });
   });
 
+  it('masks an undeclared value only in its own entry', async () => {
+    await writeFile(
+      join(dirs.root, 'env.schema.json'),
+      JSON.stringify({
+        ...SCHEMA,
+        files: [{ path: '.env.development', policy: 'merge', variables: '*' }],
+      }),
+    );
+    await writeFile(
+      join(dirs.root, '.env.development'),
+      'HOST=a.test\nPORT=3000\nNODE_ENV=development\nDEBUG_PORT=3000\n',
+    );
+    const client = await connect();
+    const rows = JSON.parse((await call(client, 'list_variables')).text) as {
+      file: string;
+      key: string;
+      value?: string;
+      masked?: string;
+    }[];
+    expect(rows.every((row) => row.file === '.env.development')).toBe(true);
+    expect(rows.find((row) => row.key === 'PORT')?.value).toBe('3000');
+    expect(rows.find((row) => row.key === 'NODE_ENV')).toMatchObject({
+      masked: '••••',
+    });
+    expect(rows.find((row) => row.key === 'DEBUG_PORT')?.value).toBeUndefined();
+  });
+
   it('withholds the output when the schema cannot be read to mask it', async () => {
     await writeEnv(`HOST=a.test\nAPI_KEY=${SECRET}\n`);
     const client = await connect();

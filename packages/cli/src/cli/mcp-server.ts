@@ -650,12 +650,11 @@ async function hiddenValues(
     );
     if (text === undefined) continue;
     const doc = parseDotenv(text);
-    for (const name of keysOf(doc).filter((key) => isHidden(schema, key))) {
+    for (const name of keysOf(doc).filter((key) => isSecret(schema, key))) {
       const raw = getValue(doc, name);
       if (raw === undefined) continue;
-      const min = isSecret(schema, name) ? SECRET_MIN : UNDECLARED_MIN;
       for (const value of [raw, unquoteValue(raw)])
-        if (value) values.set(value, values.get(value) || value.length >= min);
+        if (value) values.set(value, value.length >= SECRET_MIN);
     }
   }
   return [...values]
@@ -676,13 +675,6 @@ interface Hidden {
 const SECRET_MIN = 4;
 
 /**
- * The same for an undeclared key, whose value may be any common word: a
- * shorter one is masked only where it is a whole value, so it does not
- * garble the rest of the answer.
- */
-const UNDECLARED_MIN = 8;
-
-/**
  * `value` with nothing hidden left in it, at any depth: an entry whose
  * `key` is hidden trades its `value` for a mask, and a string that is a
  * hidden value, or holds one (see {@link Hidden}), is masked.
@@ -696,22 +688,27 @@ function maskJson(
   if (Array.isArray(value))
     return value.map((item) => maskJson(item, hidden, values));
   if (typeof value !== 'object' || value === null) return value;
+  const entry = value as Record<string, unknown>;
+  const masked =
+    typeof entry.key === 'string' &&
+    hidden(entry.key) &&
+    typeof entry.value === 'string';
   const record = Object.fromEntries(
-    Object.entries(value).map(([name, item]) => [
+    Object.entries(entry).map(([name, item]) => [
       name,
-      maskJson(item, hidden, values),
+      // Names come from the schema and the CLI, never from a value.
+      NAME_FIELDS.has(name) ? item : maskJson(item, hidden, values),
     ]),
   );
-  if (
-    typeof record.key === 'string' &&
-    hidden(record.key) &&
-    typeof record.value === 'string'
-  ) {
+  if (masked) {
     delete record.value;
     return { ...record, masked: MASK };
   }
   return record;
 }
+
+/** The fields that name a key or a file, left as they are. */
+const NAME_FIELDS = new Set(['key', 'file', 'path']);
 
 /** `text` with the hidden values masked: a whole match, or one inside it. */
 function maskText(text: string, values: readonly Hidden[]): string {
