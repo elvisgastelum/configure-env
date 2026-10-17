@@ -14,7 +14,6 @@ import {
   type SchemaDocument,
   VARIABLE_NAME,
   getValue,
-  isTemplate,
   keysOf,
   parseDotenv,
   parseSchemaText,
@@ -35,6 +34,7 @@ import {
 } from './common.ts';
 import type { Io, Prompts } from './io.ts';
 import { main } from './main.ts';
+import { defaultFile } from './target.ts';
 
 /** Where the server's commands run, as the global options name it. */
 export interface McpOptions {
@@ -340,11 +340,9 @@ export function createMcpServer(options: McpOptions): McpServer {
         return textResult(`${input.file}: is not in the schema`, true);
       // The user runs it in their own terminal, from any folder: every path
       // is absolute, and the state is the one this server's commands use.
-      // Without a file, set edits the only one that is not a template;
-      // with several, it asks the user for --file, so none is checked.
-      const targets = schema.files.filter((spec) => !isTemplate(spec));
-      const edited =
-        input.file ?? (targets.length === 1 ? targets[0]!.path : undefined);
+      // The file set edits: without --file, the default one; with several,
+      // set asks the user for --file, so none is checked.
+      const edited = input.file ?? defaultFile(schema)?.path;
       const exists =
         edited === undefined ||
         (await stat(resolve(context.root, edited)).then(
@@ -649,7 +647,7 @@ async function unmaskedKeys(
 async function secretValues(
   context: Context,
   schema: EnvSchema,
-): Promise<Hidden[]> {
+): Promise<SecretValue[]> {
   const values = new Map<string, boolean>();
   for (const spec of schema.files) {
     const text = await readFile(resolve(context.root, spec.path), 'utf8').catch(
@@ -669,8 +667,8 @@ async function secretValues(
     .sort((a, b) => b.text.length - a.text.length);
 }
 
-/** A hidden value, and whether it is masked inside longer text too. */
-interface Hidden {
+/** A secret value, and whether it is masked inside longer text too. */
+interface SecretValue {
   text: string;
   inside: boolean;
 }
@@ -684,12 +682,12 @@ const SECRET_MIN = 4;
 /**
  * `value` with nothing hidden left in it, at any depth: an entry whose
  * `key` is hidden trades its `value` for a mask, and a string that is a
- * hidden value, or holds one (see {@link Hidden}), is masked.
+ * secret value, or holds one (see {@link SecretValue}), is masked.
  */
 function maskJson(
   value: unknown,
   hidden: (name: string) => boolean,
-  values: readonly Hidden[],
+  values: readonly SecretValue[],
 ): unknown {
   if (typeof value === 'string') return maskText(value, values);
   if (Array.isArray(value))
@@ -719,8 +717,8 @@ const PREVIEW_FIELDS = ['before', 'after'];
 /** The fields that name a key or a file, left as they are. */
 const NAME_FIELDS = new Set(['key', 'file', 'path']);
 
-/** `text` with the hidden values masked: a whole match, or one inside it. */
-function maskText(text: string, values: readonly Hidden[]): string {
+/** `text` with the secret values masked: a whole match, or one inside it. */
+function maskText(text: string, values: readonly SecretValue[]): string {
   if (values.some((value) => value.text === text)) return MASK;
   let masked = text;
   for (const value of values)
@@ -730,7 +728,7 @@ function maskText(text: string, values: readonly Hidden[]): string {
 
 /**
  * A command run with nothing hidden left in it (see {@link maskJson}); a
- * line that is not JSON, a log line, has its longer hidden values masked.
+ * line that is not JSON, a log line, has its secret values masked.
  * The commands mask secrets themselves; this holds even where one does
  * not, such as a secret in a file whose variables leave it out. When the
  * schema cannot be read, nothing can be masked, so the output is withheld
