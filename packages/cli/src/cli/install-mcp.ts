@@ -118,8 +118,24 @@ const DIFFERENT_SERVER = {
   conflict: `already has a different ${SERVER_NAME} server; pass --force to replace it`,
 };
 
-const sameJson = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
+/** Whether two JSON values are equal, whatever the order of their keys. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => sameJson(item, b[index]))
+    );
+  if (isRecord(a) && isRecord(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
+    );
+  }
+  return a === b;
+}
 
 /** The JSON configuration with the server added or replaced. */
 function planJson(

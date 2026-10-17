@@ -110,6 +110,22 @@ describe('install mcp', () => {
     });
   });
 
+  it('counts the same server with its keys in another order unchanged', async () => {
+    const path = join(dirs.root, '.mcp.json');
+    const before = JSON.stringify({
+      mcpServers: {
+        'configure-env': { args: NPX.args, command: 'npx', type: 'stdio' },
+      },
+    });
+    await writeFile(path, before);
+    const result = await install(['--ci']);
+    expect(result).toMatchObject({
+      code: 0,
+      out: ['unchanged  .mcp.json (claude)'],
+    });
+    expect(await readFile(path, 'utf8')).toBe(before);
+  });
+
   it('refuses to replace a different server without --force, writing nothing', async () => {
     const path = join(dirs.root, '.mcp.json');
     const before = JSON.stringify({
