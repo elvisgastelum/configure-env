@@ -3,7 +3,7 @@
 
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   STATE,
   readState,
@@ -92,5 +92,35 @@ describe('apply --generate in a terminal', () => {
     ]);
     expect(await exists('pair.env')).toBe(false);
     expect(await exists(STATE)).toBe(false);
+  });
+
+  it('says so when the generated value expired at the confirmation, writing nothing', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { prompts, logs } = scriptedPrompts({
+        'Which files': ['.env'],
+        NAME: 'app',
+      });
+      const confirm = prompts.confirm.bind(prompts);
+      // The person waits more than 15 minutes before writing.
+      prompts.confirm = async (opts) => {
+        vi.setSystemTime(Date.now() + 15 * 60_000 + 1);
+        return confirm(opts);
+      };
+      const r = await run(['apply', '--generate', 'SECRET'], {
+        cwd: dirs.root,
+        isTTY: true,
+        prompts,
+      });
+      expect(r).toMatchObject({ code: 1, out: [], err: [] });
+      expect(logs.slice(-3)).toEqual([
+        'spinner-error: Not written',
+        'error: the generated values for this plan expired; run apply again',
+        'outro: Nothing was written.',
+      ]);
+      expect(await exists('.env')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

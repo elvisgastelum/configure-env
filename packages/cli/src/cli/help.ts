@@ -123,7 +123,8 @@ project when there is one, else a server of its own for the run only, on
 in between is not written over. A --generate value is made on the server
 and never leaves it. With --env <name> it applies that environment's
 project on its server instead; --root, --schema and --state are then the
-server's and exit 2.
+server's and exit 2. Values taken from local environment variables are
+then sent to that environment's server.
 
 Options:
   --set KEY=VALUE  a value; repeat for more

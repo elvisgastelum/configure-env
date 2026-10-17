@@ -5,7 +5,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DEFAULT_STATE_PATH, readChanges } from '@configure-env/core';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   type ApiServer,
   TOKEN,
@@ -237,6 +237,69 @@ describe('generate', () => {
     ]);
   });
 
+  it('answers a 409 of its own once the generated value expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await open();
+      const inputs = {
+        values: { API_URL: 'https://x.test' },
+        generate: ['SECRET'],
+      };
+      const plan = await post('/api/plan', inputs);
+      vi.setSystemTime(Date.now() + 15 * 60_000 + 1);
+      const response = await post('/api/apply', {
+        ...inputs,
+        fingerprint: plan.body.fingerprint,
+      });
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe(
+        'the generated values for this plan expired; run apply again',
+      );
+      expect(await read('.env')).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('applies a generated value up to 15 minutes after its plan', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await open();
+      const inputs = {
+        values: { API_URL: 'https://x.test' },
+        generate: ['SECRET'],
+      };
+      const plan = await post('/api/plan', inputs);
+      vi.setSystemTime(Date.now() + 15 * 60_000 - 1_000);
+      const response = await post('/api/apply', {
+        ...inputs,
+        fingerprint: plan.body.fingerprint,
+      });
+      expect(response.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('holds no generated value for a plan with hold false', async () => {
+    await open();
+    const inputs = {
+      values: { API_URL: 'https://x.test' },
+      generate: ['SECRET'],
+    };
+    const checked = await post('/api/plan', { ...inputs, hold: false });
+    expect(checked.status).toBe(200);
+    expect(checked.body.generated.SECRET).toMatch(/^••••/);
+    const response = await post('/api/apply', {
+      ...inputs,
+      fingerprint: checked.body.fingerprint,
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe(
+      'the generated values for this plan expired; run apply again',
+    );
+  });
+
   it('answers 409 to an apply whose generated value was never planned', async () => {
     await open();
     const response = await post('/api/apply', {
@@ -245,6 +308,9 @@ describe('generate', () => {
       fingerprint: 'sha256:never-planned',
     });
     expect(response.status).toBe(409);
+    expect(response.body.message).toBe(
+      'the generated values for this plan expired; run apply again',
+    );
     expect(await read('.env')).toBeUndefined();
   });
 });

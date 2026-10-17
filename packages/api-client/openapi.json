@@ -1677,6 +1677,10 @@
               "minLength": 1
             }
           },
+          "hold": {
+            "description": "false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default.",
+            "type": "boolean"
+          },
           "prompted": {
             "description": "Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.",
             "type": "array",
@@ -1698,7 +1702,7 @@
           "fingerprint": {
             "type": "string",
             "minLength": 1,
-            "description": "The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409)."
+            "description": "The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held)."
           }
         },
         "required": ["fingerprint"],
@@ -2744,6 +2748,10 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "hold": {
+            "description": "false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default.",
+            "type": "boolean"
           },
           "prompted": {
             "description": "Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.",

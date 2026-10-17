@@ -149,6 +149,8 @@ export interface ApplyRequest {
    * @items.minLength 1
    */
   generateFiles?: string[];
+  /** false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default. */
+  hold?: boolean;
   /**
    * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
@@ -160,7 +162,7 @@ export interface ApplyRequest {
    */
   defer?: string[];
   /**
-   * The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).
+   * The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held).
    * @minLength 1
    */
   fingerprint: string;
@@ -976,6 +978,8 @@ export interface PlanRequest {
    * @items.minLength 1
    */
   generateFiles?: string[];
+  /** false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default. */
+  hold?: boolean;
   /**
    * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$

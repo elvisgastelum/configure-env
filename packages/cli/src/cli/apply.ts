@@ -692,6 +692,8 @@ async function applyInteractive(
         files: picked,
         prune: inputs.prune,
         generate: generated,
+        // Only checked, never applied: it holds no generated value.
+        hold: false,
       });
   } catch (error) {
     // The prompts are open: close them with the error, not a bare exit.

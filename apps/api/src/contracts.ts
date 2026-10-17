@@ -539,6 +539,10 @@ const planInputs = {
     description:
       'The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.',
   }),
+  hold: z.boolean().optional().meta({
+    description:
+      'false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default.',
+  }),
   prompted: z.array(variableName).optional().meta({
     description:
       "Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.",
@@ -557,7 +561,7 @@ export const applyRequest = named(
     ...planInputs,
     fingerprint: z.string().min(1).meta({
       description:
-        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).',
+        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held).',
     }),
   }),
 );

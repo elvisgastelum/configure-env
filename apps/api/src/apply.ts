@@ -196,6 +196,8 @@ interface Planned {
   view: PlanView;
   run?: RunState;
   warning?: string;
+  /** Whether the run made a value for a `generate` key. */
+  generated: boolean;
 }
 
 interface RunValues {
@@ -332,9 +334,10 @@ async function plan(
     replaced: verdicts.flatMap(({ replaced }) => replaced),
     ...(run.generated ? { generated: run.generated } : {}),
   };
-  if (!kept && Object.keys(run.made).length)
+  const generated = Object.keys(run.made).length > 0;
+  if (!kept && generated && inputs.hold !== false)
     keepGenerated(project, view.fingerprint, run.made);
-  return { plan, view, ...state };
+  return { plan, view, ...state, generated };
 }
 
 function viewOf(schema: EnvSchema, file: FilePlan): PlanView['files'][number] {
@@ -377,9 +380,17 @@ export async function applyProject(
   const { schema } = read;
   // Without values kept for its plan, the apply makes new ones, so its
   // fingerprint differs (409); it keeps none of them either way.
-  const kept = takeGenerated(project, inputs.fingerprint) ?? {};
+  const held = takeGenerated(project, inputs.fingerprint);
+  const kept = held ?? {};
   const planned = await plan(read, project, inputs, kept);
   const { view } = planned;
+  // The values the plan showed are gone: expired, or never held.
+  if (view.fingerprint !== inputs.fingerprint && !held && planned.generated)
+    throw new ApiError(
+      409,
+      'the generated values for this plan expired; run apply again',
+      { plan: view },
+    );
   if (view.fingerprint !== inputs.fingerprint)
     throw new ApiError(
       409,
