@@ -14,6 +14,7 @@ import {
   type SchemaDocument,
   VARIABLE_NAME,
   getValue,
+  isTemplate,
   keysOf,
   parseDotenv,
   parseSchemaText,
@@ -339,9 +340,14 @@ export function createMcpServer(options: McpOptions): McpServer {
         return textResult(`${input.file}: is not in the schema`, true);
       // The user runs it in their own terminal, from any folder: every path
       // is absolute, and the state is the one this server's commands use.
+      // Without a file, set edits the only one that is not a template;
+      // with several, it asks the user for --file, so none is checked.
+      const targets = schema.files.filter((spec) => !isTemplate(spec));
+      const edited =
+        input.file ?? (targets.length === 1 ? targets[0]!.path : undefined);
       const exists =
-        input.file === undefined ||
-        (await stat(resolve(context.root, input.file)).then(
+        edited === undefined ||
+        (await stat(resolve(context.root, edited)).then(
           () => true,
           () => false,
         ));

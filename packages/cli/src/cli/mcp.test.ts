@@ -295,6 +295,15 @@ describe('the MCP write tools', () => {
     );
   });
 
+  it('adds --create when the default file is missing', async () => {
+    const client = await connect();
+    const result = await call(client, 'request_secret', { key: 'API_KEY' });
+    const { command } = JSON.parse(result.text) as { command: string };
+    expect(command).toBe(
+      `configure-env set --root ${dirs.root} --create --prompt API_KEY`,
+    );
+  });
+
   it('refuses to request a secret for a file that is not in the schema', async () => {
     const client = await connect();
     const result = await call(client, 'request_secret', {
