@@ -12,15 +12,23 @@ import {
 } from '@configure-env/core';
 import { protectedLine } from './protect.ts';
 
+/**
+ * A file of a plan as apply shows it: the API's plan of the file, without
+ * its content; `exists` when the file does.
+ */
+export type PlannedFile = Omit<FilePlan, 'content' | 'previous' | 'target'> & {
+  exists: boolean;
+};
+
 /** `644 → 600`: the file's mode before and after the run. */
-const modeChange = (file: FilePlan) =>
+const modeChange = (file: PlannedFile) =>
   `${formatMode(file.currentMode!)} → ${formatMode(file.mode)}`;
 
 /**
  * An update that adds or prunes keys, as `<added> keys: A B; <pruned> keys:
  * C, D`; undefined for any other.
  */
-function keyChanges(file: FilePlan, added: string, pruned: string) {
+function keyChanges(file: PlannedFile, added: string, pruned: string) {
   const parts = [
     ...(file.policy === 'merge' && file.addedKeys.length
       ? [`${added} keys: ${file.addedKeys.join(' ')}`]
@@ -36,7 +44,7 @@ function keyChanges(file: FilePlan, added: string, pruned: string) {
  * What a run did to a file: `created`, `added keys: A B`, `pruned keys: C,
  * D`, ...
  */
-export function applyStatus(file: FilePlan, result?: ApplyResult): string {
+export function applyStatus(file: PlannedFile, result?: ApplyResult): string {
   if (result && !result.ok) return `failed (${result.error})`;
   switch (file.action) {
     case 'create':
@@ -56,11 +64,11 @@ export function applyStatus(file: FilePlan, result?: ApplyResult): string {
 }
 
 /** A file's state before a run, for the file picker. */
-export function fileState(file: FilePlan): string {
+export function fileState(file: PlannedFile): string {
   if (file.reason === 'refused') return `refused: ${file.error}`;
   if (file.reason === 'loosens') return file.error!;
   if (file.reason === 'exists') return 'exists, never overwritten';
-  if (file.previous === undefined) return 'missing';
+  if (!file.exists) return 'missing';
   if (
     file.currentMode !== undefined &&
     file.modeFixed &&
@@ -75,7 +83,7 @@ export function fileState(file: FilePlan): string {
 }
 
 /** What a run will do to a file, for the plan preview. */
-export function planStatus(file: FilePlan): string {
+export function planStatus(file: PlannedFile): string {
   switch (file.action) {
     case 'create':
       return 'create';
@@ -94,7 +102,7 @@ export function planStatus(file: FilePlan): string {
 }
 
 /** One JSON entry per file of an apply run; `mode` when the run changed it. */
-export function applyJson(file: FilePlan, result?: ApplyResult) {
+export function applyJson(file: PlannedFile, result?: ApplyResult) {
   const changed =
     (file.action === 'mode' || file.action === 'update') &&
     file.currentMode !== undefined &&

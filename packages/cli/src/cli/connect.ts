@@ -60,6 +60,10 @@ const REMOTE_TIMEOUT_MS = 30_000;
 export interface InProcessOptions extends ServerOptions {
   statePath: string;
   schemaAnywhere: true;
+  /** What paths in its messages are relative to: the CLI's directory. */
+  cwd: string;
+  /** Writes the protected state; tests pass one that fails. */
+  writeState?: Io['writeState'];
 }
 
 /** Starts the API in-process; tests replace it to watch the starts. */
@@ -203,6 +207,7 @@ async function startLocal(
   context: Context,
   start: StartServer,
 ): Promise<Connection> {
+  const { io } = context;
   const token = randomBytes(32).toString('base64url');
   const server = await start({
     root: context.root,
@@ -213,6 +218,8 @@ async function startLocal(
     port: 0,
     token,
     version: VERSION,
+    cwd: io.cwd,
+    ...(io.writeState ? { writeState: io.writeState } : {}),
   });
   return {
     ...connectionTo(LOCAL, { baseUrl: server.url, token, client: CLIENT }),

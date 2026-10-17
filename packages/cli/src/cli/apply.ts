@@ -1,61 +1,67 @@
-// `configure-env apply`: writes the env files, in the TUI or unattended.
+// `configure-env apply`: writes the env files, in the TUI or unattended. It
+// runs through the configure-env API (connect.ts), against the local project
+// or another environment: POST /api/plan shows what the run would do, and
+// POST /api/apply writes that plan, named by its fingerprint. The values come
+// from here (--set, the environment, the prompts); a --generate value is made
+// on the server, which never answers it.
 
+import {
+  type Applied,
+  type ApplyRequest,
+  type Plan as ApiPlan,
+  type FilePlan as ApiFilePlan,
+  type PlanRequest,
+  applyPlan,
+  planChanges,
+} from '@configure-env/api-client/client';
 import {
   type ApplyResult,
   type EnvSchema,
-  type FilePlan,
-  type Plan,
   type PlanError,
+  type SchemaError,
   type VariableSpec,
-  appliedChanges,
-  applyPlan,
-  fileRules,
-  getValue,
+  displayPath,
   maskValue,
-  parseDotenv,
-  planChanges,
   validateValue,
 } from '@configure-env/core';
 import {
   CliError,
-  displayPath,
-  type Context,
-  contextOf,
   describeError,
   givenTwice,
   givenValue,
   keyError,
   type KeyProblem,
-  loadContextSchema,
   NO_TERMINAL,
   neededKeys,
   neededKeysOf,
   takesValue,
   parseCommand,
   parseSets,
-  recordRun,
-  resolveValues,
-  ruleErrors,
   usageError,
 } from './common.ts';
-import { applyJson, applyStatus, fileState, planStatus } from './format.ts';
-import { checkConflict, generateKeys, generateValue } from './generate.ts';
+import {
+  type Connection,
+  type ProjectRun,
+  answerMessage,
+  openProject,
+  send,
+} from './connect.ts';
+import {
+  type PlannedFile,
+  applyJson,
+  applyStatus,
+  fileState,
+  planStatus,
+} from './format.ts';
+import { generateKeys } from './generate.ts';
 import { APPLY_HELP } from './help.ts';
 import type { Io, Prompts } from './io.ts';
 import {
-  type RunState,
-  type ProtectedCheck,
+  type ProtectedProblem,
   type Replaced,
-  type RunFile,
-  checksOf,
   confirmReplacements,
-  loadForgetState,
-  loadRunState,
   protectedLine,
-  protectsAny,
   replaceKeys,
-  verdictsOf,
-  writeProtected,
 } from './protect.ts';
 
 const OPTIONS = {
@@ -66,21 +72,34 @@ const OPTIONS = {
   prune: { type: 'boolean' },
 } as const;
 
+/** What a run takes from its options, checked. */
+interface Inputs {
+  sets: Record<string, string>;
+  generated: string[];
+  deferred: string[];
+  replace: string[];
+  prune: boolean;
+}
+
+/** A file of the API's plan, as the formatters read one. */
+type RunFile = PlannedFile & {
+  /** The deferred keys the file is left without a value for. */
+  deferred: string[];
+};
+
 export async function applyCommand(args: string[], io: Io): Promise<number> {
   const options = parseCommand(args, OPTIONS);
   if (options.help) {
     io.stdout(APPLY_HELP);
     return 0;
   }
-  const context = await contextOf(io, options);
-  const schema = await loadContextSchema(context);
+  const run = await openProject(io, options);
   try {
-    return await applyWith(context, schema, options);
+    return await applyWith(io, run, options);
   } catch (error) {
     // A failure about a key is a failed run: --json prints it as one, with
     // the same exit code. Nothing was written.
-    if (!context.json || !(error instanceof CliError) || !error.errors)
-      throw error;
+    if (!run.json || !(error instanceof CliError) || !error.errors) throw error;
     io.stdout(failureJson(error.errors, []));
     return error.code;
   }
@@ -89,7 +108,7 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
 /** The JSON document of a run that failed and wrote nothing. */
 const failureJson = (
   errors: readonly (PlanError | KeyProblem)[],
-  files: readonly FilePlan[],
+  files: readonly RunFile[],
 ) =>
   JSON.stringify({
     command: 'apply',
@@ -101,11 +120,11 @@ const failureJson = (
   });
 
 async function applyWith(
-  context: Context,
-  schema: EnvSchema,
+  io: Io,
+  run: ProjectRun,
   options: ReturnType<typeof parseCommand<typeof OPTIONS>>,
 ): Promise<number> {
-  const { io } = context;
+  const { schema } = run;
   const sets = parseSets(options.set);
   const generated = generateKeys(
     options.generate,
@@ -121,183 +140,37 @@ async function applyWith(
     [...Object.keys(sets), ...generated],
     options.defer,
   );
-  const prune = Boolean(options.prune);
-  const guard: Guard = {
-    run: undefined,
-    replace: replaceKeys(schema, options['replace-protected']),
-    prune,
-    bestEffort: prune && !protectsAny(schema),
+  const inputs: Inputs = {
+    sets,
+    generated,
+    deferred,
+    replace: [...replaceKeys(schema, options['replace-protected'])],
+    prune: Boolean(options.prune),
   };
-  if (context.ci || context.json) {
-    checkGenerated(schema, context.files, generated);
-    await loadGuardState(context, schema, guard);
-    return applyUnattended(context, schema, sets, generated, deferred, guard);
-  }
-  if (!io.isTTY) throw usageError(NO_TERMINAL);
-  await loadGuardState(context, schema, guard);
-  return applyInteractive(context, schema, sets, generated, deferred, guard);
-}
-
-/**
- * The protected variables' state of a run, its --replace-protected keys and
- * whether it prunes (--prune). `bestEffort`: the schema protects nothing, so
- * the state is read only to forget pruned keys' fingerprints, and a state
- * it cannot read is `unread`, a warning when the run prunes a key.
- */
-interface Guard {
-  run: RunState | undefined;
-  replace: ReadonlySet<string>;
-  prune: boolean;
-  bestEffort: boolean;
-  unread?: string;
-}
-
-/** Reads the run's state into the guard (see Guard). */
-async function loadGuardState(
-  context: Context,
-  schema: EnvSchema,
-  guard: Guard,
-) {
-  if (!guard.bestEffort) {
-    guard.run = await loadRunState(context, schema);
-    return;
-  }
-  const { run, warning } = await loadForgetState(context);
-  guard.run = run;
-  if (warning) guard.unread = warning;
-}
-
-/**
- * The protected checks of every file the run writes, and the values of every
- * file it leaves as planned, for recording.
- */
-function runChecks(schema: EnvSchema, plan: Plan) {
-  const checks: ProtectedCheck[] = [];
-  const files: RunFile[] = [];
-  for (const file of plan.files) {
-    // A chmod changes no value; like a skipped file, the values it holds
-    // are still recorded.
-    if (file.reason === 'refused') continue;
-    const spec = schema.files.find((entry) => entry.path === file.path)!;
-    const content = file.content ?? file.previous;
-    if (content !== undefined) {
-      const doc = parseDotenv(content);
-      files.push({ spec, valueOf: (key) => getValue(doc, key) });
-    }
-    if (file.action !== 'create' && file.action !== 'update') continue;
-    const before =
-      file.previous === undefined ? undefined : parseDotenv(file.previous);
-    const after = parseDotenv(file.content ?? '');
-    checks.push(
-      ...checksOf(
-        schema,
-        spec,
-        (key) => before && getValue(before, key),
-        (key) => getValue(after, key),
-      ),
+  if (run.ci || run.json) {
+    checkGenerated(schema, run.files, generated);
+    return connected(run, (connection) =>
+      applyUnattended(io, run, connection, inputs),
     );
   }
-  return { checks, files };
-}
-
-/**
- * Checks every protected key the planned files would write, against the
- * state the run read, before any is written: the refusals, and the keys
- * --replace-protected replaces.
- */
-const protectedChanges = (
-  schema: EnvSchema,
-  { run, replace }: Guard,
-  plan: Plan,
-) =>
-  run
-    ? verdictsOf(schema, run.state, runChecks(schema, plan).checks, replace)
-    : { refused: [], replaced: [] as Replaced[] };
-
-/**
- * Writes the plan, in the state's write transaction when it touches protected values
- * (see writeProtected), settling its checks and values with the state as it
- * is then, and records the keys it changed in the history (`history`: the
- * warning when it could not). `allowed` are the keys --replace-protected
- * may replace.
- */
-async function writeRun(
-  context: Context,
-  schema: EnvSchema,
-  guard: Guard,
-  plan: Plan,
-  allowed: ReadonlySet<string>,
-) {
-  const written = await writeFiles(context, schema, guard, plan, allowed);
-  const history = await recordRun(
-    context,
-    appliedChanges(schema, plan, written.value, written.replaced),
-  );
-  return { ...written, history };
-}
-
-/** Writes the plan for writeRun. */
-function writeFiles(
-  context: Context,
-  schema: EnvSchema,
-  guard: Guard,
-  plan: Plan,
-  allowed: ReadonlySet<string>,
-) {
-  const { checks, files } = runChecks(schema, plan);
-  return writeProtected(
-    context,
-    schema,
-    guard.run,
-    {
-      checks,
-      files,
-      replace: allowed,
-      // A pruned key's fingerprint goes with it.
-      forget: plan.files.flatMap((file) =>
-        (file.prunedKeys ?? []).map((key) => ({ file: file.path, key })),
-      ),
-      bestEffort: guard.bestEffort,
-    },
-    async () => {
-      const results = await applyPlan(plan);
-      const paths = (keep: (file: FilePlan, i: number) => boolean) =>
-        plan.files.filter(keep).map((file) => file.path);
-      return {
-        value: results,
-        // The files left as planned: the rule runChecks records by.
-        done: paths(
-          (file, i) => Boolean(results[i]?.ok) && file.reason !== 'refused',
-        ),
-        written: paths((_, i) => Boolean(results[i]?.written)),
-      };
-    },
+  if (!io.isTTY) throw usageError(NO_TERMINAL);
+  return connected(run, (connection) =>
+    applyInteractive(io, run, connection, inputs),
   );
 }
 
-/**
- * The warnings of a run: a state it could not read, when it pruned a key in
- * a file it wrote, then one it could not write, then a history it could not
- * record.
- */
-const warningsOf = (
-  guard: Guard,
-  plan: Plan,
-  results: readonly ApplyResult[],
-  written: { warning?: string; history: readonly string[] },
-) => {
-  const pruned = plan.files.some(
-    (file, i) => file.prunedKeys?.length && results[i]?.written,
-  );
-  return [
-    ...(guard.unread && pruned ? [guard.unread] : []),
-    ...(written.warning ? [written.warning] : []),
-    ...written.history,
-  ];
-};
-
-const replacedLines = (replaced: readonly Replaced[]) =>
-  replaced.map(({ file, key }) => `${file}: replaced protected ${key}`);
+/** Runs `work` over the run's server, closed after. */
+async function connected<T>(
+  run: ProjectRun,
+  work: (connection: Connection) => Promise<T>,
+): Promise<T> {
+  const connection = await run.connect();
+  try {
+    return await work(connection);
+  } finally {
+    await connection.close();
+  }
+}
 
 /** The keys of the repeated --defer option, each once and checked. */
 function deferKeys(
@@ -316,64 +189,6 @@ function deferKeys(
       throw keyError('usage', key, '--defer takes a required variable');
   }
   return unique;
-}
-
-/**
- * The keys left empty that the written files hold, and those files: a file
- * that failed to write leaves nothing for a person to set.
- */
-function writtenEmpty(
-  schema: EnvSchema,
-  plans: readonly FilePlan[],
-  results: readonly ApplyResult[],
-  empty: readonly string[],
-) {
-  const written = plans.filter((_, i) => results[i]?.ok);
-  const left = new Set(written.flatMap((plan) => leftIn(schema, plan, empty)));
-  return { written, keys: empty.filter((key) => left.has(key)) };
-}
-
-/**
- * The `empty` keys the file takes that still need a value there: a required
- * one, or a requiredUnless one whose alternatives the file leaves unset.
- */
-function leftIn(
-  schema: EnvSchema,
-  plan: FilePlan,
-  empty: readonly string[],
-): string[] {
-  const needed = neededKeysOf(schema, plan);
-  const spec = schema.files.find((file) => file.path === plan.path)!;
-  const unsatisfied = new Set(
-    fileRules(schema, spec, parseDotenv(plan.content ?? ''))
-      .filter((problem) => problem.rule === 'requiredUnless')
-      .map((problem) => problem.key),
-  );
-  return empty.filter(
-    (key) =>
-      needed.includes(key) &&
-      (schema.variables[key]!.required || unsatisfied.has(key)),
-  );
-}
-
-/**
- * The report line for keys left for a person to set: one `set` command per
- * file of the run that takes them, with `--file` so it works with several.
- */
-function deferredLine(
-  schema: EnvSchema,
-  plans: readonly FilePlan[],
-  keys: readonly string[],
-) {
-  const commands = plans
-    .map((plan) => {
-      const prompts = leftIn(schema, plan, keys);
-      return prompts.length
-        ? `configure-env set --file ${plan.path} ${prompts.map((key) => `--prompt ${key}`).join(' ')}`
-        : '';
-    })
-    .filter(Boolean);
-  return `deferred: ${keys.join(', ')} (set ${keys.length > 1 ? 'them' : 'it'} with ${commands.join(', and ')})`;
 }
 
 /**
@@ -402,174 +217,290 @@ function checkGenerated(
   }
 }
 
+/** The API's file plan with its modes read, as the formatters take it. */
+const runFile =
+  (schema: EnvSchema) =>
+  (file: ApiFilePlan): RunFile => ({
+    path: file.path,
+    policy: file.policy,
+    action: file.action,
+    addedKeys: file.addedKeys,
+    prunedKeys: file.prunedKeys,
+    ...(file.reason ? { reason: file.reason } : {}),
+    ...(file.error === undefined ? {} : { error: file.error }),
+    mode: Number.parseInt(file.mode, 8),
+    ...(file.currentMode === null
+      ? {}
+      : { currentMode: Number.parseInt(file.currentMode, 8) }),
+    ...(schema.files.find((spec) => spec.path === file.path)?.mode
+      ? { modeFixed: true }
+      : {}),
+    exists: file.fingerprint !== null,
+    deferred: file.deferred ?? [],
+  });
+
+/** The error a refused request ends the run with. */
+function requestError(
+  run: ProjectRun,
+  response: { status: number; data: unknown },
+): CliError {
+  const data = response.data as {
+    kind?: string;
+    message?: string;
+    errors?: unknown[];
+    hints?: string[];
+    lines?: string[];
+  } | null;
+  if (response.status === 422 && data?.kind === 'inputs') {
+    const errors = data.errors as KeyProblem[];
+    const usage = errors.some((error) => error.kind === 'usage');
+    return new CliError(
+      usage ? 2 : 1,
+      [data.message!, ...(data.hints ?? [])],
+      errors,
+    );
+  }
+  if (response.status === 422 && !('plan' in (data ?? {})))
+    return new CliError(1, [
+      `invalid schema ${run.title}:`,
+      ...((data?.errors ?? []) as SchemaError[]).map(
+        (error) => `  ${error.path}: ${error.message}`,
+      ),
+    ]);
+  // The state a plan reads when the schema protects a variable.
+  if (response.status === 503)
+    return new CliError(1, [
+      answerMessage(response),
+      'fix or restore it; nothing was written',
+    ]);
+  return new CliError(1, [answerMessage(response)]);
+}
+
+/** POST /api/plan, or the error the run ends with. */
+async function planOf(
+  run: ProjectRun,
+  connection: Connection,
+  body: PlanRequest,
+): Promise<ApiPlan> {
+  const response = await send(connection, () =>
+    planChanges(body, connection.init()),
+  );
+  if (response.status === 200) return response.data;
+  throw requestError(run, response);
+}
+
 /**
- * The --set values plus one value per --generate key. When a file of the
- * run already holds a non-empty value for the key, that value goes to the
- * files that lack it, so every file keeps one secret; else a random value
- * is made, only when a file of the run will write the key. Files holding
- * different values exit 2, naming the files and never a value.
+ * The values a run plans with: the --set values, then the non-empty
+ * environment variable of each key the files take that is neither set nor
+ * generated. The server falls back to the default.
  */
-function withGenerated(
+function valuesFor(
   schema: EnvSchema,
-  plans: readonly FilePlan[],
-  sets: Readonly<Record<string, string>>,
-  keys: readonly string[],
+  files: readonly ApiFilePlan[],
+  { sets, generated }: Inputs,
   env: Io['env'],
 ): Record<string, string> {
   const values = { ...sets };
-  const needed = neededKeys(schema, plans);
-  for (const key of keys) {
-    const held = new Map<string, string>();
-    for (const plan of plans) {
-      const file = schema.files.find((spec) => spec.path === plan.path)!;
-      if (plan.previous === undefined || !takesValue(schema, file, key))
-        continue;
-      const value = getValue(parseDotenv(plan.previous), key);
-      if (value) held.set(plan.path, value);
-    }
-    const distinct = [...new Set(held.values())];
-    if (distinct.length > 1)
-      throw keyError(
-        'usage',
-        key,
-        `--generate found different values in ${[...held.keys()].join(', ')}`,
-        'set the same value in each, or pass --file to leave one out of the run',
-      );
-    if (distinct[0] !== undefined) values[key] = distinct[0];
-    else if (needed.includes(key)) {
-      checkConflicts(schema, plans, sets, keys, env, key);
-      values[key] = generateValue(key, schema.variables[key]!);
-    }
+  for (const key of neededKeys(schema, files)) {
+    if (sets[key] !== undefined || generated.includes(key)) continue;
+    const value = givenValue(key, {}, env);
+    if (value !== undefined) values[key] = value;
   }
   return values;
 }
 
-/**
- * Refuses to generate `key` while a file of the run that writes it also
- * holds a variable it conflicts with: kept from the file, or written by the
- * run (`values`, given, generated, from the environment, or a default).
- * The run would write both. A file without the partner holds no conflict.
- */
-function checkConflicts(
-  schema: EnvSchema,
-  plans: readonly FilePlan[],
-  sets: Readonly<Record<string, string>>,
-  generated: readonly string[],
-  env: Io['env'],
-  key: string,
-) {
-  for (const plan of plans) {
-    if (!neededKeysOf(schema, plan).includes(key)) continue;
-    const file = schema.files.find((spec) => spec.path === plan.path)!;
-    const held =
-      plan.previous === undefined ? undefined : parseDotenv(plan.previous);
-    checkConflict(schema, file, key, (other) => {
-      // A value the file holds stays as it is, empty or not: a merge file
-      // never changes an existing line, an existing create-only file takes
-      // no key, and a generate file that writes the key is refused earlier.
-      const kept = held && getValue(held, other);
-      if (kept !== undefined && plan.policy !== 'generate')
-        return Boolean(kept);
-      const literal = file.values?.[other];
-      if (literal !== undefined) return Boolean(literal);
-      const fallback = schema.variables[other]!.default;
-      return Boolean(
-        givenValue(other, sets, env) ||
-        generated.includes(other) ||
-        (fallback !== undefined && String(fallback) !== ''),
-      );
-    });
+/** The plan request of a run: apply's checks on (`defer`), every input. */
+const runRequest = (
+  run: ProjectRun,
+  inputs: Inputs,
+  values: Record<string, string>,
+  files = run.files,
+): PlanRequest => ({
+  values,
+  ...(files ? { files } : {}),
+  prune: inputs.prune,
+  generate: inputs.generated,
+  defer: inputs.deferred,
+  ...(inputs.replace.length ? { replaceProtected: inputs.replace } : {}),
+});
+
+/** The protected refusals of a plan, as the CLI's problems. */
+const refusalsOf = (plan: ApiPlan): ProtectedProblem[] =>
+  plan.protected.map(({ key, message, reason }) => ({
+    kind: 'protected',
+    key,
+    message,
+    ...(reason ? { reason } : {}),
+  }));
+
+/** A failed POST /api/apply: why nothing was written, and the exit code. */
+type ApplyFailure =
+  | { kind: 'plan'; plan: ApiPlan }
+  | { kind: 'error'; error: CliError };
+
+/** POST /api/apply of the plan shown: what it wrote, or why it wrote nothing. */
+async function applyShown(
+  io: Io,
+  run: ProjectRun,
+  connection: Connection,
+  body: PlanRequest,
+  plan: ApiPlan,
+): Promise<{ ok: true; applied: Applied } | ({ ok: false } & ApplyFailure)> {
+  const request: ApplyRequest = { ...body, fingerprint: plan.fingerprint };
+  const response = await send(connection, () =>
+    applyPlan(request, connection.init()),
+  );
+  if (response.status === 200) return { ok: true, applied: response.data };
+  const data = response.data as {
+    plan?: ApiPlan;
+    path?: string;
+    lines?: string[];
+  };
+  // Refused when written: errors, or protected values the state now holds.
+  if (response.status === 422 && data.plan)
+    return { ok: false, kind: 'plan', plan: data.plan };
+  if (response.status === 503 && data.lines && data.path) {
+    const path = shownPath(io, run, data.path);
+    return {
+      ok: false,
+      kind: 'error',
+      error: new CliError(1, data.lines, [
+        { kind: 'file', path, message: data.lines.join('; ') },
+      ]),
+    };
   }
+  return { ok: false, kind: 'error', error: requestError(run, response) };
 }
 
+/** A path of the server's, as this run shows it. */
+const shownPath = (io: Io, run: ProjectRun, path: string) =>
+  run.remote ? path : displayPath(io.cwd, path);
+
+/** `all` without the lines of `lines`, each once. */
+function without(all: readonly string[], lines: readonly string[]) {
+  const left = [...lines];
+  return all.filter((line) => {
+    const at = left.indexOf(line);
+    if (at < 0) return true;
+    left.splice(at, 1);
+    return false;
+  });
+}
+
+/**
+ * The keys left empty that the written files hold, in schema order, and
+ * those files: a file that failed to write leaves nothing for a person to set.
+ */
+function writtenEmpty(
+  schema: EnvSchema,
+  files: readonly RunFile[],
+  resultOf: (file: RunFile) => ApplyResult | undefined,
+) {
+  const written = files.filter((file) => resultOf(file)?.ok);
+  const left = new Set(written.flatMap((file) => file.deferred));
+  return {
+    written,
+    keys: Object.keys(schema.variables).filter((key) => left.has(key)),
+  };
+}
+
+/**
+ * The report line for keys left for a person to set: one `set` command per
+ * file of the run that takes them, with `--file` so it works with several.
+ */
+function deferredLine(files: readonly RunFile[], keys: readonly string[]) {
+  const commands = files
+    .filter((file) => file.deferred.length)
+    .map(
+      (file) =>
+        `configure-env set --file ${file.path} ${file.deferred.map((key) => `--prompt ${key}`).join(' ')}`,
+    );
+  return `deferred: ${keys.join(', ')} (set ${keys.length > 1 ? 'them' : 'it'} with ${commands.join(', and ')})`;
+}
+
+const replacedLines = (replaced: readonly Replaced[]) =>
+  replaced.map(({ file, key }) => `${file}: replaced protected ${key}`);
+
 /** Whether the run writes or chmods the file. */
-const changes = (file: FilePlan) =>
+const changes = (file: PlannedFile) =>
   file.action === 'create' ||
   file.action === 'update' ||
   file.action === 'mode';
 
-const toWrite = (plan: Plan) => plan.files.some(changes);
-
 /** A file whose mode apply does not loosen, as an error for --json. */
-const loosenedErrors = (plan: Plan): PlanError[] =>
-  plan.files
+const loosenedErrors = (files: readonly RunFile[]): PlanError[] =>
+  files
     .filter((file) => file.reason === 'loosens')
     .map((file) => ({ kind: 'file', path: file.path, message: file.error! }));
 
-async function applyUnattended(
-  context: Context,
-  schema: EnvSchema,
-  sets: Readonly<Record<string, string>>,
-  generated: readonly string[],
-  deferred: readonly string[],
-  guard: Guard,
-): Promise<number> {
-  const { io, root, files, json } = context;
-  const first = await planChanges({
-    schema,
-    root,
-    values: {},
-    files,
-    prune: guard.prune,
-  });
-  const givenValues = withGenerated(
-    schema,
-    first.files,
-    sets,
-    generated,
-    io.env,
-  );
-  const keys = neededKeys(schema, first.files);
-  const { values, errors, empty } = resolveValues(
-    schema,
-    keys,
-    givenValues,
-    io.env,
-    deferred,
-  );
-  const plan = await planChanges({
-    schema,
-    root,
-    values,
-    files,
-    prune: guard.prune,
-  });
-  errors.push(...plan.errors);
-  // Like a required value, a broken rule between variables writes nothing.
-  if (!errors.length) errors.push(...ruleErrors(schema, plan.files, deferred));
-
+/**
+ * Prints why an unattended plan writes nothing: its errors (exit 1), else
+ * its protected refusals (exit 2). Undefined when it can be applied.
+ */
+function unattendedRefusal(
+  io: Io,
+  run: ProjectRun,
+  plan: ApiPlan,
+  files: readonly RunFile[],
+): number | undefined {
+  const errors = plan.errors as PlanError[];
   if (errors.length) {
-    if (json) io.stdout(failureJson(errors, plan.files));
+    if (run.json) io.stdout(failureJson(errors, files));
     else {
       errors.forEach((error) =>
         io.stderr(`configure-env: ${describeError(error)}`),
       );
-      plan.files
+      files
         .filter((file) => file.reason === 'refused')
         .forEach((file) => io.stdout(`${file.path}: ${applyStatus(file)}`));
     }
     return 1;
   }
-
   // A protected value never changes without --replace-protected: a refusal
   // writes nothing.
-  const { refused } = protectedChanges(schema, guard, plan);
+  const refused = refusalsOf(plan);
   if (refused.length) {
-    if (json) io.stdout(failureJson(refused, plan.files));
+    if (run.json) io.stdout(failureJson(refused, files));
     else
       refused.forEach((problem) =>
         io.stderr(`configure-env: ${protectedLine(problem)}`),
       );
     return 2;
   }
+  return undefined;
+}
 
-  let written: Awaited<ReturnType<typeof writeRun>>;
-  try {
-    written = await writeRun(context, schema, guard, plan, guard.replace);
-  } catch (error) {
+async function applyUnattended(
+  io: Io,
+  run: ProjectRun,
+  connection: Connection,
+  inputs: Inputs,
+): Promise<number> {
+  const { schema, json } = run;
+  const first = await planOf(run, connection, {
+    ...(run.files ? { files: run.files } : {}),
+    prune: inputs.prune,
+  });
+  const body = runRequest(
+    run,
+    inputs,
+    valuesFor(schema, first.files, inputs, io.env),
+  );
+  const plan = await planOf(run, connection, body);
+  const files = plan.files.map(runFile(schema));
+  const refused = unattendedRefusal(io, run, plan, files);
+  if (refused !== undefined) return refused;
+
+  const written = await applyShown(io, run, connection, body, plan);
+  if (!written.ok) {
+    if (written.kind === 'plan') {
+      const again = written.plan.files.map(runFile(schema));
+      return unattendedRefusal(io, run, written.plan, again) ?? 1;
+    }
     // Refused in the state's transaction, or no transaction: nothing was written.
-    if (!(error instanceof CliError) || !error.errors) throw error;
-    if (json) io.stdout(failureJson(error.errors, plan.files));
+    const { error } = written;
+    if (!error.errors) throw error;
+    if (json) io.stdout(failureJson(error.errors, files));
     else
       error.lines.forEach((line, i) =>
         io.stderr(
@@ -580,15 +511,16 @@ async function applyUnattended(
       );
     return error.code;
   }
-  const { value: results, replaced, stateError } = written;
-  const warnings = warningsOf(guard, plan, results, written);
+  const { files: results, replaced, stateError } = written.applied;
+  const warnings = without(written.applied.warnings, stateError?.lines ?? []);
   // A file left with a looser mode than the schema's still drifts.
-  const loosened = loosenedErrors(plan);
+  const loosened = loosenedErrors(files);
   const ok =
     results.every((result) => result.ok) && !stateError && !loosened.length;
-  const left = writtenEmpty(schema, plan.files, results, empty);
+  const resultOf = (file: RunFile) => results[files.indexOf(file)];
+  const left = writtenEmpty(schema, files, resultOf);
   const done = replaced.filter((entry) =>
-    plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
+    files.some((file, i) => file.path === entry.file && results[i]?.ok),
   );
   if (json)
     io.stdout(
@@ -601,26 +533,25 @@ async function applyUnattended(
             ? [
                 {
                   kind: 'file',
-                  path: displayPath(io.cwd, guard.run!.path),
-                  message: stateError.join('; '),
+                  path: shownPath(io, run, stateError.path),
+                  message: stateError.lines.join('; '),
                 },
               ]
             : []),
         ],
-        files: plan.files.map((file, i) => applyJson(file, results[i])),
+        files: files.map((file, i) => applyJson(file, results[i])),
         deferred: left.keys,
         ...(done.length ? { replaced: done } : {}),
         ...(warnings.length ? { warnings } : {}),
       }),
     );
   else {
-    plan.files.forEach((file, i) =>
+    files.forEach((file, i) =>
       io.stdout(`${file.path}: ${applyStatus(file, results[i])}`),
     );
     replacedLines(done).forEach((line) => io.stdout(line));
-    if (left.keys.length)
-      io.stdout(deferredLine(schema, left.written, left.keys));
-    stateError?.forEach((line, i) =>
+    if (left.keys.length) io.stdout(deferredLine(left.written, left.keys));
+    stateError?.lines.forEach((line, i) =>
       io.stderr(i ? line : `configure-env: ${line}`),
     );
     warnings.forEach((line) => io.stderr(`configure-env: warning: ${line}`));
@@ -633,6 +564,14 @@ const CANCELLED = 130;
 function cancelled(prompts: Prompts): number {
   prompts.cancel('Cancelled; nothing was written.');
   return CANCELLED;
+}
+
+/** Closes the prompts with the error that ends the run. */
+function closeWith(prompts: Prompts, error: unknown): number {
+  if (!(error instanceof CliError)) throw error;
+  prompts.log.error(error.lines.join('\n'));
+  prompts.outro('Nothing was written.');
+  return error.code;
 }
 
 /** The prompt message: the description and the name, or the name alone. */
@@ -689,18 +628,24 @@ function byGroup(schema: EnvSchema, keys: readonly string[]) {
   return groups;
 }
 
-/** One plan line per file, with the prompted values it takes, masked. */
+/**
+ * One plan line per file, with the values it takes, masked: given here, or
+ * generated on the server, which answers them masked.
+ */
 function previewLines(
   schema: EnvSchema,
-  plan: Plan,
+  files: readonly RunFile[],
   answers: Readonly<Record<string, string>>,
+  generated: Readonly<Record<string, string>>,
 ): string[] {
-  return plan.files.map((file: FilePlan) => {
+  return files.map((file) => {
     const shown = neededKeysOf(schema, file)
-      .filter((key) => answers[key] !== undefined)
+      .filter(
+        (key) => answers[key] !== undefined || generated[key] !== undefined,
+      )
       .map((key) => {
         const spec = schema.variables[key]!;
-        return `${key}=${maskValue(spec, answers[key]!)}`;
+        return `${key}=${generated[key] ?? maskValue(spec, answers[key]!)}`;
       });
     const values = shown.length ? ` (${shown.join(', ')})` : '';
     return `${file.path}: ${planStatus(file)}${values}`;
@@ -708,55 +653,62 @@ function previewLines(
 }
 
 async function applyInteractive(
-  context: Context,
-  schema: EnvSchema,
-  sets: Readonly<Record<string, string>>,
-  generated: readonly string[],
-  deferred: readonly string[],
-  guard: Guard,
+  io: Io,
+  run: ProjectRun,
+  connection: Connection,
+  inputs: Inputs,
 ): Promise<number> {
-  const { io, prompts, root, files, schemaPath } = context;
-  prompts.intro(`configure-env · ${displayPath(io.cwd, schemaPath)}`);
-
-  const first = await planChanges({
-    schema,
-    root,
-    values: {},
-    files,
-    prune: guard.prune,
+  const { schema, prompts } = run;
+  const { sets, generated, deferred } = inputs;
+  const first = await planOf(run, connection, {
+    ...(run.files ? { files: run.files } : {}),
+    prune: inputs.prune,
   });
+  prompts.intro(`configure-env · ${run.title}`);
+  const files = first.files.map(runFile(schema));
   const picked = await prompts.multiselect<string>({
     message: 'Which files should be written?',
-    options: first.files.map((file) => ({
+    options: files.map((file) => ({
       value: file.path,
       label: file.path,
       hint: `${file.policy}; ${fileState(file)}`,
     })),
-    initialValues: first.files.filter(changes).map((file) => file.path),
+    initialValues: files.filter(changes).map((file) => file.path),
     required: true,
   });
   if (prompts.isCancel(picked)) return cancelled(prompts);
-  let givenValues: Record<string, string>;
+  // The picked files a run can plan: a refused or loosening one is left out.
+  const planned = first.files
+    .filter(
+      (file) =>
+        picked.includes(file.path) &&
+        file.reason !== 'refused' &&
+        file.reason !== 'loosens',
+    )
+    .map((file) => file.path);
   try {
     checkGenerated(schema, picked, generated);
-    givenValues = withGenerated(
-      schema,
-      first.files.filter((file) => picked.includes(file.path)),
-      sets,
-      generated,
-      io.env,
-    );
+    // The generated values' problems, before any prompt.
+    if (generated.length && planned.length)
+      await planOf(run, connection, {
+        values: valuesFor(
+          schema,
+          first.files.filter((file) => planned.includes(file.path)),
+          inputs,
+          io.env,
+        ),
+        files: planned,
+        prune: inputs.prune,
+        generate: generated,
+      });
   } catch (error) {
     // The prompts are open: close them with the error, not a bare exit.
-    if (!(error instanceof CliError)) throw error;
-    prompts.log.error(error.lines.join('\n'));
-    prompts.outro('Nothing was written.');
-    return error.code;
+    return closeWith(prompts, error);
   }
 
   let refused = false;
-  const selected: FilePlan[] = [];
-  for (const file of first.files) {
+  const selected: RunFile[] = [];
+  for (const file of files) {
     if (!picked.includes(file.path)) continue;
     if (file.reason === 'refused') {
       prompts.log.warn(`${file.path}: refused: ${file.error}`);
@@ -777,23 +729,17 @@ async function applyInteractive(
   }
 
   const needed = neededKeys(schema, selected);
-  // A deferred key is never asked: it resolves as in an unattended run, to
-  // its environment variable, else its default, else empty.
-  const { values: resolved, empty } = resolveValues(
-    schema,
-    needed.filter((key) => deferred.includes(key)),
-    givenValues,
-    io.env,
-    deferred,
-  );
   const answers: Record<string, string> = {};
   for (const [group, keys] of byGroup(schema, needed)) {
     if (group) prompts.log.step(group);
     for (const key of keys) {
       // A --set or generated value is the answer already.
-      if (givenValues[key] !== undefined) continue;
+      if (sets[key] !== undefined || generated.includes(key)) continue;
+      // A deferred key is never asked: it resolves as in an unattended run,
+      // to its environment variable, else its default, else empty.
       if (deferred.includes(key)) {
-        if (resolved[key] !== undefined) answers[key] = resolved[key];
+        const value = givenValue(key, {}, io.env);
+        if (value !== undefined) answers[key] = value;
         continue;
       }
       const spec = schema.variables[key]!;
@@ -806,32 +752,37 @@ async function applyInteractive(
     }
   }
 
-  const plan = await planChanges({
-    schema,
-    root,
-    values: { ...givenValues, ...answers },
-    files: selected.map((file) => file.path),
-    prune: guard.prune,
-  });
-  const planErrors = plan.errors.length
-    ? plan.errors
-    : ruleErrors(schema, plan.files, deferred);
+  const values = { ...sets, ...answers };
+  // The picked create-only files that exist stay in the plan, as an
+  // unattended run keeps them, so a --generate value they hold is used.
+  const body = runRequest(run, inputs, values, planned);
+  let plan: ApiPlan;
+  try {
+    plan = await planOf(run, connection, body);
+  } catch (error) {
+    return closeWith(prompts, error);
+  }
+  const all = plan.files.map(runFile(schema));
+  const shown = all.filter((file) =>
+    selected.some((entry) => entry.path === file.path),
+  );
+  const planErrors = plan.errors as PlanError[];
   if (planErrors.length) {
     prompts.log.error(planErrors.map(describeError).join('\n'));
     prompts.outro('Nothing was written.');
     return 1;
   }
-  const { refused: blocked, replaced } = protectedChanges(schema, guard, plan);
+  const blocked = refusalsOf(plan);
   if (blocked.length) {
     prompts.log.error(blocked.map(protectedLine).join('\n'));
     prompts.outro('Nothing was written.');
     return 2;
   }
   prompts.note(
-    previewLines(schema, plan, { ...givenValues, ...answers }).join('\n'),
+    previewLines(schema, shown, values, plan.generated ?? {}).join('\n'),
     'Plan',
   );
-  if (!toWrite(plan)) {
+  if (!shown.some(changes)) {
     prompts.outro('Everything is current.');
     return failure;
   }
@@ -843,43 +794,52 @@ async function applyInteractive(
     return failure;
   }
   try {
-    const keys = [...new Set(replaced.map((entry) => entry.key))];
-    if (!(await confirmReplacements(context, keys))) return cancelled(prompts);
+    const keys = [...new Set((plan.replaced ?? []).map((entry) => entry.key))];
+    if (!(await confirmReplacements({ io, ...run }, keys)))
+      return cancelled(prompts);
   } catch (error) {
-    if (!(error instanceof CliError)) throw error;
-    prompts.log.error(error.lines.join('\n'));
-    prompts.outro('Nothing was written.');
-    return error.code;
+    return closeWith(prompts, error);
   }
 
   const progress = prompts.spinner();
   progress.start('Writing');
-  let written: Awaited<ReturnType<typeof writeRun>>;
-  try {
-    const confirmed = new Set(replaced.map((entry) => entry.key));
-    written = await writeRun(context, schema, guard, plan, confirmed);
-  } catch (error) {
-    if (!(error instanceof CliError)) throw error;
-    progress.error('Not written');
-    prompts.log.error(error.lines.join('\n'));
-    prompts.outro('Nothing was written.');
-    return error.code;
-  }
-  const { value: results, stateError } = written;
-  const left = writtenEmpty(schema, plan.files, results, empty);
-  const deferredLines = left.keys.length
-    ? [deferredLine(schema, left.written, left.keys)]
-    : [];
-  const done = written.replaced.filter((entry) =>
-    plan.files.some((file, i) => file.path === entry.file && results[i]?.ok),
+  const written = await applyShown(io, run, connection, body, plan).catch(
+    (error: unknown) => ({ ok: false as const, kind: 'error' as const, error }),
   );
-  if (stateError) prompts.log.error(stateError.join('\n'));
-  warningsOf(guard, plan, results, written).forEach((line) =>
+  if (!written.ok) {
+    progress.error('Not written');
+    if (written.kind === 'plan') {
+      const again = written.plan;
+      const errors = again.errors as PlanError[];
+      prompts.log.error(
+        (errors.length
+          ? errors.map(describeError)
+          : refusalsOf(again).map(protectedLine)
+        ).join('\n'),
+      );
+      prompts.outro('Nothing was written.');
+      return errors.length ? 1 : 2;
+    }
+    return closeWith(prompts, written.error);
+  }
+  const { files: results, stateError } = written.applied;
+  const resultOf = (file: RunFile) => results[all.indexOf(file)];
+  const left = writtenEmpty(schema, shown, resultOf);
+  const deferredLines = left.keys.length
+    ? [deferredLine(left.written, left.keys)]
+    : [];
+  const done = written.applied.replaced.filter((entry) =>
+    shown.some((file) => file.path === entry.file && resultOf(file)?.ok),
+  );
+  if (stateError) prompts.log.error(stateError.lines.join('\n'));
+  without(written.applied.warnings, stateError?.lines ?? []).forEach((line) =>
     prompts.log.warn(line),
   );
-  const failed = results.filter((result) => !result.ok);
+  const failed = shown
+    .map(resultOf)
+    .filter((result): result is ApplyResult => Boolean(result && !result.ok));
   if (failed.length) {
-    progress.error(`${failed.length} of ${results.length} files failed`);
+    progress.error(`${failed.length} of ${shown.length} files failed`);
     failed.forEach((result) =>
       prompts.log.error(`${result.path}: ${result.error}`),
     );
@@ -891,8 +851,8 @@ async function applyInteractive(
   progress.stop('Written');
   prompts.outro(
     [
-      ...plan.files.map(
-        (file, i) => `${file.path}: ${applyStatus(file, results[i])}`,
+      ...shown.map(
+        (file) => `${file.path}: ${applyStatus(file, resultOf(file))}`,
       ),
       ...replacedLines(done),
       ...deferredLines,
