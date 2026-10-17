@@ -320,7 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
-| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another one yet; every other command exits 2 for it |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. `check`, `list`, `get`, `set`, `unset` and `history` run against another one; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -472,6 +472,8 @@ configure-env init --force
 
 `set`, `get` and `unset` work on one file: the `--file` path, else the only schema file that is not a template. When the schema has more than one such file, `--file` is required (exit 2, listing the paths). `set` and `unset` edit a template file only with `--allow-template`.
 
+`list`, `get`, `set`, `unset` and `history` run through the configure-env API, as `check` does: `list` and `get` read `GET /api/variables` (and `POST /api/reveal` for a secret `get --reveal` prints), `set` writes through `POST /api/values/set` (`--generate` included: the server makes the value), `unset` through `POST /api/values/unset`, and `history` reads `GET /api/history`. They go through the project's running `serve` when there is one, else a server of their own on 127.0.0.1 for the run only, and with `--env <name>` they work on that environment's project on its server (see "env"). Their flags, output and exit codes are the same either way, and the history records the changes they make as the `cli`'s: the API records `cli` for a request carrying `X-Configure-Env-Client: cli`, and `portal` otherwise.
+
 ### set
 
 `set KEY=VALUE [KEY=VALUE…]` checks every value against its variable's rules first; one invalid value writes nothing and exits 1, naming the rule but never the value. A key the file holds is edited in place, keeping its `export` prefix, spacing and inline comment; a missing key is appended with its schema comment. Every other line stays byte for byte, line endings included, and the file is written atomically with its mode kept. Values are written as `apply` writes them (a boolean `yes` becomes `true`, a value with `$` is single-quoted). The file's resulting values are checked against the rules between variables that name a key being set; a broken one writes nothing and exits 1, so `SM_MASTER_KEY_FILE= SM_MASTER_KEY=…` swaps an either-or pair in one `set`.
@@ -501,6 +503,7 @@ configure-env set --prompt API_TOKEN
 configure-env set --generate SESSION_SECRET
 op read op://dev/api/token | configure-env set --stdin API_TOKEN
 configure-env set --create --file .env WEB_HOST=10.0.0.5
+configure-env set --env staging --file .env WEB_PORT=9090
 ```
 
 ### get
@@ -511,6 +514,7 @@ configure-env set --create --file .env WEB_HOST=10.0.0.5
 configure-env get WEB_PORT
 configure-env get API_TOKEN --reveal
 configure-env get WEB_HOST --file .env --json
+configure-env get WEB_PORT --env staging
 ```
 
 ### unset
@@ -520,6 +524,7 @@ configure-env get WEB_HOST --file .env --json
 ```sh
 configure-env unset WEB_PORT
 configure-env unset --file .env API_TOKEN MODE
+configure-env unset --env staging --file .env MODE
 ```
 
 ### list
@@ -545,6 +550,7 @@ EXTRA      yes    unknown                             1
 ```sh
 configure-env list
 configure-env list --file .env --json
+configure-env list --env staging
 ```
 
 ### history
@@ -574,6 +580,7 @@ Undo stays in the portal for now: its History page undoes a change while the fil
 ```sh
 configure-env history
 configure-env history --json
+configure-env history --env staging
 ```
 
 ### env
@@ -592,7 +599,7 @@ An environment is a configure-env server the CLI reaches over HTTP: its URL and 
 - **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
 - **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
 
-`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` runs against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. `check`, `list`, `get`, `set`, `unset` and `history` run against an environment: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
 
 ### JSON output
 
@@ -651,7 +658,7 @@ What the portal does, page by page:
 - **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. With a persistent token, `url` is the server's address without it, and `token` names where the token is (the token file, or `CONFIGURE_ENV_TOKEN`). Stop it with SIGTERM to `pid`.
 
-`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and `check` load the server (NestJS); `check` starts one of its own only when no `serve` of the project runs.
+`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and the commands that run through the API (`check`, `list`, `get`, `set`, `unset` and `history`) load the server (NestJS); those start one of their own only when no `serve` of the project runs.
 
 ### Remote environments
 

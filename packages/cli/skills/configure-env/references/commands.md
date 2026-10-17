@@ -12,7 +12,7 @@ Every command takes them, except `install`, which takes only `--root`, `--ci`, `
 | `--root <dir>` | the project root the schema's paths are relative to; default where the command was typed (`INIT_CWD` under a pnpm script, else the cwd) |
 | `--state <path>` | the protected variables' state, relative to the root; default `.configure-env/state.db`; never a schema file or a path inside one (exit 2) |
 | `--file <path>` | only this schema file; repeatable for `apply`, `check`, `list`; `set`, `get`, `unset` take one. A path not in the schema exits 2 |
-| `--env <name>` | the environment to run against: `local` (default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another; every other command exits 2 for it. A remote one refuses `--root`, `--schema`, `--state` (exit 2) |
+| `--env <name>` | the environment to run against: `local` (default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. `check`, `list`, `get`, `set`, `unset` and `history` run against another; every other command exits 2 for it. A remote one refuses `--root`, `--schema`, `--state` (exit 2) |
 | `--ci` | never prompt; also on when `CI` is set and not `false`/`0` |
 | `--json` | one JSON document on stdout, logs on stderr; never prompts |
 | `--no-color` | plain output; `NO_COLOR` works too |
@@ -37,6 +37,8 @@ Every command takes them, except `install`, which takes only `--root`, `--ci`, `
 | `unset` | one file, state | `KEY…`, `--allow-template`, `--replace-protected KEY` | removes keys, plus the comment above only when it is exactly the schema comment, and the blank line that set them apart (no doubled, leading or trailing blank is left). Status `removed`, or `absent` (exit 0). Rules between variables are not checked. |
 
 `set`, `get` and `unset` work on `--file`, else the only non-template schema file; with several, `--file` is required (exit 2, listing them). `set` and `unset` edit a template only with `--allow-template`.
+
+`list`, `get`, `set`, `unset` and `history` run through the API, as `check` does: the project's running `serve` (`.configure-env/server.json`), else an in-process server for the run; `--env <name>` works on that environment's server. Same flags, output and exit codes; the history records their changes as `cli`.
 
 ## Secrets
 

@@ -495,12 +495,22 @@
               }
             }
           },
+          "428": {
+            "description": "With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmReplacements"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The protected state cannot be read or used; nothing was written.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiError"
+                  "$ref": "#/components/schemas/StateUnavailable"
                 }
               }
             }
@@ -575,12 +585,22 @@
               }
             }
           },
+          "428": {
+            "description": "With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmReplacements"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The protected state cannot be read or used; nothing was written.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiError"
+                  "$ref": "#/components/schemas/StateUnavailable"
                 }
               }
             }
@@ -1817,6 +1837,27 @@
         },
         "additionalProperties": false
       },
+      "ConfirmReplacements": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [428]
+          },
+          "message": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The protected keys the edit would replace; nothing was written."
+          }
+        },
+        "required": ["statusCode", "message", "keys"],
+        "additionalProperties": false
+      },
       "DiffLine": {
         "type": "object",
         "properties": {
@@ -2388,6 +2429,71 @@
         "required": ["statusCode", "message", "errors"],
         "additionalProperties": false
       },
+      "ListedFile": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "template": {
+            "type": "boolean"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "description": "Identifies the bytes read; a value edit names it. Null when the file does not exist; absent when its path was refused.",
+            "nullable": true,
+            "type": "string"
+          },
+          "error": {
+            "description": "Why the path was refused.",
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListedKey"
+            },
+            "description": "The file's variables in schema order, then the keys it holds that the schema does not list for it; empty when its path was refused."
+          }
+        },
+        "required": ["path", "template", "exists", "keys"],
+        "additionalProperties": false
+      },
+      "ListedKey": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "set": {
+            "type": "string",
+            "enum": ["yes", "no", "empty"],
+            "description": "Whether the file holds a value for it, or holds it empty."
+          },
+          "valid": {
+            "nullable": true,
+            "description": "Whether it passes its rules, a missing value included; null when it is not checked: a key the schema does not list for the file, or a template's placeholder.",
+            "type": "boolean"
+          },
+          "error": {
+            "description": "Why it is not valid; never holds the value.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value, masked when secret; absent when it is not set.",
+            "type": "string"
+          },
+          "unknown": {
+            "description": "A key the schema does not list for the file.",
+            "type": "boolean",
+            "enum": [true]
+          }
+        },
+        "required": ["key", "set", "valid"],
+        "additionalProperties": false
+      },
       "OpenInEditor": {
         "type": "object",
         "properties": {
@@ -2920,6 +3026,27 @@
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
               "description": "A variable name, like `API_URL`."
             }
+          },
+          "confirmReplacements": {
+            "description": "Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.",
+            "type": "boolean"
+          },
+          "allowUnknown": {
+            "description": "Also set keys the file does not list, as plain strings; `generate` still takes only the file's variables.",
+            "type": "boolean"
+          },
+          "keepExisting": {
+            "description": "Generate only the keys the file holds no value for: a value it holds is kept, checked as it is, and reported unchanged.",
+            "type": "boolean"
+          },
+          "masked": {
+            "description": "Keys treated as secret whatever their spec, such as a value piped in: masked in the answer, their values never kept in the history.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "A variable name, like `API_URL`."
+            }
           }
         },
         "required": ["file", "fingerprint"],
@@ -2967,6 +3094,31 @@
           }
         },
         "required": ["statusCode", "message", "schema"],
+        "additionalProperties": false
+      },
+      "StateUnavailable": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "enum": [503]
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "description": "When the write could not get or use the state: the state database, as the lines show it.",
+            "type": "string"
+          },
+          "lines": {
+            "description": "Why, a line each; the message joins them.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["statusCode", "message"],
         "additionalProperties": false
       },
       "UndoConflict": {
@@ -3107,6 +3259,10 @@
               "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
               "description": "A variable name, like `API_URL`."
             }
+          },
+          "confirmReplacements": {
+            "description": "Write nothing when the edit, once every other check passed, would replace a protected value: answer 428 with the keys, for a person to confirm before it is sent again replacing those.",
+            "type": "boolean"
           }
         },
         "required": ["file", "fingerprint", "keys"],
@@ -3172,6 +3328,10 @@
                 "status": {
                   "type": "string",
                   "enum": ["updated", "added", "unchanged", "removed", "absent"]
+                },
+                "value": {
+                  "description": "For a set: the value the file holds for it, masked when secret or `masked`.",
+                  "type": "string"
                 }
               },
               "required": ["key", "status"],
@@ -3207,6 +3367,13 @@
               "type": "string"
             },
             "description": "What went wrong after the file was written: the protected state or the history not recorded."
+          },
+          "stateError": {
+            "description": "When the file was written but the protected state was not: why, as the first warnings say it.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -4870,6 +5037,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Variable"
+            }
+          },
+          "files": {
+            "description": "Every schema file with its keys as `configure-env list` shows them, the keys the schema does not list for it included.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListedFile"
             }
           }
         },

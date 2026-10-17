@@ -1,16 +1,14 @@
 // What the variable commands (set, get, unset, list) share: which
-// schema file they work on, and reading it.
+// schema file they work on, and reading its keys through the API.
 
 import {
-  type EnvFile,
-  type EnvSchema,
-  type FileSpec,
-  type VariableSpec,
-  isTemplate,
-  maskValue,
-  readEnvFile as readCoreFile,
-} from '@configure-env/core';
-import { CliError, type Context, usageError } from './common.ts';
+  type ListedFile,
+  type ListedKey,
+  getVariables,
+} from '@configure-env/api-client/client';
+import { type EnvSchema, type FileSpec, isTemplate } from '@configure-env/core';
+import { CliError, usageError } from './common.ts';
+import { type Connection, type ProjectRun, answerOf, send } from './connect.ts';
 
 /** The schema files a variable command may edit: those not a template. */
 const editableFiles = (schema: EnvSchema) =>
@@ -58,18 +56,33 @@ export function chooseFile(
   return file;
 }
 
-export { type EnvFile, UNKNOWN_SPEC, variablesOf } from '@configure-env/core';
+export { UNKNOWN_SPEC, variablesOf } from '@configure-env/core';
+export type { ListedFile, ListedKey };
 
-/** Reads a schema file; a path that is not safe to use exits 1. */
-export async function readEnvFile(
-  context: Context,
-  spec: FileSpec,
-): Promise<EnvFile> {
-  const result = await readCoreFile(context.root, spec);
-  if (!result.ok) throw new CliError(1, [result.message]);
-  return result.file;
+/** Every schema file with its keys as the server reads them now: GET /api/variables. */
+export async function listFiles(
+  run: ProjectRun,
+  connection: Connection,
+): Promise<ListedFile[]> {
+  const response = await send(connection, () =>
+    getVariables(connection.init()),
+  );
+  return answerOf<{ files?: ListedFile[] }>(run, response).files ?? [];
 }
 
-/** `value` or `masked` for JSON output, by whether the variable is secret. */
-export const jsonValue = (spec: VariableSpec, value: string) =>
-  spec.secret ? { masked: maskValue(spec, value) } : { value };
+/** One schema file of the listing; a path that is not safe to use exits 1. */
+export function listedFile(
+  files: readonly ListedFile[],
+  spec: FileSpec,
+): ListedFile {
+  const file = files.find((entry) => entry.path === spec.path);
+  if (!file) throw new CliError(1, [`${spec.path}: is not in the schema`]);
+  if (file.error !== undefined) throw new CliError(1, [file.error]);
+  return file;
+}
+
+/** A key of a listed file; undefined when the file neither lists nor holds it. */
+export const listedKey = (
+  file: ListedFile,
+  key: string,
+): ListedKey | undefined => file.keys.find((entry) => entry.key === key);
