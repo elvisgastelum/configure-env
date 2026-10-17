@@ -1,6 +1,7 @@
 // Generates the client from the API: the OpenAPI document the server builds
 // (openapi.json), then orval's fetch functions and React Query hooks
-// (src/generated/), formatted with the repository's Prettier config.
+// (src/generated/), formatted with Oxfmt and the root vite.config.ts `fmt`
+// options, as `vp fmt` formats them.
 //
 //   pnpm gen:api          write them
 //   pnpm gen:api:check    fail when the committed files are out of date
@@ -18,7 +19,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate } from 'orval';
-import { format, resolveConfig } from 'prettier';
+import { format } from 'vite-plus/fmt';
+import rootConfig from '../../../vite.config.ts';
 
 const check = process.argv.includes('--check');
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,9 +72,12 @@ async function render(): Promise<Map<string, string>> {
         await readFile(join(scratch, GENERATED, file), 'utf8'),
       );
     for (const [path, content] of files) {
-      const target = join(packageDir, path);
-      const options = await resolveConfig(target);
-      files.set(path, await format(content, { ...options, filepath: target }));
+      const formatted = await format(path, content, rootConfig.fmt);
+      if (formatted.errors.length)
+        throw new Error(
+          `Could not format ${path}: ${formatted.errors.map((error) => error.message).join('; ')}`,
+        );
+      files.set(path, formatted.code);
     }
     return files;
   } finally {

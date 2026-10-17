@@ -35,6 +35,7 @@ const proxy = {
 };
 
 export default defineConfig({
+  run: { tasks: { build: 'vp build', test: 'vp test run' } },
   plugins: [
     // Before React, so the route files are code-split before they compile.
     tanstackRouter({

@@ -10,11 +10,9 @@
   },
   "scripts": {
     "dev": "vp dev",
-    "build": "vp build",
     "preview": "vp preview",
     "routes": "tsr generate",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
-    "test": "vp test run",
     "storybook": "storybook dev -p 6008",
     "build-storybook": "storybook build"
   },

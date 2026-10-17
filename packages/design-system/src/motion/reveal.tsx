@@ -24,7 +24,11 @@ const ELEMENTS = {
 type RevealElement = keyof typeof ELEMENTS;
 
 type MotionOwnedProps =
-  'initial' | 'animate' | 'whileInView' | 'variants' | 'viewport';
+  | 'initial'
+  | 'animate'
+  | 'whileInView'
+  | 'variants'
+  | 'viewport';
 
 type RevealBaseProps = Omit<HTMLMotionProps<'div'>, MotionOwnedProps> & {
   /** The element to render; a `div` by default. */

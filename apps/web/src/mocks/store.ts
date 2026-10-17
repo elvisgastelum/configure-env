@@ -56,7 +56,8 @@ export const mockState: MockState = fresh();
 export interface EventClient {
   send(
     payload:
-      { event: 'changed'; data: { paths: string[] } } | { retry: number },
+      | { event: 'changed'; data: { paths: string[] } }
+      | { retry: number },
   ): void;
   close(): void;
 }

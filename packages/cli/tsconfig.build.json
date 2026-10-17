@@ -1,5 +1,5 @@
 {
-  // What tsdown builds dist/ from, declarations included: the sources, never
+  // What `vp pack` builds dist/ from, declarations included: the sources, never
   // the tests. tsconfig.json stays the checker.
   //
   // The core's sources are listed too, so the declaration build loads them

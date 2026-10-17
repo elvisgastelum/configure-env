@@ -69,7 +69,8 @@ const CIDR_EXAMPLE: Record<CidrFamily, string> = {
 };
 
 export type CidrResult =
-  { ok: true; network: Network } | { ok: false; error: string };
+  | { ok: true; network: Network }
+  | { ok: false; error: string };
 
 /**
  * The CIDR block `address/prefix` of the family, or why `text` is not one:

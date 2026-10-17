@@ -29,7 +29,8 @@ const faults = vi.hoisted(() => ({
   cp: undefined as Error | undefined,
   symlink: undefined as Error | undefined,
   rename: undefined as
-    ((from: string, to: string) => Error | undefined) | undefined,
+    | ((from: string, to: string) => Error | undefined)
+    | undefined,
   rm: undefined as ((path: string) => Error | undefined) | undefined,
 }));
 vi.mock('node:fs/promises', async (importOriginal) => {

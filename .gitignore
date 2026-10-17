@@ -18,7 +18,6 @@ coverage/
 .atl/
 # Local task logs; shipped behavior and decisions are documented in README.md
 /odd/
-.eslintcache
 *.log
 .DS_Store
 

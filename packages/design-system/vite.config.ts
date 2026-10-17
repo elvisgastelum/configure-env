@@ -59,6 +59,9 @@ const storybookProject = (theme: 'light' | 'dark') => ({
 });
 
 export default defineConfig({
+  // `vp run test` caches the unit tests (the story tests run in CI's
+  // storybook job, uncached).
+  run: { tasks: { test: 'vp test run --project unit' } },
   plugins: [react()],
   test: {
     projects: [

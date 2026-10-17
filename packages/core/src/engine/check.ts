@@ -38,7 +38,11 @@ import {
 } from './state.ts';
 
 export type DriftStatus =
-  'current' | 'missing' | 'differs' | 'missing-keys' | 'refused';
+  | 'current'
+  | 'missing'
+  | 'differs'
+  | 'missing-keys'
+  | 'refused';
 
 /**
  * A current value that breaks its rule. The message never holds the value;

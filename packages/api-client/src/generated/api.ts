@@ -1710,6 +1710,7 @@ export type getHealthResponse200 = {
 export type getHealthResponseSuccess = getHealthResponse200 & {
   headers: Headers;
 };
+
 export type getHealthResponse = getHealthResponseSuccess;
 
 export const getGetHealthUrl = () => {
@@ -1864,6 +1865,7 @@ export type getProjectResponse200 = {
 export type getProjectResponseSuccess = getProjectResponse200 & {
   headers: Headers;
 };
+
 export type getProjectResponse = getProjectResponseSuccess;
 
 export const getGetProjectUrl = () => {
@@ -2018,6 +2020,7 @@ export type getSchemaResponse200 = {
 export type getSchemaResponseSuccess = getSchemaResponse200 & {
   headers: Headers;
 };
+
 export type getSchemaResponse = getSchemaResponseSuccess;
 
 export const getGetSchemaUrl = () => {
@@ -2182,7 +2185,8 @@ export type getVariablesResponseError = getVariablesResponse422 & {
 };
 
 export type getVariablesResponse =
-  getVariablesResponseSuccess | getVariablesResponseError;
+  | getVariablesResponseSuccess
+  | getVariablesResponseError;
 
 export const getGetVariablesUrl = () => {
   return `/api/variables`;
@@ -2519,7 +2523,8 @@ export type readFileContentResponseError = (
 };
 
 export type readFileContentResponse =
-  readFileContentResponseSuccess | readFileContentResponseError;
+  | readFileContentResponseSuccess
+  | readFileContentResponseError;
 
 export const getReadFileContentUrl = () => {
   return `/api/files/content`;
@@ -2670,13 +2675,16 @@ export type revealValueResponseSuccess = revealValueResponse200 & {
   headers: Headers;
 };
 export type revealValueResponseError = (
-  revealValueResponse403 | revealValueResponse404 | revealValueResponse422
+  | revealValueResponse403
+  | revealValueResponse404
+  | revealValueResponse422
 ) & {
   headers: Headers;
 };
 
 export type revealValueResponse =
-  revealValueResponseSuccess | revealValueResponseError;
+  | revealValueResponseSuccess
+  | revealValueResponseError;
 
 export const getRevealValueUrl = () => {
   return `/api/reveal`;
@@ -2822,7 +2830,8 @@ export type getCheckResponseSuccess = getCheckResponse200 & {
   headers: Headers;
 };
 export type getCheckResponseError = (
-  getCheckResponse422 | getCheckResponse503
+  | getCheckResponse422
+  | getCheckResponse503
 ) & {
   headers: Headers;
 };
@@ -3008,13 +3017,15 @@ export type getValidateResponseSuccess = getValidateResponse200 & {
   headers: Headers;
 };
 export type getValidateResponseError = (
-  getValidateResponse422 | getValidateResponse503
+  | getValidateResponse422
+  | getValidateResponse503
 ) & {
   headers: Headers;
 };
 
 export type getValidateResponse =
-  getValidateResponseSuccess | getValidateResponseError;
+  | getValidateResponseSuccess
+  | getValidateResponseError;
 
 export const getGetValidateUrl = (params?: GetValidateParams) => {
   const normalizedParams = new URLSearchParams();
@@ -3224,7 +3235,8 @@ export type setValuesResponseError = (
 };
 
 export type setValuesResponse =
-  setValuesResponseSuccess | setValuesResponseError;
+  | setValuesResponseSuccess
+  | setValuesResponseError;
 
 export const getSetValuesUrl = () => {
   return `/api/values/set`;
@@ -3395,7 +3407,8 @@ export type unsetValuesResponseError = (
 };
 
 export type unsetValuesResponse =
-  unsetValuesResponseSuccess | unsetValuesResponseError;
+  | unsetValuesResponseSuccess
+  | unsetValuesResponseError;
 
 export const getUnsetValuesUrl = () => {
   return `/api/values/unset`;
@@ -3540,7 +3553,8 @@ export type planChangesResponseError = planChangesResponse422 & {
 };
 
 export type planChangesResponse =
-  planChangesResponseSuccess | planChangesResponseError;
+  | planChangesResponseSuccess
+  | planChangesResponseError;
 
 export const getPlanChangesUrl = () => {
   return `/api/plan`;
@@ -3688,13 +3702,16 @@ export type applyPlanResponseSuccess = applyPlanResponse200 & {
   headers: Headers;
 };
 export type applyPlanResponseError = (
-  applyPlanResponse409 | applyPlanResponse422 | applyPlanResponse503
+  | applyPlanResponse409
+  | applyPlanResponse422
+  | applyPlanResponse503
 ) & {
   headers: Headers;
 };
 
 export type applyPlanResponse =
-  applyPlanResponseSuccess | applyPlanResponseError;
+  | applyPlanResponseSuccess
+  | applyPlanResponseError;
 
 export const getApplyPlanUrl = () => {
   return `/api/apply`;
@@ -3840,13 +3857,15 @@ export type addVariableResponseSuccess = addVariableResponse200 & {
   headers: Headers;
 };
 export type addVariableResponseError = (
-  addVariableResponse409 | addVariableResponse422
+  | addVariableResponse409
+  | addVariableResponse422
 ) & {
   headers: Headers;
 };
 
 export type addVariableResponse =
-  addVariableResponseSuccess | addVariableResponseError;
+  | addVariableResponseSuccess
+  | addVariableResponseError;
 
 export const getAddVariableUrl = () => {
   return `/api/schema/variables`;
@@ -4005,7 +4024,8 @@ export type updateVariableResponseError = (
 };
 
 export type updateVariableResponse =
-  updateVariableResponseSuccess | updateVariableResponseError;
+  | updateVariableResponseSuccess
+  | updateVariableResponseError;
 
 export const getUpdateVariableUrl = (name: unknown) => {
   return `/api/schema/variables/${name}`;
@@ -4105,7 +4125,9 @@ export type UpdateVariableMutationResult = NonNullable<
 >;
 export type UpdateVariableMutationBody = UpdateVariableRequest;
 export type UpdateVariableMutationError =
-  ApiError | StaleSchema | SchemaEditRefused;
+  | ApiError
+  | StaleSchema
+  | SchemaEditRefused;
 export type UpdateVariableMutationVariables = {
   name: unknown;
   data: UpdateVariableRequest;
@@ -4169,7 +4191,8 @@ export type removeVariableResponseError = (
 };
 
 export type removeVariableResponse =
-  removeVariableResponseSuccess | removeVariableResponseError;
+  | removeVariableResponseSuccess
+  | removeVariableResponseError;
 
 export const getRemoveVariableUrl = (name: unknown) => {
   return `/api/schema/variables/${name}`;
@@ -4269,7 +4292,9 @@ export type RemoveVariableMutationResult = NonNullable<
 >;
 export type RemoveVariableMutationBody = RemoveVariableRequest;
 export type RemoveVariableMutationError =
-  ApiError | StaleSchema | SchemaEditRefused;
+  | ApiError
+  | StaleSchema
+  | SchemaEditRefused;
 export type RemoveVariableMutationVariables = {
   name: unknown;
   data: RemoveVariableRequest;
@@ -4333,7 +4358,8 @@ export type renameVariableResponseError = (
 };
 
 export type renameVariableResponse =
-  renameVariableResponseSuccess | renameVariableResponseError;
+  | renameVariableResponseSuccess
+  | renameVariableResponseError;
 
 export const getRenameVariableUrl = (name: unknown) => {
   return `/api/schema/variables/${name}/rename`;
@@ -4433,7 +4459,9 @@ export type RenameVariableMutationResult = NonNullable<
 >;
 export type RenameVariableMutationBody = RenameVariableRequest;
 export type RenameVariableMutationError =
-  ApiError | StaleSchema | SchemaEditRefused;
+  | ApiError
+  | StaleSchema
+  | SchemaEditRefused;
 export type RenameVariableMutationVariables = {
   name: unknown;
   data: RenameVariableRequest;
@@ -4484,13 +4512,15 @@ export type reorderVariablesResponseSuccess = reorderVariablesResponse200 & {
   headers: Headers;
 };
 export type reorderVariablesResponseError = (
-  reorderVariablesResponse409 | reorderVariablesResponse422
+  | reorderVariablesResponse409
+  | reorderVariablesResponse422
 ) & {
   headers: Headers;
 };
 
 export type reorderVariablesResponse =
-  reorderVariablesResponseSuccess | reorderVariablesResponseError;
+  | reorderVariablesResponseSuccess
+  | reorderVariablesResponseError;
 
 export const getReorderVariablesUrl = () => {
   return `/api/schema/variable-order`;
@@ -4784,13 +4814,15 @@ export type updateFileResponseSuccess = updateFileResponse200 & {
   headers: Headers;
 };
 export type updateFileResponseError = (
-  updateFileResponse409 | updateFileResponse422
+  | updateFileResponse409
+  | updateFileResponse422
 ) & {
   headers: Headers;
 };
 
 export type updateFileResponse =
-  updateFileResponseSuccess | updateFileResponseError;
+  | updateFileResponseSuccess
+  | updateFileResponseError;
 
 export const getUpdateFileUrl = () => {
   return `/api/schema/files`;
@@ -4936,13 +4968,15 @@ export type removeFileResponseSuccess = removeFileResponse200 & {
   headers: Headers;
 };
 export type removeFileResponseError = (
-  removeFileResponse409 | removeFileResponse422
+  | removeFileResponse409
+  | removeFileResponse422
 ) & {
   headers: Headers;
 };
 
 export type removeFileResponse =
-  removeFileResponseSuccess | removeFileResponseError;
+  | removeFileResponseSuccess
+  | removeFileResponseError;
 
 export const getRemoveFileUrl = () => {
   return `/api/schema/files`;
@@ -5088,13 +5122,15 @@ export type initSchemaResponseSuccess = initSchemaResponse200 & {
   headers: Headers;
 };
 export type initSchemaResponseError = (
-  initSchemaResponse409 | initSchemaResponse422
+  | initSchemaResponse409
+  | initSchemaResponse422
 ) & {
   headers: Headers;
 };
 
 export type initSchemaResponse =
-  initSchemaResponseSuccess | initSchemaResponseError;
+  | initSchemaResponseSuccess
+  | initSchemaResponseError;
 
 export const getInitSchemaUrl = () => {
   return `/api/schema/init`;
@@ -5229,6 +5265,7 @@ export type getEventsResponse200 = {
 export type getEventsResponseSuccess = getEventsResponse200 & {
   headers: Headers;
 };
+
 export type getEventsResponse = getEventsResponseSuccess;
 
 export const getGetEventsUrl = () => {
@@ -5394,13 +5431,15 @@ export type getHistoryResponseSuccess = getHistoryResponse200 & {
   headers: Headers;
 };
 export type getHistoryResponseError = (
-  getHistoryResponse400 | getHistoryResponse503
+  | getHistoryResponse400
+  | getHistoryResponse503
 ) & {
   headers: Headers;
 };
 
 export type getHistoryResponse =
-  getHistoryResponseSuccess | getHistoryResponseError;
+  | getHistoryResponseSuccess
+  | getHistoryResponseError;
 
 export const getGetHistoryUrl = (params?: GetHistoryParams) => {
   const normalizedParams = new URLSearchParams();
@@ -5610,7 +5649,8 @@ export type undoChangeResponseError = (
 };
 
 export type undoChangeResponse =
-  undoChangeResponseSuccess | undoChangeResponseError;
+  | undoChangeResponseSuccess
+  | undoChangeResponseError;
 
 export const getUndoChangeUrl = (id: number) => {
   return `/api/history/${id}/undo`;
@@ -5735,13 +5775,16 @@ export type openInEditorResponseSuccess = openInEditorResponse200 & {
   headers: Headers;
 };
 export type openInEditorResponseError = (
-  openInEditorResponse403 | openInEditorResponse404 | openInEditorResponse422
+  | openInEditorResponse403
+  | openInEditorResponse404
+  | openInEditorResponse422
 ) & {
   headers: Headers;
 };
 
 export type openInEditorResponse =
-  openInEditorResponseSuccess | openInEditorResponseError;
+  | openInEditorResponseSuccess
+  | openInEditorResponseError;
 
 export const getOpenInEditorUrl = () => {
   return `/api/open-in-editor`;

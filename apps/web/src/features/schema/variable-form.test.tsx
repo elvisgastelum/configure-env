@@ -431,7 +431,7 @@ describe('the variable form', () => {
       'Data is encrypted with it.',
     );
     await reviewAndSave(user, sheet);
-    expect((writes[0]?.[2] as { spec: unknown }).spec).toEqual({
+    expect((writes[0]?.[2] as { spec: unknown } | undefined)?.spec).toEqual({
       type: 'string',
       secret: true,
       protected: { reason: 'Data is encrypted with it.' },

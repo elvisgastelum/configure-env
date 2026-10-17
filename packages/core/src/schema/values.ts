@@ -28,7 +28,8 @@ export type VariableValue = string | number | boolean;
  * is invalid.
  */
 export type ValueResult =
-  { ok: true; value: VariableValue | null } | { ok: false; error: string };
+  | { ok: true; value: VariableValue | null }
+  | { ok: false; error: string };
 
 // An RFC 1123 hostname: dot-separated labels of letters, digits and inner
 // hyphens, each at most 63 characters.

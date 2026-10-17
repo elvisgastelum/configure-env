@@ -68,7 +68,8 @@ export type Fingerprint = z.output<typeof fingerprintEntry>;
 export type State = z.output<typeof stateSchema>;
 
 export type StateResult =
-  { ok: true; state: State; exists: boolean } | { ok: false; message: string };
+  | { ok: true; state: State; exists: boolean }
+  | { ok: false; message: string };
 
 /** A state with no fingerprint and a new salt, written on first use. */
 export const emptyState = (): State => ({

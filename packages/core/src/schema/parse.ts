@@ -14,7 +14,8 @@ export interface SchemaError {
 }
 
 export type SchemaResult =
-  { ok: true; schema: EnvSchema } | { ok: false; errors: SchemaError[] };
+  | { ok: true; schema: EnvSchema }
+  | { ok: false; errors: SchemaError[] };
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 

@@ -1,6 +1,6 @@
 // The portal (apps/web, built by Vite into apps/web/dist) ships in
 // dist/web, which `configure-env serve` passes to the API as its static
-// files. `build` runs this after tsdown; the workspace builds apps/web
+// files. `build` runs this after `vp pack`; the workspace builds apps/web
 // first, since this package lists @configure-env/web as a dev dependency.
 //
 //   node scripts/copy-web.mjs

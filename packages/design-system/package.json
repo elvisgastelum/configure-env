@@ -22,7 +22,6 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vp test run --project unit",
     "test:storybook": "vp test run --project 'storybook-*'",
     "storybook": "storybook dev -p 6007",
     "build-storybook": "storybook build"

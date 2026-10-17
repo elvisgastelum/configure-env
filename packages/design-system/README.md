@@ -125,7 +125,7 @@ The only rule turned off is `color-contrast` on the `SlideIn: paired cards` moti
 ## Tests
 
 ```sh
-pnpm --filter @configure-env/design-system test       # Vitest + Testing Library on jsdom
+vp run @configure-env/design-system#test             # Vitest + Testing Library on jsdom, cached
 pnpm --filter @configure-env/design-system test:storybook  # every story in Chromium, light and dark, with axe
 pnpm --filter @configure-env/design-system typecheck
 ```
