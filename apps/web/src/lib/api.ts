@@ -19,7 +19,7 @@ import {
   getVariables,
   readFileContent,
 } from '@configure-env/api-client';
-import { queryOptions } from '@tanstack/react-query';
+import { type QueryClient, queryOptions } from '@tanstack/react-query';
 
 export class ApiRequestError extends Error {
   constructor(
@@ -72,8 +72,6 @@ export const variablesQuery = queryOptions({
 export const groupsQuery = queryOptions({
   queryKey: getGetGroupsQueryKey(),
   queryFn: ({ signal }) => unwrap(getGroups({ signal })),
-  // Like the schema's, the order of `groups` is the schema's declaration order.
-  structuralSharing: false,
 });
 
 export const filesQuery = queryOptions({
@@ -100,3 +98,12 @@ export const fileContentQuery = (file: string) =>
     queryKey: [...getGetFilesQueryKey(), 'content', file],
     queryFn: ({ signal }) => unwrap(readFileContent({ file }, { signal })),
   });
+
+/** Every read a schema write can change, besides the schema itself. */
+export async function refreshAfterSchemaWrite(queryClient: QueryClient) {
+  await Promise.all(
+    [variablesQuery, groupsQuery, filesQuery, checkQuery, validateQuery].map(
+      (query) => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+    ),
+  );
+}

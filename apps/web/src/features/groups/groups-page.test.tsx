@@ -102,6 +102,34 @@ describe('groups page', () => {
     ).not.toHaveAttribute('aria-current');
   });
 
+  it('shows the groups as a schema write left them', async () => {
+    const user = userEvent.setup();
+    await renderApp('/groups');
+    await screen.findByRole('article', { name: 'Database' });
+
+    await user.click(screen.getByRole('link', { name: 'Schema' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Remove DB_PASSWORD' }),
+    );
+    await user.click(
+      within(
+        await screen.findByRole('dialog', { name: 'Remove DB_PASSWORD?' }),
+      ).getByRole('button', { name: 'Review removal' }),
+    );
+    await user.click(
+      within(
+        await screen.findByRole('dialog', { name: 'Remove DB_PASSWORD' }),
+      ).getByRole('button', { name: 'Save' }),
+    );
+    await screen.findByText('Saved env.schema.json');
+
+    await user.click(screen.getByRole('link', { name: 'Groups' }));
+    await screen.findByRole('article', { name: 'Network' });
+    expect(
+      screen.queryByRole('article', { name: 'Database' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('points at init when the project has no schema', async () => {
     server.use(...scenarios.noSchema);
     await renderApp('/groups');

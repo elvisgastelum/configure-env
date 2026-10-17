@@ -286,11 +286,15 @@ export function writeSchema(document: unknown): Schema {
 
 /**
  * The variables by group heading as GET /api/groups answers it, from the
- * sample's variables: in schema order, the ungrouped ones last.
+ * schema document: in schema order, the ungrouped ones last. It copies
+ * `listGroups` in apps/api/src/inspect.ts; change both together.
  */
 export function groupsOf(): Groups {
   const groups = new Map<string | null, Group>();
-  for (const { name, spec } of mockState.variables.variables) {
+  const { variables } = mockState.schema.document as {
+    variables: Record<string, VariableSpec>;
+  };
+  for (const [name, spec] of Object.entries(variables)) {
     const heading = spec.group ?? null;
     const group = groups.get(heading) ?? {
       name: heading,

@@ -106,7 +106,11 @@ const ruleMessage = (problem: RuleProblem) =>
 
 type Group = z.output<typeof groupsResponse>['groups'][number];
 
-/** The variables by group heading, in schema order; the ungrouped ones last. */
+/**
+ * The variables by group heading, in schema order; the ungrouped ones last.
+ * The portal's mock copies it as `groupsOf` in apps/web/src/mocks/store.ts;
+ * change both together.
+ */
 export function listGroups(schema: EnvSchema): z.output<typeof groupsResponse> {
   const groups = new Map<string | null, Group>();
   for (const [name, spec] of Object.entries(schema.variables)) {
