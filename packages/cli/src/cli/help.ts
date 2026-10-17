@@ -450,6 +450,9 @@ the API: the printed URL holds it and, opened in a browser, trades it for
 a session cookie. Anyone with that URL can read and change the project's
 env files while the server runs, so do not share it.
 
+It runs without a schema too: the portal then offers to init one from
+.env.example, as configure-env init does. An invalid schema exits 1.
+
 It binds 127.0.0.1 by default. A host that is not a loopback address
 (127.x.x.x, ::1, localhost) is refused (exit 2) unless --unsafe-expose is
 given, and then serves with a warning.

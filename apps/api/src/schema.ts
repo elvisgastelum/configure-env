@@ -6,8 +6,11 @@
 // A write is recorded in the history with the schema's text before and
 // after, so it can be undone.
 
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
+  DEFAULT_EXAMPLE,
+  STATE_IGNORE,
   type SchemaDocument,
   type SchemaEditResult,
   type SchemaWriteResult,
@@ -15,6 +18,7 @@ import {
   createSchemaFile,
   editSchemaFile,
   filePathProblem,
+  ignoreState,
   inferSchema,
   recordHistory,
   resolveTarget,
@@ -31,13 +35,32 @@ type SchemaView = z.output<typeof schemaResponse>;
 /** The schema file as GET /api/schema shows it. */
 export async function currentSchema(project: Project): Promise<SchemaView> {
   const read = await readSchema(project);
+  const initFrom = read.fingerprint ? undefined : await initSource(project);
   return {
     path: project.schemaPath,
     valid: Boolean(read.schema),
     document: read.document,
     errors: read.errors,
     ...(read.fingerprint ? { fingerprint: read.fingerprint } : {}),
+    ...(initFrom ? { initFrom } : {}),
   };
+}
+
+/**
+ * While the schema file is missing: the example init reads, when something
+ * is there. One init refuses (a symlink) is named too, so the portal offers
+ * it and init's refusal says why, rather than claiming there is none.
+ */
+async function initSource(project: Project): Promise<string | undefined> {
+  const exists = (path: string) =>
+    lstat(path).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
+    );
+  if (await exists(project.schemaFile)) return undefined;
+  return (await exists(join(project.root, DEFAULT_EXAMPLE)))
+    ? DEFAULT_EXAMPLE
+    : undefined;
 }
 
 /**
@@ -103,15 +126,12 @@ export function variableName(name: string): string {
   return name;
 }
 
-/** The example `init` reads when none is named, if it exists. */
-export const DEFAULT_FROM = '.env.example';
-
 /** The source file's text, read inside the root; undefined for none. */
 async function sourceText(
   project: Project,
   from: string | undefined,
 ): Promise<{ from?: string; text: string }> {
-  const path = from ?? DEFAULT_FROM;
+  const path = from ?? DEFAULT_EXAMPLE;
   if (filePathProblem(path))
     throw new ApiError(403, `${path}: must name a file inside the root`);
   const target = await resolveTarget(project.root, path);
@@ -123,9 +143,22 @@ async function sourceText(
   return { from: path, text: await readFile(target.absolute, 'utf8') };
 }
 
+/** ignoreState, answering what stopped it, if anything. */
+async function ignoreStateInside(root: string): Promise<string | undefined> {
+  try {
+    return (await ignoreState(root)) === 'symlink'
+      ? 'it is a symlink'
+      : undefined;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code ?? String(error);
+  }
+}
+
 /**
  * Writes a starting schema inferred from an example env file: a new file, or
- * over the existing one when the request names its fingerprint.
+ * over the existing one when the request names its fingerprint. Once it is
+ * written, the state directory is added to .gitignore, as `configure-env
+ * init` does; a .gitignore it cannot update is a warning.
  */
 export async function initSchema(
   project: Project,
@@ -138,5 +171,12 @@ export async function initSchema(
         fingerprint: body.fingerprint,
       })
     : await createSchemaFile(project.schemaFile, document);
-  return answer(project, result);
+  const view = await answer(project, result);
+  const problem = await ignoreStateInside(project.root);
+  if (problem)
+    view.warnings = [
+      ...(view.warnings ?? []),
+      `cannot update .gitignore: ${problem}; add ${STATE_IGNORE} to it yourself`,
+    ];
+  return view;
 }

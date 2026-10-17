@@ -1097,7 +1097,7 @@
             }
           }
         },
-        "summary": "Writes a starting schema, inferred from an example env file",
+        "summary": "Writes a starting schema, inferred from an example env file, as configure-env init does",
         "tags": ["schema"]
       }
     },
@@ -2609,6 +2609,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "initFrom": {
+            "description": "While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema.",
+            "type": "string"
           }
         },
         "required": ["path", "valid", "document", "errors"],

@@ -1,6 +1,7 @@
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
+import { FOCUS_RING } from '../../recipes';
 
 function Tabs({
   className,
@@ -70,7 +71,11 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-content"
-      className={cn('flex-1 text-sm outline-none', className)}
+      className={cn(
+        'flex-1 rounded-md text-sm outline-none',
+        FOCUS_RING,
+        className,
+      )}
       {...props}
     />
   );

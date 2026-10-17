@@ -24,14 +24,17 @@ const DRIFT_VARIANT = {
  * unknown keys, unparsable lines) in a panel that opens in place; the card
  * resizes with a layout animation. Given `onOpen` (the files page), it also
  * says whether the file exists and how many lines do not parse, and opens
- * the file's detail.
+ * the file's detail. `level` is the title's heading level: 3 under the
+ * overview's section heading, 2 right under the files page's h1.
  */
 export function FileCard({
   file,
   onOpen,
+  level = 3,
 }: {
   file: FileInfo;
   onOpen?: () => void;
+  level?: 2 | 3;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -39,6 +42,7 @@ export function FileCard({
   const panelId = useId();
   const mode = modeState(file);
   const { drift } = file;
+  const Title = `h${level}` as const;
 
   return (
     <motion.article
@@ -57,9 +61,12 @@ export function FileCard({
             <FileText aria-hidden="true" className="size-4" />
           </span>
           <div className="min-w-0 flex-1 basis-40">
-            <h3 id={titleId} className="truncate font-mono text-sm font-medium">
+            <Title
+              id={titleId}
+              className="truncate font-mono text-sm font-medium"
+            >
               {file.path}
-            </h3>
+            </Title>
             <dl className="mt-2 flex flex-wrap items-center gap-1.5">
               <dt className="sr-only">{t('overview.files.policy')}</dt>
               <dd>
@@ -164,7 +171,7 @@ export function FileCard({
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <FileDetails file={file} />
+              <FileDetails file={file} Heading={level === 2 ? 'h3' : 'h4'} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -173,7 +180,14 @@ export function FileCard({
   );
 }
 
-function FileDetails({ file }: { file: FileInfo }) {
+/** `Heading`: the level under the card's title. */
+function FileDetails({
+  file,
+  Heading,
+}: {
+  file: FileInfo;
+  Heading: 'h3' | 'h4';
+}) {
   const { t } = useTranslation();
   const { missingKeys, unknownKeys } = file.drift;
   const empty =
@@ -192,13 +206,21 @@ function FileDetails({ file }: { file: FileInfo }) {
           {t('overview.files.refused', { message: file.error })}
         </p>
       )}
-      <KeyList title={t('overview.files.missingKeys')} keys={missingKeys} />
-      <KeyList title={t('overview.files.unknownKeys')} keys={unknownKeys} />
+      <KeyList
+        title={t('overview.files.missingKeys')}
+        keys={missingKeys}
+        Heading={Heading}
+      />
+      <KeyList
+        title={t('overview.files.unknownKeys')}
+        keys={unknownKeys}
+        Heading={Heading}
+      />
       {file.parseErrors.length > 0 && (
         <div>
-          <h4 className="text-xs font-medium text-muted-foreground">
+          <Heading className="text-xs font-medium text-muted-foreground">
             {t('overview.files.parseErrors')}
-          </h4>
+          </Heading>
           <ul className="mt-1 list-inside list-disc">
             {file.parseErrors.map(({ line, message }) => (
               <li key={line}>{t('overview.files.line', { line, message })}</li>
@@ -210,11 +232,21 @@ function FileDetails({ file }: { file: FileInfo }) {
   );
 }
 
-function KeyList({ title, keys }: { title: string; keys: string[] }) {
+function KeyList({
+  title,
+  keys,
+  Heading,
+}: {
+  title: string;
+  keys: string[];
+  Heading: 'h3' | 'h4';
+}) {
   if (keys.length === 0) return null;
   return (
     <div>
-      <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
+      <Heading className="text-xs font-medium text-muted-foreground">
+        {title}
+      </Heading>
       <ul className="mt-1 flex flex-wrap gap-1.5">
         {keys.map((key) => (
           <li key={key}>

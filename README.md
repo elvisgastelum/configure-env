@@ -390,7 +390,7 @@ It infers the variables from `--from <file>`, or from `.env.example` when that e
 
 Without an example file it writes an empty schema. In a terminal it shows the inferred types and lets you keep them or pick each one (a default that no longer fits the new type is dropped); with `--ci` it writes them as inferred.
 
-Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so.
+Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so. A `.gitignore` that is a symlink is left alone, since it may lead outside the project: a warning on stderr asks you to add the line yourself.
 
 ```sh
 configure-env init
@@ -558,10 +558,24 @@ configure-env serve · env.schema.json on http://127.0.0.1:4747 · Ctrl-C to sto
 Open http://127.0.0.1:4747/launch?token=…
 ```
 
-- **A token per run.** Every start makes a new random token, and the API answers only requests that carry it. The launch URL holds it; opened in a browser, it trades the token for an HttpOnly session cookie and redirects to the portal. Anyone with the URL can read and change the project's env files while the server runs, so keep it to yourself.
+![The portal's variables page: every variable with its type, its value in .env and its status, grouped, with a secret masked](docs/portal/variables.png)
+
+What the portal does, page by page:
+
+- **Overview**: the schema's health, the env files and how they match the schema.
+- **Variables**: every variable with its value in each env file; search, filter, reveal and copy a secret, edit a value in place, open it in your editor. A [dark theme](docs/portal/variables-dark.png) and Spanish follow the switches in the header.
+- **Schema**: add, edit, rename (with every reference rewritten) and remove variables and files, each change reviewed as a diff before it is written. [Screenshot](docs/portal/schema.png).
+- **Check** and **Validate**: the reports of `check` and `validate`, each item fixed in place, and a plan of what apply would write before it writes. [Screenshot](docs/portal/check.png).
+- **History**: every change made through the CLI or the portal, with undo.
+- A file changed outside the portal (by an editor, `git checkout` or another command) shows up without a reload.
+
+![The overview of a project without a schema: the "No schema yet" card with its Init from .env.example button](docs/portal/init.png)
+
+- **A token per run.** Every start makes a new random token, and the API answers only requests that carry it. The launch URL holds it; opened in a browser, it trades the token for an HttpOnly session cookie and redirects to the portal. Anyone with the URL can read and change the project's env files while the server runs, so keep it to yourself. A tab without the session (the bare address, or a link from an earlier run) gets a page saying to open the launch link again, and nothing of the portal.
 - **This machine only.** It binds `127.0.0.1` by default. `--host` takes another address, but one that is not loopback (`127.x.x.x`, `::1`, `localhost`) exits 2 unless `--unsafe-expose` is given, and then serves with a warning.
 - **Port.** Without `--port` it takes the first free port from 4747; `--port 0` takes any free one, and a `--port` that is in use exits 1.
 - **Browser.** It opens the browser only in a terminal; `--open` opens it anyway and `--no-open` never does.
+- **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. Stop it with SIGTERM to `pid`.
 
 `--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` loads the server (NestJS), so the other commands start as fast as before.
@@ -704,7 +718,7 @@ The state database's tables are declared in `packages/core/src/engine/db-schema.
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `GET /api/health`    | `{ "status": "ok" }`                                                                              |
 | `GET /api/project`   | the root, the schema path and the version                                                       |
-| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`                |
+| `GET /api/schema`    | the schema document and its errors with JSON paths, like `files[1].variables[0]`; while the schema file is missing, `initFrom` names the example `POST /api/schema/init` would read |
 | `GET /api/variables` | each variable's spec and its status in every file: `set`, `missing`, `invalid` or `masked`      |
 | `GET /api/files`     | each file's policy, mode (expected and actual), drift and the lines that do not parse           |
 | `POST /api/reveal`   | one value, unmasked: `{ "file": ".env", "key": "DB_PASSWORD" }`                                  |
@@ -730,7 +744,7 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `POST /api/schema/variables/{name}/rename` | renames a variable and every reference to it                                                 |
 | `PUT /api/schema/variable-order`          | puts the variables in a new order                                                             |
 | `POST` / `PUT` / `DELETE /api/schema/files` | adds, changes or removes a file the schema manages                                          |
-| `POST /api/schema/init`                   | writes a starting schema inferred from `.env.example` (or `from`)                             |
+| `POST /api/schema/init`                   | writes the starting schema `configure-env init` writes, inferred from `.env.example` (or `from`), and adds `.configure-env/` to `.gitignore` (never through a symlink: a warning instead); 409 when a schema exists, unless it names its fingerprint |
 | `POST /api/history/{id}/undo`             | undoes one change of the history: writes the value or the schema text before it              |
 | `POST /api/open-in-editor`                | opens the schema file or one of its env files in your editor at a line: `{ "file": ".env", "key": "PORT" }`, `{ "file": "env.schema.json", "path": "files[1].variables[0]" }` or `{ "file", "line", "column" }`; writes nothing |
 
@@ -757,6 +771,8 @@ Every change the portal makes goes through these write endpoints, which reuse th
 - **Copy and motion.** Every string lives in a locale file, `apps/web/src/i18n/en.json` and `es.json`; a unit test fails when either lacks a key, a plural form its language uses, or a placeholder, and the pages are rendered in each language with no fallback. Page entrances, staggered reveals, card spotlights and the expanding file details follow `prefers-reduced-motion` through the design system's `SiteMotionConfig`.
 - **Tests and stories.** Vitest and Testing Library run against msw handlers (`apps/web/src/mocks`), which the portal's Storybook (`pnpm storybook:web`, port 6008) uses too, through a service worker, for every state: healthy, passing, loading, no schema, invalid schema and no session. The handlers keep the sample project in memory (`apps/web/src/mocks/store.ts`), so a value write changes what the next read returns, as the real API does.
 
+`apps/e2e` (`@configure-env/e2e`) proves the portal end to end: Playwright starts a real `configure-env serve` from source over a fresh temporary copy of a fixture project (`apps/e2e/fixtures`: the portfolio example and a project with only a `.env.example`) for each test, and walks the journeys a person takes: open the launch URL, browse, search, reveal and copy a secret, edit a value, add a variable of each type family, rename one, plan and apply, fix drift, validate, see an outside edit, and init a schema from the portal. `@axe-core/playwright` scans every page and open dialog in the light and dark themes and fails on any violation; other tests walk the keyboard paths with their focus rings, check the layout from 360px to 1920px wide, rerun the smoke journeys with reduced motion, and measure the frames of the variables grid's scroll. `pnpm e2e` builds the portal first; install Chromium once with `pnpm --filter @configure-env/e2e exec playwright install chromium`. See [`apps/e2e/README.md`](apps/e2e/README.md).
+
 `packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
 
 | Script                 | What it does                                                         |
@@ -781,6 +797,8 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `pnpm storybook:web`   | start the portal's Storybook on port 6008                            |
 | `pnpm build-storybook:web` | build the portal's Storybook to `apps/web/storybook-static/`     |
 | `pnpm test:storybook`  | run every story in headless Chromium, light and dark, failing on axe violations |
+| `pnpm e2e`             | build the portal and run the end-to-end suite (`apps/e2e`): Playwright and axe against a real `configure-env serve` on fixture projects |
+| `pnpm e2e:screenshots` | regenerate the README's portal screenshots in `docs/portal/`          |
 | `pnpm changeset`       | describe a change for the next release                               |
 
 The global link points at this checkout's `packages/cli/dist/`, so run `pnpm link:local` again after changing the source. It belongs to the active Node version: re-run it after switching versions.

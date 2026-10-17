@@ -232,15 +232,14 @@ function FileReport({
             {t(`overview.drift.${file.status}`)}
           </Badge>
           <Badge variant="outline">{file.policy}</Badge>
-          {applyFixes(file) && (
-            <span className="ml-auto">
-              <ApplyButton
-                files={[file.path]}
-                variant="outline"
-                label={t('check.applyFile', { path: file.path })}
-              />
-            </span>
-          )}
+          <span className="ml-auto">
+            <ApplyButton
+              files={[file.path]}
+              variant="outline"
+              label={t('check.applyFile', { path: file.path })}
+              show={applyFixes(file)}
+            />
+          </span>
         </header>
         {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('check.nothing')}</p>

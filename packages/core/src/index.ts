@@ -19,6 +19,7 @@ export * from './engine/paths.ts';
 export * from './engine/plan.ts';
 export * from './engine/state.ts';
 export * from './engine/history.ts';
+export * from './engine/gitignore.ts';
 export * from './edit/file.ts';
 export * from './edit/protect.ts';
 export * from './edit/edit.ts';

@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { passingCheck } from '../../mocks/fixtures';
+import * as fixtures from '../../mocks/fixtures';
 import { scenarios } from '../../mocks/handlers';
 import { renderApp } from '../../test/render';
 import { server } from '../../test/server';
@@ -73,7 +73,9 @@ describe('the overview', () => {
     const check = await screen.findByRole('region', { name: 'Check' });
     await within(check).findByText('1 issue');
 
-    server.use(http.get('/api/check', () => HttpResponse.json(passingCheck)));
+    server.use(
+      http.get('/api/check', () => HttpResponse.json(fixtures.passingCheck)),
+    );
     await user.click(within(check).getByRole('button', { name: 'Run check' }));
 
     expect(await within(check).findByText('Passing')).toBeInTheDocument();
@@ -111,6 +113,76 @@ describe('the overview', () => {
       'https://github.com/elvisgastelum/configure-env#init',
     );
     expect(screen.queryByRole('group', { name: 'Variables' })).toBeNull();
+  });
+
+  it('inits the schema from .env.example in one click', async () => {
+    const user = userEvent.setup();
+    server.use(...scenarios.noSchema);
+    await renderApp();
+
+    const init = await screen.findByRole('button', {
+      name: 'Init from .env.example',
+    });
+    expect(
+      screen.getByText(
+        'Writes env.schema.json as configure-env init does, with the variables of .env.example.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(init);
+
+    expect(
+      await screen.findByText('Wrote env.schema.json: 5 variables'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(stat('Variables')).toHaveTextContent('5'));
+    expect(screen.queryByRole('heading', { name: 'No schema yet' })).toBeNull();
+  });
+
+  it('offers an empty schema when there is no example to read', async () => {
+    const withoutExample = { ...fixtures.missingSchema, initFrom: undefined };
+    server.use(
+      http.get('/api/schema', () => HttpResponse.json(withoutExample)),
+      ...scenarios.noSchema,
+    );
+    await renderApp();
+
+    expect(
+      await screen.findByRole('button', { name: 'Init an empty schema' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Writes env.schema.json as configure-env init does: the project has no .env.example, so the schema starts with no variables.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Init from .env.example' }),
+    ).toBeNull();
+  });
+
+  it('says why init failed and keeps the card', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post('/api/schema/init', () =>
+        HttpResponse.json(
+          { statusCode: 403, message: '.env.example: is a symlink' },
+          { status: 403 },
+        ),
+      ),
+      ...scenarios.noSchema,
+    );
+    await renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Init from .env.example' }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Could not init the schema: .env.example: is a symlink',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'No schema yet' }),
+    ).toBeInTheDocument();
   });
 
   it('lists the errors of an invalid schema', async () => {

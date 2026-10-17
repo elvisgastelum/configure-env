@@ -273,13 +273,14 @@ function GroupRow({
     >
       <div
         role="rowheader"
-        aria-colspan={5}
+        aria-colspan={4}
         className="flex flex-1 items-center gap-2 text-sm font-semibold"
       >
         {item.group ?? t('variables.filters.ungrouped')}
         <Badge variant="secondary">{item.count}</Badge>
       </div>
-      {renderGroupActions?.(item.group)}
+      {/* A row may only hold cells: the group's actions take the last column. */}
+      <div role="gridcell">{renderGroupActions?.(item.group)}</div>
     </div>
   );
 }

@@ -105,7 +105,7 @@ export function securityMiddleware(options: SecurityOptions) {
     }
     const cookie = cookieValue(req.headers.cookie, options.cookie());
     if (cookie === undefined || !sameToken(options.token, cookie))
-      return unauthorized(res);
+      return isPageRequest(req, url) ? signedOut(res) : unauthorized(res);
     // A browser sends the cookie on its own; a change must prove its origin.
     if (!SAFE_METHODS.has(req.method ?? 'GET') && origin === undefined)
       return deny(
@@ -129,6 +129,53 @@ function originHost(origin: string): string {
 
 const unauthorized = (res: ServerResponse) =>
   deny(res, 401, 'a valid token is required', { 'WWW-Authenticate': 'Bearer' });
+
+/** A browser opening a page (not the API, not an asset fetch). */
+function isPageRequest(req: Request, url: URL): boolean {
+  return (
+    SAFE_METHODS.has(req.method ?? 'GET') &&
+    !url.pathname.startsWith('/api/') &&
+    (req.headers.accept ?? '').includes('text/html')
+  );
+}
+
+/**
+ * A tab without the session, such as one opened on the bare address: still
+ * a 401 and nothing of the portal, but a page saying what to do instead of
+ * the JSON error.
+ */
+const SIGNED_OUT_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>configure-env</title>
+<style>
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1rem; box-sizing: border-box; }
+main { max-width: 32rem; }
+h1 { font-size: 1.25rem; }
+code { font-size: 0.9em; }
+</style>
+</head>
+<body>
+<main>
+<h1>Open the launch link again</h1>
+<p>This tab has no session for this server. Open the link <code>configure-env serve</code> printed when it started, or restart it to get a new one.</p>
+</main>
+</body>
+</html>
+`;
+
+function signedOut(res: ServerResponse) {
+  res.writeHead(401, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'WWW-Authenticate': 'Bearer',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+  });
+  res.end(SIGNED_OUT_PAGE);
+}
 
 /** `GET /launch?token=…`: sets the session cookie and redirects to the portal. */
 function launch(

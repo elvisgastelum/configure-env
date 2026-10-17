@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer';
 import { cn } from '../../lib/utils';
+import { PortalContainer } from './portal-container';
 
 type DrawerContextProps = {
   hasSnapPoints: boolean;
@@ -147,14 +148,17 @@ function DrawerContent({
           {...props}
         >
           {showSwipeHandle && <DrawerSwipeHandle />}
-          <DrawerPrimitive.Content
-            data-slot="drawer-content"
-            className={cn(
-              'flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain rounded-[inherit] transition-opacity duration-300 ease-[cubic-bezier(0.45,1.005,0,1.005)] select-text group-data-nested-drawer-open/drawer-popup:opacity-0 group-data-nested-drawer-swiping/drawer-popup:opacity-100 group-data-swiping/drawer-popup:select-none',
-            )}
-          >
-            {children}
-          </DrawerPrimitive.Content>
+          {/* Outside the content, which clips its overflow: a menu must not. */}
+          <PortalContainer>
+            <DrawerPrimitive.Content
+              data-slot="drawer-content"
+              className={cn(
+                'flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain rounded-[inherit] transition-opacity duration-300 ease-[cubic-bezier(0.45,1.005,0,1.005)] select-text group-data-nested-drawer-open/drawer-popup:opacity-0 group-data-nested-drawer-swiping/drawer-popup:opacity-100 group-data-swiping/drawer-popup:select-none',
+              )}
+            >
+              {children}
+            </DrawerPrimitive.Content>
+          </PortalContainer>
         </DrawerPrimitive.Popup>
       </DrawerPrimitive.Viewport>
     </DrawerPortal>

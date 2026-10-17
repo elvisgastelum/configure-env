@@ -1,5 +1,8 @@
-import type { Schema } from '@configure-env/api-client';
-import { buttonVariants } from '@configure-env/design-system/components/atoms/button';
+import { type Schema, initSchema } from '@configure-env/api-client';
+import {
+  Button,
+  buttonVariants,
+} from '@configure-env/design-system/components/atoms/button';
 import { Card } from '@configure-env/design-system/components/atoms/card';
 import {
   Empty,
@@ -9,20 +12,74 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@configure-env/design-system/components/atoms/empty';
+import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { CodeBlock } from '@configure-env/design-system/components/molecules/code-block';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowRight, ExternalLink, FileWarning, Sparkles } from 'lucide-react';
+import {
+  ArrowRight,
+  ExternalLink,
+  FileWarning,
+  Sparkles,
+  WandSparkles,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  checkQuery,
+  filesQuery,
+  schemaQuery,
+  unwrap,
+  validateQuery,
+  variablesQuery,
+} from '../../lib/api';
 import { editorItem } from '../editor/editor';
 import { OpenInEditorButton } from '../editor/open-in-editor';
 
 export const INIT_COMMAND = 'npx configure-env init';
 export const INIT_DOCS_URL =
   'https://github.com/elvisgastelum/configure-env#init';
+/** The example env file init reads, as `configure-env init` does. */
+export const INIT_EXAMPLE = '.env.example';
 
-/** The project has no schema yet: how to create one. */
+/**
+ * Writes the schema `configure-env init` would, from .env.example (empty
+ * without one), and shows it: the overview then reads the new schema.
+ */
+function useInitSchema() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrap(initSchema({})),
+    onSuccess: async (written) => {
+      queryClient.setQueryData(schemaQuery.queryKey, written);
+      const variables = (written.document as { variables?: object } | null)
+        ?.variables;
+      toast.success(
+        t('overview.noSchema.initDone', {
+          path: written.path,
+          count: Object.keys(variables ?? {}).length,
+        }),
+      );
+      written.warnings?.forEach((warning) => toast.warning(warning));
+      await Promise.all(
+        [variablesQuery, filesQuery, checkQuery, validateQuery].map((query) =>
+          queryClient.invalidateQueries({ queryKey: query.queryKey }),
+        ),
+      );
+    },
+    onError: (error) => {
+      toast.error(
+        t('overview.noSchema.initFailed', { message: error.message }),
+      );
+      void queryClient.invalidateQueries({ queryKey: schemaQuery.queryKey });
+    },
+  });
+}
+
+/** The project has no schema yet: init it here, or with the CLI. */
 export function NoSchema({ schema }: { schema: Schema }) {
   const { t } = useTranslation();
+  const init = useInitSchema();
   return (
     <Empty className="border border-dashed">
       <EmptyHeader>
@@ -37,6 +94,29 @@ export function NoSchema({ schema }: { schema: Schema }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full max-w-md">
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            onClick={() => init.mutate()}
+            disabled={init.isPending}
+            aria-busy={init.isPending}
+          >
+            <WandSparkles aria-hidden="true" data-icon="inline-start" />
+            {schema.initFrom
+              ? t('overview.noSchema.init', { file: schema.initFrom })
+              : t('overview.noSchema.initEmpty')}
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            {schema.initFrom
+              ? t('overview.noSchema.initHint', {
+                  file: schema.initFrom,
+                  path: schema.path,
+                })
+              : t('overview.noSchema.initEmptyHint', {
+                  file: INIT_EXAMPLE,
+                  path: schema.path,
+                })}
+          </p>
+        </div>
         <CodeBlock
           code={INIT_COMMAND}
           title={t('overview.noSchema.command')}

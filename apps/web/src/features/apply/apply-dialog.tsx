@@ -310,24 +310,32 @@ function ApplyFlow({
   );
 }
 
-/** Opens the apply flow: every file, or `files`. */
+/**
+ * Opens the apply flow: every file, or `files`. With `show` false the button
+ * hides, but a dialog it opened stays until closed: applying a file can end
+ * the very drift that showed the button, and the result must outlive it.
+ */
 export function ApplyButton({
   files,
   label,
   variant = 'default',
+  show = true,
 }: {
   files?: string[];
   /** The button's text; Apply by default. */
   label?: string;
   variant?: 'default' | 'outline';
+  show?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant={variant} onClick={() => setOpen(true)}>
-        {label ?? t('apply.open')}
-      </Button>
+      {show && (
+        <Button variant={variant} onClick={() => setOpen(true)}>
+          {label ?? t('apply.open')}
+        </Button>
+      )}
       <ApplyDialog open={open} onOpenChange={setOpen} files={files} />
     </>
   );

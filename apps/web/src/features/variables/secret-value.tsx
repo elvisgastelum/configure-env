@@ -116,7 +116,7 @@ export function SecretValue({
         {shown ? (
           <span
             data-revealed=""
-            className="truncate font-mono text-sm text-amber-700 dark:text-amber-300"
+            className="truncate font-mono text-sm text-amber-800 dark:text-amber-300"
           >
             {shown.value ?? t('variables.notSet')}
           </span>

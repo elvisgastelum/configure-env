@@ -186,15 +186,20 @@ export function ValueEditor({
       ...(needsReplace ? { replaceProtected: true } : {}),
       ...(fingerprint !== undefined ? { fingerprint } : {}),
     };
-    edit.mutate(request, {
-      onSuccess: (written) => {
+    // The promise, not mutate's callbacks: TanStack Query skips those once the
+    // editor unmounts, and a Check or Validate item unmounts as soon as the
+    // save fixes it; the toast and its Undo must still show. A failure shows
+    // through `edit.error`.
+    edit.mutateAsync(request).then(
+      (written) => {
         toast.success(
           t('variables.edit.saved', { name, file }),
           undoToast(queryClient, t, written.changes),
         );
         onDone();
       },
-    });
+      () => {},
+    );
   };
 
   return (

@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DEFAULT_STATE_PATH,
@@ -344,6 +345,34 @@ describe('files', () => {
 
 describe('POST /api/schema/init', () => {
   const EXAMPLE = '# Where to listen.\nPORT=8080\nDEBUG=true\n';
+  const getSchema = () =>
+    request(server.url).get('/api/schema').set('Authorization', bearer);
+
+  it('names the example init reads while the schema is missing', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const missing = await getSchema();
+    expect(missing.body.valid).toBe(false);
+    expect(missing.body.initFrom).toBe('.env.example');
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect((await getSchema()).body).not.toHaveProperty('initFrom');
+  });
+
+  it('names none without an example, and one init refuses all the same', async () => {
+    await start({});
+    expect((await getSchema()).body).not.toHaveProperty('initFrom');
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'example'), EXAMPLE);
+      await symlink(join(outside, 'example'), join(root, '.env.example'));
+      // The portal offers it, and init's refusal says why: never "no example".
+      expect((await getSchema()).body.initFrom).toBe('.env.example');
+      const refused = await send('post', '/api/schema/init', {});
+      expect(refused.status).toBe(403);
+      expect(refused.body.message).toMatch(/^\.env\.example: /);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 
   it('infers a schema from .env.example when there is none', async () => {
     await start({ '.env.example': EXAMPLE });
@@ -378,6 +407,64 @@ describe('POST /api/schema/init', () => {
     });
     await expectWritten(response);
     expect(Object.keys((await onDisk()).variables)).toEqual(['PORT', 'DEBUG']);
+  });
+
+  it('adds the state directory to .gitignore, as configure-env init does', async () => {
+    await start({ '.env.example': EXAMPLE, '.gitignore': 'node_modules' });
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
+      'node_modules\n.configure-env/\n',
+    );
+  });
+
+  it('creates .gitignore when there is none', async () => {
+    await start({});
+    await expectWritten(await send('post', '/api/schema/init', {}));
+    expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe(
+      '.configure-env/\n',
+    );
+  });
+
+  it('never writes through a symlinked .gitignore', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'configure-env-outside-'));
+    try {
+      await writeFile(join(outside, 'ignore'), 'node_modules\n');
+      await start({ '.env.example': EXAMPLE });
+      await symlink(join(outside, 'ignore'), join(root, '.gitignore'));
+      const response = await send('post', '/api/schema/init', {});
+      expect(response.status).toBe(200);
+      expect(response.body.valid).toBe(true);
+      expect(response.body.warnings).toEqual([
+        'cannot update .gitignore: it is a symlink; add .configure-env/ to it yourself',
+      ]);
+      expect(await readFile(join(outside, 'ignore'), 'utf8')).toBe(
+        'node_modules\n',
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('touches nothing when it refuses', async () => {
+    await start({ 'env.schema.json': TEXT, '.env.example': EXAMPLE });
+    expect((await send('post', '/api/schema/init', {})).status).toBe(409);
+    await expect(readFile(join(root, '.gitignore'), 'utf8')).rejects.toThrow(
+      /ENOENT/,
+    );
+  });
+
+  it('needs the token and this server as the origin', async () => {
+    await start({ '.env.example': EXAMPLE });
+    const anonymous = await request(server.url)
+      .post('/api/schema/init')
+      .send({});
+    expect(anonymous.status).toBe(401);
+    const foreign = await send('post', '/api/schema/init', {}).set(
+      'Origin',
+      'https://evil.example',
+    );
+    expect(foreign.status).toBe(403);
+    await expect(diskText()).rejects.toThrow(/ENOENT/);
   });
 
   it('reads another example inside the root', async () => {

@@ -829,6 +829,8 @@ export interface Schema {
   change?: number;
   /** After a write: what went wrong once the file was written, such as the history not recorded. */
   warnings?: string[];
+  /** While the schema file is missing: the example env file POST /api/schema/init reads, when there is one (init may still refuse it, a symlink for one, and says why). Absent without one: init then writes an empty schema. */
+  initFrom?: string;
 }
 
 export type SchemaEditRefusedStatusCode =
@@ -5099,7 +5101,7 @@ export const getInitSchemaUrl = () => {
 };
 
 /**
- * @summary Writes a starting schema, inferred from an example env file
+ * @summary Writes a starting schema, inferred from an example env file, as configure-env init does
  */
 export const initSchema = async (
   initSchemaRequest: InitSchemaRequest,
@@ -5194,7 +5196,7 @@ export type InitSchemaMutationError = StaleSchema | SchemaEditRefused;
 export type InitSchemaMutationVariables = { data: InitSchemaRequest };
 
 /**
- * @summary Writes a starting schema, inferred from an example env file
+ * @summary Writes a starting schema, inferred from an example env file, as configure-env init does
  */
 export const useInitSchema = <
   TError = StaleSchema | SchemaEditRefused,
