@@ -3,22 +3,31 @@
 // plans again from the same inputs and writes that plan only when its
 // fingerprint is still the one shown, so a stale preview is never applied.
 // Protected values are settled with the state as `configure-env apply`
-// settles them, and every changed key is recorded in the history.
+// settles them, and every changed key is recorded in the history, as the
+// CLI's when the CLI sends the request. With `generate` or `defer` they run
+// apply's checks too (src/run.ts); a value generated for a plan is kept in
+// memory for a while by the plan's fingerprint, so the apply writes the
+// value the plan showed.
 
 import { createHash } from 'node:crypto';
 import {
+  type ChangeActor,
   type EnvSchema,
   type FilePlan,
   type Plan,
+  type PlanError,
   type ProtectedCheck,
   type RunFile,
   type RunState,
   appliedChanges,
   applyPlan,
   checksOf,
+  displayPath,
   formatMode,
   getValue,
+  keptWarning,
   loadState,
+  maskValue,
   parseDotenv,
   planChanges,
   protectsAny,
@@ -37,6 +46,16 @@ import { fileDiff } from './diff.ts';
 import { contentFingerprint } from './fingerprint.ts';
 import { ApiError } from './http.ts';
 import type { Project } from './project.ts';
+import {
+  checkGenerated,
+  checkInputs,
+  generateFor,
+  leftIn,
+  neededKeys,
+  requiredErrors,
+  ruleErrors,
+  withGenerated,
+} from './run.ts';
 
 type PlanInputs = z.output<typeof planRequest>;
 type PlanView = z.output<typeof planResponse>;
@@ -100,6 +119,44 @@ function runChecks(schema: EnvSchema, plan: Plan) {
   return { checks, files };
 }
 
+/** What paths in messages are relative to: the CLI's directory, else the root. */
+const cwdOf = (project: Project) => project.cwd ?? project.root;
+
+/** How long a generated value waits for the apply of its plan. */
+const GENERATED_TTL_MS = 15 * 60_000;
+/** The most plans whose generated values wait at once; the oldest goes first. */
+const GENERATED_PLANS = 64;
+
+/** The values generated for a plan, by the root and the plan's fingerprint. */
+const generatedFor = new Map<
+  string,
+  { values: Record<string, string>; at: number }
+>();
+
+const generatedKey = (project: Project, fingerprint: string) =>
+  `${project.root}\0${fingerprint}`;
+
+function keepGenerated(
+  project: Project,
+  fingerprint: string,
+  values: Record<string, string>,
+) {
+  const now = Date.now();
+  for (const [key, entry] of generatedFor)
+    if (now - entry.at > GENERATED_TTL_MS) generatedFor.delete(key);
+  generatedFor.delete(generatedKey(project, fingerprint));
+  generatedFor.set(generatedKey(project, fingerprint), { values, at: now });
+  while (generatedFor.size > GENERATED_PLANS)
+    generatedFor.delete(generatedFor.keys().next().value!);
+}
+
+function keptGenerated(project: Project, fingerprint: string) {
+  const entry = generatedFor.get(generatedKey(project, fingerprint));
+  return entry && Date.now() - entry.at <= GENERATED_TTL_MS
+    ? entry.values
+    : undefined;
+}
+
 /**
  * The state a run settles protected values with: the protected state when
  * the schema protects anything (one that cannot be read refuses the run),
@@ -116,7 +173,15 @@ async function runState(
     return { run: { path: project.statePath, state: result.state } };
   if (protectsAny(schema))
     throw new ApiError(503, `invalid state ${result.message}`);
-  return { warning: `the protected state cannot be read: ${result.message}` };
+  return {
+    warning: keptWarning(
+      cwdOf(project),
+      project.statePath,
+      'cannot be read',
+      result.message,
+      false,
+    ),
+  };
 }
 
 interface Planned {
@@ -126,42 +191,126 @@ interface Planned {
   warning?: string;
 }
 
+interface RunValues {
+  values: Record<string, string>;
+  errors: PlanError[];
+  /** The values generated for this plan, by key. */
+  made: Record<string, string>;
+  /** Each `generate` key's value, masked. */
+  generated?: Record<string, string>;
+  /** apply's checks, when the inputs take `defer`. */
+  checks?: { defer: string[]; empty: string[] };
+}
+
+const unique = (keys: readonly string[] | undefined) => [
+  ...new Set(keys ?? []),
+];
+
+/**
+ * The values a run plans with, and the errors and deferred keys of apply's
+ * checks: with `generate` or `defer` only (see contracts.ts). `kept` holds
+ * the values generated for the plan an apply names.
+ */
+async function runValues(
+  schema: EnvSchema,
+  project: Project,
+  inputs: PlanInputs,
+  kept: Readonly<Record<string, string>> | undefined,
+): Promise<RunValues> {
+  const values = inputs.values ?? {};
+  const generate = unique(inputs.generate);
+  const checks = inputs.defer !== undefined;
+  if (!generate.length && !checks) return { values, errors: [], made: {} };
+  const defer = unique(inputs.defer);
+  checkInputs(schema, values, generate, defer);
+  checkGenerated(schema, inputs.files, generate);
+  const first = await planChanges({
+    schema,
+    root: project.root,
+    values: {},
+    ...(inputs.files ? { files: inputs.files } : {}),
+    prune: Boolean(inputs.prune),
+  });
+  const made: Record<string, string> = {};
+  const given = withGenerated(schema, first.files, values, generate, (key) => {
+    made[key] = kept?.[key] ?? generateFor(schema, key);
+    return made[key];
+  });
+  const generated = Object.fromEntries(
+    generate
+      .filter((key) => given[key] !== undefined)
+      .map((key) => [key, maskValue(schema.variables[key]!, given[key]!)]),
+  );
+  if (!checks) return { values: given, errors: [], made, generated };
+  const { errors, empty } = requiredErrors(
+    schema,
+    neededKeys(schema, first.files),
+    given,
+    defer,
+  );
+  return {
+    values: given,
+    errors,
+    made,
+    ...(generate.length ? { generated } : {}),
+    checks: { defer, empty },
+  };
+}
+
 /** Plans the run and shows it: POST /api/plan, and the first step of apply. */
 async function plan(
   read: ReadSchema,
   project: Project,
   inputs: PlanInputs,
+  kept?: Readonly<Record<string, string>>,
 ): Promise<Planned> {
   const { schema } = read;
+  const run = await runValues(schema, project, inputs, kept);
   const plan = await planChanges({
     schema,
     root: project.root,
-    values: inputs.values ?? {},
+    values: run.values,
     ...(inputs.files ? { files: inputs.files } : {}),
     prune: Boolean(inputs.prune),
   });
+  const errors = [...run.errors, ...plan.errors];
+  // Like a required value, a broken rule between variables writes nothing.
+  if (run.checks && !errors.length)
+    errors.push(...ruleErrors(schema, plan.files, run.checks.defer));
+  plan.errors = errors;
   const state = await runState(schema, project, Boolean(inputs.prune));
   const replace = new Set(inputs.replaceProtected ?? []);
   // Each check alone, so a refusal names the file it is in.
-  const protectedRefusals = state.run
-    ? runChecks(schema, plan).checks.flatMap((check) =>
-        verdictsOf(schema, state.run!.state, [check], replace).refused.map(
-          ({ key, message, reason }) => ({
-            file: check.file.path,
-            key,
-            message,
-            ...(reason ? { reason } : {}),
-          }),
-        ),
-      )
+  const verdicts = state.run
+    ? runChecks(schema, plan).checks.map((check) => ({
+        check,
+        ...verdictsOf(schema, state.run!.state, [check], replace),
+      }))
     : [];
+  const protectedRefusals = verdicts.flatMap(({ check, refused }) =>
+    refused.map(({ key, message, reason }) => ({
+      file: check.file.path,
+      key,
+      message,
+      ...(reason ? { reason } : {}),
+    })),
+  );
   const view: PlanView = {
     fingerprint: planFingerprint(read.fingerprint, plan),
     ok: !plan.errors.length && !protectedRefusals.length,
-    files: plan.files.map((file) => viewOf(schema, file)),
+    files: plan.files.map((file) => ({
+      ...viewOf(schema, file),
+      ...(run.checks
+        ? { deferred: leftIn(schema, file, run.checks.empty) }
+        : {}),
+    })),
     errors: plan.errors,
     protected: protectedRefusals,
+    replaced: verdicts.flatMap(({ replaced }) => replaced),
+    ...(run.generated ? { generated: run.generated } : {}),
   };
+  if (Object.keys(run.made).length)
+    keepGenerated(project, view.fingerprint, run.made);
   return { plan, view, ...state };
 }
 
@@ -200,9 +349,11 @@ export async function applyProject(
   read: ReadSchema,
   project: Project,
   inputs: z.output<typeof applyRequest>,
+  actor: ChangeActor = 'portal',
 ): Promise<z.output<typeof applyResponse>> {
   const { schema } = read;
-  const planned = await plan(read, project, inputs);
+  const kept = keptGenerated(project, inputs.fingerprint);
+  const planned = await plan(read, project, inputs, kept);
   const { view } = planned;
   if (view.fingerprint !== inputs.fingerprint)
     throw new ApiError(
@@ -222,7 +373,10 @@ export async function applyProject(
   const { checks, files } = runChecks(schema, planned.plan);
   const { plan: toWrite } = planned;
   const guarded = await writeProtected(
-    { cwd: project.root },
+    {
+      cwd: cwdOf(project),
+      ...(project.writeState ? { writeState: project.writeState } : {}),
+    },
     schema,
     planned.run,
     {
@@ -249,14 +403,18 @@ export async function applyProject(
   );
   if (!guarded.ok) {
     if (guarded.kind === 'state')
-      throw new ApiError(503, guarded.lines.join('; '));
+      throw new ApiError(503, guarded.lines.join('; '), {
+        path: guarded.path,
+        lines: guarded.lines,
+      });
     // The state changed between the plan and its write transaction.
     throw new ApiError(
       422,
       'the plan changes protected values; nothing was written',
-      { plan: (await plan(read, project, inputs)).view },
+      { plan: (await plan(read, project, inputs, kept)).view },
     );
   }
+  if (kept) generatedFor.delete(generatedKey(project, inputs.fingerprint));
 
   const results = guarded.value;
   const warnings = [
@@ -271,10 +429,18 @@ export async function applyProject(
   ];
   const history = await recordHistory(
     project.statePath,
-    'portal',
+    actor,
     appliedChanges(schema, toWrite, results, guarded.replaced),
   );
-  warnings.push(...history.warnings);
+  // The CLI shows the state's path as it named it.
+  const shown = displayPath(cwdOf(project), project.statePath);
+  warnings.push(
+    ...history.warnings.map((line) =>
+      project.cwd === undefined
+        ? line
+        : line.replaceAll(project.statePath, shown),
+    ),
+  );
   return {
     ok: results.every((result) => result.ok),
     files: results.map(({ path, action, ok, written, error }) => ({
@@ -286,5 +452,10 @@ export async function applyProject(
     })),
     replaced: guarded.replaced,
     warnings,
+    ...(guarded.stateError
+      ? {
+          stateError: { path: project.statePath, lines: guarded.stateError },
+        }
+      : {}),
   };
 }

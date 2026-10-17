@@ -7,6 +7,7 @@ import {
   DEFAULT_STATE_PATH,
   type EnvSchema,
   type SchemaError,
+  type StateWriter,
   parseSchemaText,
   resolveTarget,
   schemaFingerprint,
@@ -27,6 +28,10 @@ export interface Project {
    * root and the given path no longer share a prefix.
    */
   stateInRoot?: string;
+  /** What paths in the messages of an apply are relative to; the root when absent. */
+  cwd?: string;
+  /** Writes the protected state; the CLI's tests pass one that fails. */
+  writeState?: StateWriter;
 }
 
 export interface ProjectOptions {

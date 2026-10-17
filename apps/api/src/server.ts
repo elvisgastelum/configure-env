@@ -18,6 +18,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import type { StateWriter } from '@configure-env/core';
 import packageJson from '../package.json' with { type: 'json' };
 import { apiModule } from './api.module.ts';
 import { components } from './contracts.ts';
@@ -73,6 +74,13 @@ export interface ServerOptions {
    * defaults to launch-editor. The tests pass one that starts nothing.
    */
   editor?: EditorLauncher;
+  /**
+   * What paths in an apply's messages are relative to, as the CLI's
+   * in-process server shows them; the root when absent.
+   */
+  cwd?: string;
+  /** Writes the protected state; for the CLI's tests, which pass one that fails. */
+  writeState?: StateWriter;
 }
 
 export interface ApiServer {
@@ -234,6 +242,8 @@ export async function createServer(options: ServerOptions): Promise<ApiServer> {
       : { statePath: options.statePath }),
     ...(options.schemaAnywhere ? { schemaAnywhere: true } : {}),
   });
+  if (options.cwd !== undefined) project.cwd = options.cwd;
+  if (options.writeState) project.writeState = options.writeState;
 
   let port = options.port;
   /** The Host values of the address the server listens on. */
