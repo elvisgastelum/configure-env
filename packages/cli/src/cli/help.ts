@@ -541,6 +541,10 @@ then answers that host too, and every other one is still refused.
 Without --port it takes the first free port from 4747. A taken --port
 exits 1.
 
+While it runs, .configure-env/server.json (mode 600, named in that
+folder's .gitignore) holds its URL, pid, version and token, so the
+project's commands run through it; it is removed when serve stops.
+
 In a terminal it opens the URL in the default browser; --open and
 --no-open decide instead. With --json it prints one line,
 {"command":"serve","url":...,"port":...,"pid":...}, where url holds the

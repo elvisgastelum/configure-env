@@ -19,12 +19,14 @@ import {
   displayPath,
   loadContextSchema,
   parseCommand,
+  printWarnings,
   usageError,
 } from './common.ts';
 import { SERVE_HELP, VERSION } from './help.ts';
 import type { Io } from './io.ts';
 import { loadServer } from './load-server.js';
 import { PACKAGE_ROOT } from './package-root.ts';
+import { removeServerFile, writeServerFile } from './server-file.ts';
 
 /** Where the search for a free port starts when --port is not given. */
 export const DEFAULT_PORT = 4747;
@@ -417,6 +419,17 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     await server.close();
     return 130;
   }
+  // The other commands of the project run through this server meanwhile.
+  await writeServerFile(context.root, {
+    url: server.url,
+    pid: process.pid,
+    version: VERSION,
+    token,
+  }).catch((error: NodeJS.ErrnoException) =>
+    printWarnings(io, [
+      `cannot write .configure-env/server.json: ${error.code ?? error.message}; other commands start a server of their own`,
+    ]),
+  );
 
   // A persistent token is never printed: the output names where it is.
   if (context.json) {
@@ -454,6 +467,7 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
 
   const received = await signal;
   io.stderr(`configure-env: ${received}: stopping`);
+  await removeServerFile(context.root, process.pid).catch(() => undefined);
   await server.close();
   return 0;
 }
