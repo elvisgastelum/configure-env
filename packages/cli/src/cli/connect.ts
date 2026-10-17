@@ -253,12 +253,11 @@ async function storedEnvironment(io: Io, name: string): Promise<Environment> {
   return environment;
 }
 
-/** The project of another environment: its server's, read through it. */
-async function remoteRun(
-  io: Io,
-  values: GlobalValues,
-  name: string,
-): Promise<ProjectRun> {
+/**
+ * The server of another environment, its version checked; --root, --schema
+ * and --state are refused, as the server owns its project.
+ */
+async function remoteServer(io: Io, values: GlobalValues, name: string) {
   for (const option of ['root', 'schema', 'state'] as const)
     if (values[option] !== undefined)
       throw usageError(
@@ -283,6 +282,16 @@ async function remoteRun(
       `environment ${name} runs configure-env ${version}; this CLI is ${VERSION}`,
       'run a configure-env of a compatible version on either side',
     ]);
+  return { connection, schemaPath: project.data.schemaPath };
+}
+
+/** The project of another environment: its server's, read through it. */
+async function remoteRun(
+  io: Io,
+  values: GlobalValues,
+  name: string,
+): Promise<ProjectRun> {
+  const { connection } = await remoteServer(io, values, name);
   const read = await send(connection, () => getSchema(connection.init()));
   if (read.status !== 200)
     throw new CliError(1, [`${name}: ${answerMessage(read)}`]);
@@ -316,4 +325,53 @@ export function openProject(io: Io, values: GlobalValues): Promise<ProjectRun> {
   return name === LOCAL
     ? localRun(io, { ...values, env: LOCAL })
     : remoteRun(io, values, name);
+}
+
+/**
+ * The server of a project whose schema may be missing or invalid, such as
+ * the one init writes: nothing is read before it connects. `local` has its
+ * paths; another environment names its schema file as its server does.
+ */
+export interface ServerRun {
+  /** `local` or the environment's name. */
+  name: string;
+  /** The local paths; absent for another environment, whose server owns them. */
+  context?: Context;
+  /** The schema file as messages name it: shown from the cwd, or `name:path`. */
+  title: string;
+  ci: boolean;
+  json: boolean;
+  prompts: Prompts;
+  connect(): Promise<Connection>;
+}
+
+/** The server the selected environment names, without reading its schema. */
+export async function openServer(
+  io: Io,
+  values: GlobalValues,
+): Promise<ServerRun> {
+  const name = selectedEnvironment(io, values);
+  if (name === LOCAL) {
+    const context = await contextOf(io, { ...values, env: LOCAL });
+    return {
+      name,
+      context,
+      title: displayPath(io.cwd, context.schemaPath),
+      ci: context.ci,
+      json: context.json,
+      prompts: context.prompts,
+      connect: async () =>
+        (await attach(context)) ??
+        startLocal(context, io.startServer ?? startInProcess),
+    };
+  }
+  const { connection, schemaPath } = await remoteServer(io, values, name);
+  return {
+    name,
+    title: `${name}:${schemaPath}`,
+    ci: Boolean(values.ci) || isCiEnv(io.env),
+    json: Boolean(values.json),
+    prompts: io.prompts ?? clackPrompts,
+    connect: async () => connection,
+  };
 }

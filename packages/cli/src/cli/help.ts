@@ -23,7 +23,7 @@ const GLOBAL = `Global options:
                    not a template)
   --env <name>     the environment to run against: local (this project,
                    the default) or one env add stored; CONFIGURE_ENV_ENV
-                   too. Only check runs against another one yet
+                   too. Only check and init run against another one yet
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
   --no-color       plain output; NO_COLOR is honoured too
@@ -224,6 +224,12 @@ each one; with --ci (or --json) it writes them as inferred.
 Once the schema is written, it adds .configure-env/ (where the protected
 variables' state lives) to .gitignore, creating it when missing.
 
+It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only,
+on 127.0.0.1. With --env <name> it writes that environment's schema on
+its server instead; --root, --schema and --state are then the server's
+and exit 2.
+
 Options:
   --from <file>  the env file to infer from, inside the root
                  (default: .env.example when it exists)
@@ -235,6 +241,7 @@ Examples:
   configure-env init
   configure-env init --ci --from config/app.env.example
   configure-env init --force
+  configure-env init --env staging --ci
 
 ${EXIT_CODES}`;
 

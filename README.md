@@ -320,7 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
-| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` runs against another one yet; every other command exits 2 for it |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. Only `check` and `init` run against another one yet; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -462,10 +462,13 @@ Without an example file it writes an empty schema. In a terminal it shows the in
 
 Once the schema is written, it adds `.configure-env/` (the protected variables' state) to `.gitignore` when no line ignores it yet, creating the file when it is missing, and says so. A `.gitignore` that is a symlink is left alone, since it may lead outside the project: a warning on stderr asks you to add the line yourself.
 
+`init` runs through the configure-env API, as `check` does: `POST /api/schema/init` writes the schema, previewed first (`preview`) for the types you review in a terminal, which it then sends as `variables`; `--force` names the fingerprint `GET /api/schema` gives. The history records the write as `cli`. `init --env <name>` writes a stored environment's schema on its server (see "env"), its messages naming it `<name>:<path>`; `--from` is then a file inside that server's root.
+
 ```sh
 configure-env init
 configure-env init --ci --from config/app.env.example
 configure-env init --force
+configure-env init --env staging --ci
 ```
 
 ### Choosing the file to edit
@@ -592,7 +595,7 @@ An environment is a configure-env server the CLI reaches over HTTP: its URL and 
 - **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
 - **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
 
-`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` runs against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. Only `check` and `init` run against an environment yet: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
 
 ### JSON output
 
