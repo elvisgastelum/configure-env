@@ -396,6 +396,23 @@ export interface Check {
   errors: PlanError[];
 }
 
+/**
+ * Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.
+ */
+export type CheckRequestValues = { [key: string]: string };
+
+export interface CheckRequest {
+  /** Treat keys the schema does not list for a file as errors. */
+  strict?: boolean;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Values by key that generated files are compared with, as check --set takes them; defaults fill the rest. */
+  values?: CheckRequestValues;
+}
+
 export type DiffLineKind = (typeof DiffLineKind)[keyof typeof DiffLineKind];
 
 export const DiffLineKind = {
@@ -625,11 +642,23 @@ export interface FixGitignore {
   check: Check;
 }
 
+/**
+ * Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.
+ */
+export type FixGitignoreRequestValues = { [key: string]: string };
+
 export interface FixGitignoreRequest {
   /** The git-ignore problems to fix, by their path; every one when absent. */
   paths?: string[];
   /** Treat keys the schema does not list for a file as errors in the check it answers. */
   strict?: boolean;
+  /**
+   * Only these schema files; every file when absent.
+   * @items.minLength 1
+   */
+  files?: string[];
+  /** Values by key that generated files are compared with, as check --set takes them; defaults fill the rest. */
+  values?: FixGitignoreRequestValues;
 }
 
 export interface Group {
@@ -3179,6 +3208,155 @@ export function useGetCheck<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export type runCheckResponse200 = {
+  data: Check;
+  status: 200;
+};
+
+export type runCheckResponse400 = {
+  data: ApiError;
+  status: 400;
+};
+
+export type runCheckResponse422 = {
+  data: InvalidSchema;
+  status: 422;
+};
+
+export type runCheckResponse503 = {
+  data: ApiError;
+  status: 503;
+};
+
+export type runCheckResponseSuccess = runCheckResponse200 & {
+  headers: Headers;
+};
+export type runCheckResponseError = (
+  | runCheckResponse400
+  | runCheckResponse422
+  | runCheckResponse503
+) & {
+  headers: Headers;
+};
+
+export type runCheckResponse = runCheckResponseSuccess | runCheckResponseError;
+
+export const getRunCheckUrl = () => {
+  return `/api/check`;
+};
+
+/**
+ * @summary The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL
+ */
+export const runCheck = async (
+  checkRequest: CheckRequest,
+  options?: Parameters<typeof apiFetch>[1],
+): Promise<runCheckResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit['headers']>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<
+      string | readonly string[] | undefined
+    >(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return apiFetch<runCheckResponse>(getRunCheckUrl(), {
+    ...options,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getHeaders(options?.headers),
+    },
+    body: JSON.stringify(checkRequest),
+  });
+};
+
+export const getRunCheckMutationKey = () => ['runCheck'] as const;
+
+export const getRunCheckMutationOptions = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCheck>>,
+    TError,
+    RunCheckMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCheck>>,
+  TError,
+  RunCheckMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRunCheckMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      'mutationKey' in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCheck>>,
+    RunCheckMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runCheck(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCheckMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCheck>>
+>;
+export type RunCheckMutationBody = CheckRequest;
+export type RunCheckMutationError = ApiError | InvalidSchema;
+export type RunCheckMutationVariables = { data: CheckRequest };
+
+/**
+ * @summary The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL
+ */
+export const useRunCheck = <
+  TError = ApiError | InvalidSchema,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof runCheck>>,
+      TError,
+      RunCheckMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof apiFetch>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof runCheck>>,
+  TError,
+  RunCheckMutationVariables,
+  TContext
+> => {
+  return useMutation(getRunCheckMutationOptions(options), queryClient);
+};
 
 export type fixGitignoreResponse200 = {
   data: FixGitignore;

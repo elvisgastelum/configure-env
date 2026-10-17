@@ -342,6 +342,28 @@ export const checkResponse = named(
   }),
 );
 
+/** What a check takes besides strict: as configure-env check --file and --set do. */
+const checkInputs = {
+  files: z
+    .array(z.string().min(1))
+    .optional()
+    .meta({ description: 'Only these schema files; every file when absent.' }),
+  values: z.record(z.string(), z.string()).optional().meta({
+    description:
+      'Values by key that generated files are compared with, as check --set takes them; defaults fill the rest.',
+  }),
+};
+
+export const checkRequest = named(
+  'CheckRequest',
+  z.strictObject({
+    strict: z.boolean().optional().meta({
+      description: 'Treat keys the schema does not list for a file as errors.',
+    }),
+    ...checkInputs,
+  }),
+);
+
 export const fixGitignoreRequest = named(
   'FixGitignoreRequest',
   z.strictObject({
@@ -353,6 +375,7 @@ export const fixGitignoreRequest = named(
       description:
         'Treat keys the schema does not list for a file as errors in the check it answers.',
     }),
+    ...checkInputs,
   }),
 );
 

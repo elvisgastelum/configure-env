@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -23,6 +24,7 @@ import {
 import { type EnvSchema, checkDrift, fixGitignore } from '@configure-env/core';
 import type { z } from 'zod';
 import {
+  checkRequest,
   checkResponse,
   errorResponse,
   fixGitignoreRequest,
@@ -223,7 +225,27 @@ export class ProjectController {
   @NeedsSchema()
   @NeedsState()
   check(@Query({ schema: strictQuery }) query: z.output<typeof strictQuery>) {
-    return this.runCheck(isStrict(query));
+    return this.runCheck({ strict: isStrict(query) });
+  }
+
+  @Post('check')
+  @HttpCode(200)
+  @Read(
+    'runCheck',
+    'The check of GET /api/check, of only the files given and with the values given, as configure-env check --file and --set run it; values travel in the body, never the URL',
+    checkResponse,
+  )
+  @ApiBody({ schema: ref(checkRequest) })
+  @ApiBadRequestResponse({
+    description: 'A file the schema does not list.',
+    schema: ref(errorResponse),
+  })
+  @NeedsSchema()
+  @NeedsState()
+  postCheck(
+    @Body({ schema: checkRequest }) body: z.output<typeof checkRequest>,
+  ) {
+    return this.runCheck(body);
   }
 
   @Post('check/gitignore')
@@ -240,10 +262,10 @@ export class ProjectController {
     @Body({ schema: fixGitignoreRequest })
     body: z.output<typeof fixGitignoreRequest>,
   ) {
-    const strict = body.strict ?? false;
+    const { paths, ...inputs } = body;
     // The problems come from a fresh check, never from the request.
-    const { gitignore } = await this.runCheck(strict);
-    const wanted = body.paths && new Set(body.paths);
+    const { gitignore } = await this.runCheck(inputs);
+    const wanted = paths && new Set(paths);
     let fixed;
     try {
       ({ fixed } = await fixGitignore(
@@ -259,18 +281,27 @@ export class ProjectController {
         `cannot update .gitignore: ${code ?? (error as Error).message}`,
       );
     }
-    return { fixed, check: await this.runCheck(strict) };
+    return { fixed, check: await this.runCheck(inputs) };
   }
 
   /** check --json's report, the state's folder checked too. */
-  private async runCheck(strict: boolean) {
+  private async runCheck({
+    strict = false,
+    files,
+    values,
+  }: z.output<typeof checkRequest>) {
     const schema = await this.schema();
+    for (const path of files ?? [])
+      if (!schema.files.some((file) => file.path === path))
+        throw new ApiError(400, `${path}: is not in the schema`);
     const state = await protectedState(schema, this.project);
     return checkDrift({
       schema,
       root: this.project.root,
       strict,
-      statePath: this.project.statePath,
+      statePath: this.project.stateInRoot ?? this.project.statePath,
+      ...(files?.length ? { files } : {}),
+      ...(values ? { values } : {}),
       ...(state ? { state } : {}),
     });
   }
