@@ -201,7 +201,7 @@ export async function contextOf(
   const environment = selectedEnvironment(io, values);
   if (environment !== 'local')
     throw usageError(
-      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; only check and apply run against an environment yet`,
+      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; apply, check, init, list, get, set, unset and history run against an environment`,
       values.env
         ? 'drop --env to run it here'
         : `unset ${ENV_VARIABLE} to run it here`,

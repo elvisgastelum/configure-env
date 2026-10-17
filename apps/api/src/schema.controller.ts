@@ -1,9 +1,11 @@
-// The schema writes over src/schema.ts: variables, files and init.
+// The schema writes over src/schema.ts: variables, files, init, and the
+// whole document at once.
 
 import {
   Body,
   Controller,
   Delete,
+  Headers,
   HttpCode,
   Inject,
   Param,
@@ -15,6 +17,7 @@ import {
   ApiBadRequestResponse,
   ApiBody,
   ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiParam,
   ApiTags,
   ApiUnprocessableEntityResponse,
@@ -41,15 +44,22 @@ import {
   removeVariableRequest,
   renameVariableRequest,
   reorderVariablesRequest,
+  replaceSchemaRequest,
   schemaEditRefusedResponse,
+  schemaUnmaskRefusedResponse,
   schemaResponse,
   staleSchemaResponse,
   updateFileRequest,
   updateVariableRequest,
 } from './contracts.ts';
-import { PROJECT, Read, ref } from './http.ts';
+import { CLIENT_HEADER, PROJECT, Read, actorOf, ref } from './http.ts';
 import type { Project } from './project.ts';
-import { editSchema, initSchema, variableName } from './schema.ts';
+import {
+  editSchema,
+  initSchema,
+  replaceSchema,
+  variableName,
+} from './schema.ts';
 
 /** A schema write: its body, its 200 (the new schema) and its refusals. */
 const Write = (operationId: string, summary: string, body: z.ZodType) =>
@@ -210,7 +220,31 @@ export class SchemaController {
   init(
     @Body({ schema: initSchemaRequest })
     body: z.output<typeof initSchemaRequest>,
+    @Headers(CLIENT_HEADER) client?: string,
   ) {
-    return initSchema(this.project, body);
+    return initSchema(this.project, body, actorOf(client));
+  }
+
+  @Put()
+  @Write(
+    'replaceSchema',
+    'Replaces the whole schema document, against its fingerprint',
+    replaceSchemaRequest,
+  )
+  @ApiBadRequestResponse({
+    description: 'An invalid body.',
+    schema: ref(errorResponse),
+  })
+  @ApiForbiddenResponse({
+    description:
+      'With keepSecretsMasked: the document would show a hidden value; nothing was written.',
+    schema: ref(schemaUnmaskRefusedResponse),
+  })
+  replace(
+    @Body({ schema: replaceSchemaRequest })
+    body: z.output<typeof replaceSchemaRequest>,
+    @Headers(CLIENT_HEADER) client?: string,
+  ) {
+    return replaceSchema(this.project, body, actorOf(client));
   }
 }

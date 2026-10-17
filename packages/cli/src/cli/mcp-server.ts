@@ -5,33 +5,45 @@
 // keeps their validation, masking and guards; none of them reveals a value
 // (there is no tool for `get --reveal`), and a secret only goes in through
 // a value made here (generate) or one the human types outside the chat.
+// Every tool takes `env`, the environment to work on, passed on as --env:
+// the commands, and the schema tools, reach it through the configure-env
+// API (connect.ts), so another machine's project is worked on as this one.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
+  getFiles,
+  getSchema,
+  replaceSchema,
+} from '@configure-env/api-client/client';
+import {
   type EnvSchema,
-  type SchemaDocument,
+  type SchemaError,
   VARIABLE_NAME,
   getValue,
   keysOf,
   parseDotenv,
-  parseSchemaText,
-  recordHistory,
-  schemaChanges,
-  schemaFingerprint,
   unquoteValue,
-  validateDocument,
-  writeSchemaFile,
 } from '@configure-env/core';
-import { readFile, stat } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import {
   CliError,
   type Context,
   contextOf,
-  loadContextSchema,
+  selectedEnvironment,
 } from './common.ts';
+import {
+  type Connection,
+  type ProjectRun,
+  type ServerRun,
+  answerMessage,
+  openProject,
+  openServer,
+  send,
+} from './connect.ts';
+import { LOCAL } from './environments.ts';
 import type { Io, Prompts } from './io.ts';
 import { main } from './main.ts';
 import { defaultFile } from './target.ts';
@@ -52,7 +64,9 @@ Secret values never pass through you: tools mask them, and none reveals one.
 To give a secret variable a value, call generate_secret for a value the project
 makes itself, or request_secret for one only the user has, then relay the
 command it returns to the user. Never ask the user to paste a secret into
-the chat. Start with list_variables and check.`;
+the chat. Start with list_variables and check. Every tool takes env, an
+environment configure-env env add stored, to work on that server's project;
+local, this project, by default.`;
 
 /** Prompts that fail: a command run with --ci never asks, so none is called. */
 const noPrompt = (): never => {
@@ -90,15 +104,38 @@ export interface CommandRun {
   err: string[];
 }
 
-/** The global options a tool's command runs with. */
-function globals(options: McpOptions, file?: string): string[] {
+/** The environment a tool works on: its `env`, else the server's default. */
+const environmentOf = (options: McpOptions, env?: string) =>
+  selectedEnvironment({ env: options.env } as Io, { env });
+
+/**
+ * The global options the server's own reads take. --root, --schema and
+ * --state name this project, so they go with `local` only: another
+ * environment's server owns its project.
+ */
+function valuesFor(options: McpOptions, env?: string) {
+  const local = environmentOf(options, env) === LOCAL;
+  return {
+    ...(env === undefined ? {} : { env }),
+    ...(!local || options.root === undefined ? {} : { root: options.root }),
+    ...(!local || options.schema === undefined
+      ? {}
+      : { schema: options.schema }),
+    ...(!local || options.state === undefined ? {} : { state: options.state }),
+  };
+}
+
+/** The global options a tool's command runs with, as valuesFor names them. */
+function globals(options: McpOptions, file?: string, env?: string): string[] {
+  const values = valuesFor(options, env);
   return [
     '--ci',
     '--json',
     '--no-color',
-    ...(options.root === undefined ? [] : [`--root=${options.root}`]),
-    ...(options.schema === undefined ? [] : [`--schema=${options.schema}`]),
-    ...(options.state === undefined ? [] : [`--state=${options.state}`]),
+    ...(values.env === undefined ? [] : [`--env=${values.env}`]),
+    ...(values.root === undefined ? [] : [`--root=${values.root}`]),
+    ...(values.schema === undefined ? [] : [`--schema=${values.schema}`]),
+    ...(values.state === undefined ? [] : [`--state=${values.state}`]),
     ...(file === undefined ? [] : [`--file=${file}`]),
   ];
 }
@@ -145,6 +182,13 @@ const textResult = (text: string, isError = false): CallToolResult => ({
   ...(isError ? { isError: true } : {}),
 });
 
+const env = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    'The environment to work on, as configure-env env add stored it (configure-env env list names them); local, this project, by default.',
+  );
 const key = z
   .string()
   .regex(VARIABLE_NAME, 'a variable name: letters, digits and _');
@@ -163,8 +207,8 @@ export function createMcpServer(options: McpOptions): McpServer {
     { instructions: MCP_INSTRUCTIONS },
   );
   // Every command's output is masked again here, whatever the command did.
-  const run = async (argv: string[]) =>
-    maskSecrets(options, await runCommand(options, argv));
+  const run = async (argv: string[], env?: string) =>
+    maskSecrets(options, env, await runCommand(options, argv));
 
   server.registerTool(
     'list_variables',
@@ -172,11 +216,16 @@ export function createMcpServer(options: McpOptions): McpServer {
       title: 'List variables',
       description:
         "Each schema file's variables: whether they are set and valid, the value (secrets masked) and the description.",
-      inputSchema: { file },
+      inputSchema: { file, env },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) =>
-      resultOf(await run(['list', ...globals(options, input.file)])),
+      resultOf(
+        await run(
+          ['list', ...globals(options, input.file, input.env)],
+          input.env,
+        ),
+      ),
   );
 
   server.registerTool(
@@ -185,11 +234,16 @@ export function createMcpServer(options: McpOptions): McpServer {
       title: 'Get a value',
       description:
         "One variable's value in one file. A secret's value is masked; no tool reveals it.",
-      inputSchema: { key, file },
+      inputSchema: { key, file, env },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) =>
-      resultOf(await run(['get', ...globals(options, input.file), input.key])),
+      resultOf(
+        await run(
+          ['get', ...globals(options, input.file, input.env), input.key],
+          input.env,
+        ),
+      ),
   );
 
   server.registerTool(
@@ -204,16 +258,20 @@ export function createMcpServer(options: McpOptions): McpServer {
           .boolean()
           .optional()
           .describe('Report unknown keys as errors, not warnings.'),
+        env,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) =>
       resultOf(
-        await run([
-          'check',
-          ...globals(options, input.file),
-          ...(input.strict ? ['--strict'] : []),
-        ]),
+        await run(
+          [
+            'check',
+            ...globals(options, input.file, input.env),
+            ...(input.strict ? ['--strict'] : []),
+          ],
+          input.env,
+        ),
       ),
   );
 
@@ -223,11 +281,16 @@ export function createMcpServer(options: McpOptions): McpServer {
       title: 'Change history',
       description:
         'The latest changes to the env files and the schema, with previews; a secret is masked.',
-      inputSchema: { file },
+      inputSchema: { file, env },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) =>
-      resultOf(await run(['history', ...globals(options, input.file)])),
+      resultOf(
+        await run(
+          ['history', ...globals(options, input.file, input.env)],
+          input.env,
+        ),
+      ),
   );
 
   server.registerTool(
@@ -236,22 +299,28 @@ export function createMcpServer(options: McpOptions): McpServer {
       title: 'Read the schema',
       description:
         'The schema file (env.schema.json) as text, with the fingerprint update_schema needs.',
+      inputSchema: { env },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => {
-      const path = (await contextFor(options)).schemaPath;
-      let text: string;
-      try {
-        text = await readFile(path, 'utf8');
-      } catch (error) {
-        return textResult(
-          `cannot read ${path}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
-          true,
-        );
-      }
-      return textResult(
-        JSON.stringify({ path, fingerprint: schemaFingerprint(text), text }),
+    async (input) => {
+      const target = await openServer(
+        ioFor(options),
+        valuesFor(options, input.env),
       );
+      const path = target.context?.schemaPath ?? target.title;
+      const read = await request(target, (connection) =>
+        send(connection, () => getSchema(connection.init())),
+      );
+      if (read.status !== 200) return textResult(answerMessage(read), true);
+      const { fingerprint, text } = read.data;
+      if (text === undefined || fingerprint === undefined) {
+        // The server names its schema from its root: what stopped it is
+        // named here by this path.
+        const message = read.data.errors[0]?.message ?? '';
+        const code = message.slice(message.lastIndexOf(': ') + 2);
+        return textResult(`cannot read ${path}: ${code}`, true);
+      }
+      return textResult(JSON.stringify({ path, fingerprint, text }));
     },
   );
 
@@ -274,25 +343,33 @@ export function createMcpServer(options: McpOptions): McpServer {
           .boolean()
           .optional()
           .describe('Create the file when it does not exist.'),
+        env,
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async (input) => {
-      const secrets = await secretKeys(options, Object.keys(input.values));
+      const secrets = await secretKeys(
+        options,
+        input.env,
+        Object.keys(input.values),
+      );
       if (secrets.length)
         return textResult(
           `${secrets.join(', ')}: secret; its value never goes through the chat. Call generate_secret for a value the project makes, or request_secret for one only the user has.`,
           true,
         );
       return resultOf(
-        await run([
-          'set',
-          ...globals(options, input.file),
-          ...(input.create ? ['--create'] : []),
-          ...Object.entries(input.values).map(
-            ([name, value]) => `${name}=${value}`,
-          ),
-        ]),
+        await run(
+          [
+            'set',
+            ...globals(options, input.file, input.env),
+            ...(input.create ? ['--create'] : []),
+            ...Object.entries(input.values).map(
+              ([name, value]) => `${name}=${value}`,
+            ),
+          ],
+          input.env,
+        ),
       );
     },
   );
@@ -306,16 +383,20 @@ export function createMcpServer(options: McpOptions): McpServer {
       inputSchema: {
         file,
         keys: z.array(key).min(1).describe('The variables to generate.'),
+        env,
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async (input) =>
       resultOf(
-        await run([
-          'set',
-          ...globals(options, input.file),
-          ...input.keys.map((name) => `--generate=${name}`),
-        ]),
+        await run(
+          [
+            'set',
+            ...globals(options, input.file, input.env),
+            ...input.keys.map((name) => `--generate=${name}`),
+          ],
+          input.env,
+        ),
       ),
   );
 
@@ -325,12 +406,12 @@ export function createMcpServer(options: McpOptions): McpServer {
       title: 'Ask the user for a secret',
       description:
         'Changes nothing: answers the command the user runs in their own terminal to type a secret, so it never passes through the chat. Relay it to the user, then call check.',
-      inputSchema: { key, file },
+      inputSchema: { key, file, env },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) => {
-      const context = await contextFor(options);
-      const schema = await loadContextSchema(context);
+      const { project, context } = await projectFor(options, input.env);
+      const { schema } = project;
       if (!Object.hasOwn(schema.variables, input.key))
         return textResult(`${input.key}: is not in the schema`, true);
       if (
@@ -338,41 +419,38 @@ export function createMcpServer(options: McpOptions): McpServer {
         !schema.files.some((spec) => spec.path === input.file)
       )
         return textResult(`${input.file}: is not in the schema`, true);
-      // The user runs it in their own terminal, from any folder: every path
-      // is absolute, and the state is the one this server's commands use.
       // The file set edits: without --file, the default one; with several,
       // set asks the user for --file, so none is checked.
       const edited = input.file ?? defaultFile(schema)?.path;
       const exists =
-        edited === undefined ||
-        (await stat(resolve(context.root, edited)).then(
-          () => true,
-          () => false,
-        ));
+        edited === undefined || (await fileExists(project, edited));
+      // The user runs it in their own terminal, from any folder: every path
+      // is absolute, and the state is the one this server's commands use.
+      // Another environment is named by --env, from the folder that stores
+      // it.
       const flags = [
-        `--root ${quote(context.root)}`,
-        ...(options.schema === undefined
-          ? []
-          : [`--schema ${quote(context.schemaPath)}`]),
-        ...(options.state === undefined
-          ? []
-          : [`--state ${quote(context.statePath)}`]),
+        ...(context
+          ? [
+              `--root ${quote(context.root)}`,
+              ...(options.schema === undefined
+                ? []
+                : [`--schema ${quote(context.schemaPath)}`]),
+              ...(options.state === undefined
+                ? []
+                : [`--state ${quote(context.statePath)}`]),
+            ]
+          : [`--env ${quote(project.name)}`]),
         ...(input.file === undefined ? [] : [`--file ${quote(input.file)}`]),
         ...(exists ? [] : ['--create']),
       ];
-      const command = [
-        'configure-env set',
-        ...flags,
-        `--prompt ${input.key}`,
-      ].join(' ');
+      const folder = context ? '' : `cd ${quote(resolve(options.cwd))} && `;
+      const args = [...flags, `--prompt ${input.key}`].join(' ');
+      const command = `${folder}configure-env set ${args}`;
       return textResult(
         JSON.stringify({
           key: input.key,
           command,
-          npx: command.replace(
-            /^configure-env/,
-            'npx @elvisgastelum/configure-env',
-          ),
+          npx: `${folder}npx @elvisgastelum/configure-env set ${args}`,
           message: `Ask the user to run this in their terminal (in Claude Code: ! ${command}); it prompts for ${input.key} without echoing it. Never ask them to paste the value here.`,
         }),
       );
@@ -388,6 +466,7 @@ export function createMcpServer(options: McpOptions): McpServer {
       inputSchema: {
         file,
         keys: z.array(key).min(1).describe('The variables to remove.'),
+        env,
       },
       annotations: {
         readOnlyHint: false,
@@ -397,7 +476,10 @@ export function createMcpServer(options: McpOptions): McpServer {
     },
     async (input) =>
       resultOf(
-        await run(['unset', ...globals(options, input.file), ...input.keys]),
+        await run(
+          ['unset', ...globals(options, input.file, input.env), ...input.keys],
+          input.env,
+        ),
       ),
   );
 
@@ -412,7 +494,9 @@ export function createMcpServer(options: McpOptions): McpServer {
         generate: z
           .array(key)
           .optional()
-          .describe('Secrets to give a random value made on this machine.'),
+          .describe(
+            'Secrets to give a random value, made by the server of the environment and never answered.',
+          ),
         defer: z
           .array(key)
           .optional()
@@ -421,6 +505,7 @@ export function createMcpServer(options: McpOptions): McpServer {
           .boolean()
           .optional()
           .describe('Remove the keys the schema does not declare.'),
+        env,
       },
       annotations: {
         readOnlyHint: false,
@@ -430,13 +515,16 @@ export function createMcpServer(options: McpOptions): McpServer {
     },
     async (input) =>
       resultOf(
-        await run([
-          'apply',
-          ...globals(options, input.file),
-          ...(input.generate ?? []).map((name) => `--generate=${name}`),
-          ...(input.defer ?? []).map((name) => `--defer=${name}`),
-          ...(input.prune ? ['--prune'] : []),
-        ]),
+        await run(
+          [
+            'apply',
+            ...globals(options, input.file, input.env),
+            ...(input.generate ?? []).map((name) => `--generate=${name}`),
+            ...(input.defer ?? []).map((name) => `--defer=${name}`),
+            ...(input.prune ? ['--prune'] : []),
+          ],
+          input.env,
+        ),
       ),
   );
 
@@ -451,17 +539,21 @@ export function createMcpServer(options: McpOptions): McpServer {
           .boolean()
           .optional()
           .describe('Report unknown keys as errors in the check after.'),
+        env,
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async (input) =>
       resultOf(
-        await run([
-          'check',
-          ...globals(options),
-          '--fix',
-          ...(input.strict ? ['--strict'] : []),
-        ]),
+        await run(
+          [
+            'check',
+            ...globals(options, undefined, input.env),
+            '--fix',
+            ...(input.strict ? ['--strict'] : []),
+          ],
+          input.env,
+        ),
       ),
   );
 
@@ -476,96 +568,136 @@ export function createMcpServer(options: McpOptions): McpServer {
           .record(z.string(), z.unknown())
           .describe('The whole schema document, as JSON.'),
         fingerprint: z.string().describe('The fingerprint get_schema gave.'),
+        env,
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async (input) => {
-      const context = await contextFor(options);
-      const unmasked = await unmaskedKeys(
-        context,
-        input.fingerprint,
-        input.document,
+      const target = await openServer(
+        ioFor(options),
+        valuesFor(options, input.env),
       );
-      if (unmasked.length)
+      const path = target.context?.schemaPath ?? target.title;
+      // The server refuses a document that would unmask a value
+      // (keepSecretsMasked), and records the change as the CLI's: the
+      // client is the CLI, as for every other tool's writes.
+      const response = await request(target, (connection) =>
+        send(connection, () =>
+          replaceSchema(
+            {
+              fingerprint: input.fingerprint,
+              document: input.document,
+              keepSecretsMasked: true,
+            },
+            connection.init(),
+          ),
+        ),
+      );
+      const refused = (kind: string, message: string, errors: unknown) =>
+        textResult(JSON.stringify({ ok: false, kind, message, errors }), true);
+      const { data, status } = response as { data: unknown; status: number };
+      if (status === 200) {
+        const written = data as { fingerprint: string; warnings?: string[] };
+        return textResult(
+          JSON.stringify({
+            ok: true,
+            written: written.fingerprint !== input.fingerprint,
+            fingerprint: written.fingerprint,
+            ...(written.warnings?.length ? { warnings: written.warnings } : {}),
+          }),
+        );
+      }
+      if (status === 403) {
+        const { keys = [] } = data as { keys?: string[] };
         return textResult(
           JSON.stringify({
             ok: false,
             kind: 'secret',
-            message: `the edit would unmask ${unmasked.join(', ')}. A secret variable must keep \`"secret": true\` and stay in the schema, and a key an env file already holds a value for must be declared with \`"secret": true\`, also when the edit adds that file; ask the user to make this change themselves. Nothing was written.`,
+            message: `the edit would unmask ${keys.join(', ')}. A secret variable must keep \`"secret": true\` and stay in the schema, and a key an env file already holds a value for must be declared with \`"secret": true\`, also when the edit adds that file; ask the user to make this change themselves. Nothing was written.`,
           }),
           true,
         );
-      const result = await writeSchemaFile(
-        context.schemaPath,
-        input.document as SchemaDocument,
-        { fingerprint: input.fingerprint },
-      );
-      if (!result.ok)
-        return textResult(
-          JSON.stringify({
-            ok: false,
-            kind: result.kind,
-            message:
-              result.kind === 'stale'
-                ? 'the schema changed since it was read; call get_schema and make the edit again'
-                : 'the edit was refused; nothing was written',
-            errors: result.errors,
-          }),
-          true,
+      }
+      if (status === 409)
+        return refused(
+          'stale',
+          'the schema changed since it was read; call get_schema and make the edit again',
+          [
+            {
+              path: '(root)',
+              message: `${path} changed since it was read; reload it and make the edit again`,
+            },
+          ],
         );
-      // The history's actors are `cli` and `portal`, a constraint of the
-      // state database: the server runs the CLI's commands, so its schema
-      // edits are recorded as the CLI's too, as every other tool's writes.
-      const history = await recordHistory(
-        context.statePath,
-        'cli',
-        result.written
-          ? schemaChanges(
-              relative(context.root, context.schemaPath),
-              result.previous,
-              result.file.text,
-            )
-          : [],
-      );
-      return textResult(
-        JSON.stringify({
-          ok: true,
-          written: result.written,
-          fingerprint: result.file.fingerprint,
-          ...(history.warnings.length ? { warnings: history.warnings } : {}),
-        }),
-      );
+      if (status === 422)
+        return refused(
+          'invalid',
+          'the edit was refused; nothing was written',
+          (data as { errors?: SchemaError[] }).errors ?? [],
+        );
+      return refused('io', 'the edit was refused; nothing was written', [
+        { path: '(root)', message: answerMessage(response) },
+      ]);
     },
   );
 
   return server;
 }
 
-/** The context the commands resolve from the server's global options. */
-function contextFor(options: McpOptions): Promise<Context> {
-  return contextOf(
-    {
-      stdout: () => undefined,
-      stderr: () => undefined,
-      env: options.env,
-      isTTY: false,
-      cwd: options.cwd,
-      prompts: NO_PROMPTS,
-    },
-    {
-      ...(options.root === undefined ? {} : { root: options.root }),
-      ...(options.schema === undefined ? {} : { schema: options.schema }),
-      ...(options.state === undefined ? {} : { state: options.state }),
-    },
+/** The io the server's own reads run with: no terminal, no prompts. */
+const ioFor = (options: McpOptions): Io => ({
+  stdout: () => undefined,
+  stderr: () => undefined,
+  env: options.env,
+  isTTY: false,
+  cwd: options.cwd,
+  prompts: NO_PROMPTS,
+});
+
+/** Runs requests on the server `target` names, closing it after. */
+async function request<T>(
+  target: ServerRun | ProjectRun,
+  requests: (connection: Connection) => Promise<T>,
+): Promise<T> {
+  const connection = await target.connect();
+  try {
+    return await requests(connection);
+  } finally {
+    await connection.close();
+  }
+}
+
+/**
+ * The project a tool works on, its schema read (see openProject); for
+ * `local`, its paths too, where the secret values masked are read.
+ */
+async function projectFor(
+  options: McpOptions,
+  env: string | undefined,
+): Promise<{ project: ProjectRun; context?: Context }> {
+  const io = ioFor(options);
+  const values = valuesFor(options, env);
+  const project = await openProject(io, values);
+  if (project.remote) return { project };
+  return { project, context: await contextOf(io, { ...values, env: LOCAL }) };
+}
+
+/** Whether the schema file at `path` exists, as the project's server sees it. */
+async function fileExists(project: ProjectRun, path: string): Promise<boolean> {
+  const files = await request(project, (connection) =>
+    send(connection, () => getFiles(connection.init())),
   );
+  if (files.status !== 200) throw new CliError(1, [answerMessage(files)]);
+  return files.data.files.some((file) => file.path === path && file.exists);
 }
 
 /** The variables among `keys` the schema marks secret. */
 async function secretKeys(
   options: McpOptions,
+  env: string | undefined,
   keys: readonly string[],
 ): Promise<string[]> {
-  const schema = await loadContextSchema(await contextFor(options));
+  const { schema } = (await projectFor(options, env)).project;
   return keys.filter((name) => isSecret(schema, name));
 }
 
@@ -586,57 +718,6 @@ const quote = (word: string) =>
   /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 
 const MASK = '••••';
-
-/**
- * The keys the schema at `fingerprint` keeps hidden that `document` would
- * show an agent: a secret variable removed or no longer `secret: true`, or
- * a key a schema file (of either schema) already holds a value for, newly
- * declared without `secret: true` or held in a file the schema newly lists. A schema changed since the fingerprint,
- * or an invalid document, answers none; the write then refuses it.
- */
-async function unmaskedKeys(
-  context: Context,
-  fingerprint: string,
-  document: Record<string, unknown>,
-): Promise<string[]> {
-  const text = await readFile(context.schemaPath, 'utf8').catch(
-    () => undefined,
-  );
-  if (text === undefined || schemaFingerprint(text) !== fingerprint) return [];
-  const next = validateDocument(document as SchemaDocument);
-  if (!next.ok) return [];
-  // An invalid current schema hides everything: it masks nothing it can read.
-  const parsed = parseSchemaText(text);
-  const current: EnvSchema = parsed.ok
-    ? parsed.schema
-    : { ...next.schema, variables: {}, files: [] };
-  const unmasked = new Set(
-    Object.keys(current.variables).filter(
-      (name) => isSecret(current, name) && !isSecret(next.schema, name),
-    ),
-  );
-  // A file the current schema does not list is never read, so every value
-  // it holds is hidden until now.
-  const read = new Set(current.files.map((file) => file.path));
-  const paths = new Set(
-    [...current.files, ...next.schema.files].map((file) => file.path),
-  );
-  for (const path of paths) {
-    const held = await readFile(resolve(context.root, path), 'utf8').catch(
-      () => undefined,
-    );
-    if (held === undefined) continue;
-    const doc = parseDotenv(held);
-    for (const name of keysOf(doc))
-      if (
-        getValue(doc, name) &&
-        (!read.has(path) || isHidden(current, name)) &&
-        !isHidden(next.schema, name)
-      )
-        unmasked.add(name);
-  }
-  return [...unmasked].sort();
-}
 
 /**
  * The values the schema files hold for the secret variables, whether or
@@ -736,12 +817,14 @@ function maskText(text: string, values: readonly SecretValue[]): string {
  */
 async function maskSecrets(
   options: McpOptions,
+  env: string | undefined,
   run: CommandRun,
 ): Promise<CommandRun> {
-  let context: Context, schema: EnvSchema;
+  let context: Context | undefined, schema: EnvSchema;
   try {
-    context = await contextFor(options);
-    schema = await loadContextSchema(context);
+    const found = await projectFor(options, env);
+    ({ context } = found);
+    schema = found.project.schema;
   } catch {
     return {
       ...run,
@@ -755,7 +838,9 @@ async function maskSecrets(
     };
   }
   const hidden = (name: string) => isHidden(schema, name);
-  const values = await secretValues(context, schema);
+  // Another environment's server masks its secrets itself: their values
+  // are never read here.
+  const values = context ? await secretValues(context, schema) : [];
   const scrub = (line: string) => {
     let parsed: unknown;
     try {

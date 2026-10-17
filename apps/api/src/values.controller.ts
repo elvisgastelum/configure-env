@@ -4,6 +4,7 @@
 import {
   Body,
   Controller,
+  Headers,
   HttpCode,
   Inject,
   Post,
@@ -14,22 +15,28 @@ import {
   ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiResponse,
   ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import type { z } from 'zod';
 import {
+  confirmReplacementsResponse,
   editRefusedResponse,
   errorResponse,
   setValuesRequest,
   staleFileResponse,
+  stateUnavailableResponse,
   unsetValuesRequest,
   valuesResponse,
 } from './contracts.ts';
 import { PROJECT, Read, ref, requireSchema } from './http.ts';
 import type { Project } from './project.ts';
-import { setFileValues, unsetFileValues } from './values.ts';
+import { actorOf, setFileValues, unsetFileValues } from './values.ts';
+
+/** The header naming the client of a request, as Express lowercases it. */
+const CLIENT = 'x-configure-env-client';
 
 /** The answers every value write may give besides its 200. */
 const ValueWrite = () =>
@@ -52,10 +59,16 @@ const ValueWrite = () =>
         'Values that break their rules, or protected values the edit may not change; nothing was written. Also an invalid schema.',
       schema: ref(editRefusedResponse),
     }),
+    ApiResponse({
+      status: 428,
+      description:
+        'With confirmReplacements: the protected values the edit would replace, to confirm; nothing was written.',
+      schema: ref(confirmReplacementsResponse),
+    }),
     ApiServiceUnavailableResponse({
       description:
         'The protected state cannot be read or used; nothing was written.',
-      schema: ref(errorResponse),
+      schema: ref(stateUnavailableResponse),
     }),
   );
 
@@ -76,8 +89,14 @@ export class ValuesController {
   async set(
     @Body({ schema: setValuesRequest })
     body: z.output<typeof setValuesRequest>,
+    @Headers(CLIENT) client?: string,
   ) {
-    return setFileValues(await requireSchema(this.project), this.project, body);
+    return setFileValues(
+      await requireSchema(this.project),
+      this.project,
+      body,
+      actorOf(client),
+    );
   }
 
   @Post('unset')
@@ -92,11 +111,13 @@ export class ValuesController {
   async unset(
     @Body({ schema: unsetValuesRequest })
     body: z.output<typeof unsetValuesRequest>,
+    @Headers(CLIENT) client?: string,
   ) {
     return unsetFileValues(
       await requireSchema(this.project),
       this.project,
       body,
+      actorOf(client),
     );
   }
 }

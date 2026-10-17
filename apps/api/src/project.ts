@@ -28,9 +28,9 @@ export interface Project {
    * root and the given path no longer share a prefix.
    */
   stateInRoot?: string;
-  /** What paths in the messages of an apply are relative to; the root when absent. */
+  /** What a value write's messages show paths relative to; the root when absent. */
   cwd?: string;
-  /** Writes the protected state; the CLI's tests pass one that fails. */
+  /** Writes the protected variables' state, for the CLI's tests. */
   writeState?: StateWriter;
 }
 
@@ -62,7 +62,12 @@ export async function resolveProject(
   return {
     root: real,
     schemaFile,
-    schemaPath: relative(real, schemaFile).split('\\').join('/'),
+    // A schema read anywhere is named from the root as it was given, as
+    // the CLI names it: through a symlinked root, the real one shares no
+    // prefix with it.
+    schemaPath: relative(schemaAnywhere ? resolve(root) : real, schemaFile)
+      .split('\\')
+      .join('/'),
     statePath: state ?? resolve(real, DEFAULT_STATE_PATH),
     ...(state ? { stateInRoot: relative(resolve(root), state) } : {}),
   };
@@ -76,6 +81,8 @@ export interface SchemaRead {
   errors: SchemaError[];
   /** Identifies the bytes read; absent when the file cannot be read. */
   fingerprint?: string;
+  /** The bytes read, as text; absent when the file cannot be read. */
+  text?: string;
 }
 
 /** Reads the schema afresh: the files may change while the server runs. */
@@ -104,6 +111,6 @@ export async function readSchema(project: Project): Promise<SchemaRead> {
   }
   const fingerprint = schemaFingerprint(text);
   return result.ok
-    ? { document, schema: result.schema, errors: [], fingerprint }
-    : { document, errors: result.errors, fingerprint };
+    ? { document, schema: result.schema, errors: [], fingerprint, text }
+    : { document, errors: result.errors, fingerprint, text };
 }

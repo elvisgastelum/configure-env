@@ -14,6 +14,11 @@ const ENTRY = fileURLToPath(new URL('../cli.ts', import.meta.url));
 /** Each test spawns a process: allow far more than the default 5 s. */
 const TIMEOUT = 10_000;
 const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+// set runs the API in-process, whose Nest decorators are TypeScript's
+// legacy ones: tsx reads them from the API's tsconfig, as `pnpm start` does.
+const TSCONFIG = fileURLToPath(
+  new URL('../../../../apps/api/tsconfig.json', import.meta.url),
+);
 
 const dirs = useProject({
   version: 1,
@@ -28,7 +33,10 @@ const dirs = useProject({
 function cli(args: string[], input: string, { keepOpen = false } = {}) {
   // INIT_CWD would point a pnpm-run test at the checkout; CI changes nothing
   // for set, but leave the child's environment to what this test chooses.
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSX_TSCONFIG_PATH: TSCONFIG,
+  };
   delete env.INIT_CWD;
   const child = spawn(process.execPath, ['--import', TSX, ENTRY, ...args], {
     cwd: dirs.root,
