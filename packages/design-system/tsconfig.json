@@ -4,7 +4,7 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["vite/client", "node"],
+    "types": ["vite-plus/client", "node"],
     "jsx": "react-jsx",
     "noEmit": true
   },

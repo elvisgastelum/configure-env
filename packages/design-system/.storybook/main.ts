@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import type { StorybookConfig } from '@storybook/react-vite';
-import { mergeConfig } from 'vite';
+import { mergeConfig } from 'vite-plus';
 
 /*
  * The design system's own Storybook: Foundations docs, components and

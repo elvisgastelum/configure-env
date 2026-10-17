@@ -11,7 +11,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite-plus';
 
 const api = process.env.CONFIGURE_ENV_API ?? 'http://127.0.0.1:4310';
 

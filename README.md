@@ -697,7 +697,7 @@ The types (`EnvSchema`, `Plan`, `FilePlan`, `DriftReport`, `DotenvDocument` and 
 
 ## Development
 
-Requirements: Node.js 22 or later (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
+Requirements: Node.js 22.18 or later, or 24.11 or later on Node 24, as Vite+ needs (see `.node-version`) and pnpm 12 (pinned in `package.json` through `packageManager`; `corepack enable` provides it).
 
 The repo is a pnpm workspace: the published package lives in `packages/cli`, the engine it is built on (schema, values, dotenv, plan, apply, check, the protected state, the per-key edits behind `set` and `unset`, and the schema writer) in the private `packages/core` (`@configure-env/core`), and the root holds the shared tooling (ESLint, Prettier, TypeScript base config, Changesets). Run the scripts below from the root; they delegate to the workspace packages.
 
@@ -775,6 +775,8 @@ Every change the portal makes goes through these write endpoints, which reuse th
 
 `packages/api-client` (`@configure-env/api-client`) is the typed client the portal uses: fetch functions and React Query hooks that orval generates from the API's OpenAPI document. `pnpm gen:api` regenerates `packages/api-client/openapi.json` and `src/generated/`; commit the result.
 
+Vite and Vitest come from [Vite+](https://viteplus.dev): packages depend on `vite-plus`, run `vp dev`, `vp build` and `vp test`, and import from `vite-plus` and `vite-plus/test`. `pnpm-workspace.yaml` pins its version in the `catalog` and points `vite` and `vitest` at the copies it bundles, so Storybook and the Vite plugins use the same ones.
+
 | Script                 | What it does                                                         |
 | ---------------------- | -------------------------------------------------------------------- |
 | `pnpm dev`             | run the CLI from source with tsx                                     |
@@ -783,7 +785,7 @@ Every change the portal makes goes through these write endpoints, which reuse th
 | `pnpm format`          | format with Prettier                                                 |
 | `pnpm format:check`    | check the formatting without changing files                          |
 | `pnpm typecheck`       | type-check with `tsc`                                                |
-| `pnpm test`            | run the tests with Vitest                                            |
+| `pnpm test`            | run the tests with Vitest, through Vite+ (`vp test`)                 |
 | `pnpm schema:generate` | regenerate `packages/cli/schema/env.schema.v1.json`                  |
 | `pnpm schema:check`    | fail when the committed JSON Schema is stale                         |
 | `pnpm gen:api`         | regenerate the OpenAPI document and the API client in `packages/api-client/` |

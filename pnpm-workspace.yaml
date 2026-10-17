@@ -18,3 +18,32 @@ allowBuilds:
   # msw's postinstall only refreshes a mockServiceWorker.js listed in a
   # package.json; the portal commits its worker (apps/web/.storybook/public).
   msw: false
+
+# Vite+ (https://viteplus.dev) bundles Vite and Vitest; packages depend on
+# `vite-plus` and import from `vite-plus` / `vite-plus/test*`. `vite` and
+# `vitest` stay as aliases to the bundled copies so Storybook and the Vite
+# plugins (React, Tailwind, the router), which peer-depend on them, resolve
+# the same Vite and Vitest that `vp` runs. Bump these together with vite-plus
+# (`npm view vite-plus@<version> dependencies`).
+catalog:
+  vite-plus: 1.2.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.2.0
+  vitest: 5.0.4
+  # A required peer of vite-plus, at its bundled Vitest's version. The design
+  # system lists it, and `vitest`, for its Storybook browser tests
+  # (@storybook/addon-vitest).
+  '@vitest/browser-playwright': 5.0.4
+
+overrides:
+  vite@*: 'catalog:'
+  vitest@*: 'catalog:'
+
+# The aliased `vite` reports Vite+'s own version, which plugins' `vite`
+# peer ranges do not name.
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  # Storybook 10.6's optional `vite-plus` peer predates Vite+ 1.0.
+  allowedVersions:
+    storybook>vite-plus: '1'

@@ -58,7 +58,7 @@
     "dev": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vp test run",
     "schema:generate": "tsx scripts/generate-json-schema.ts",
     "schema:check": "tsx scripts/generate-json-schema.ts --check",
     "build": "node scripts/pack-docs.mjs remove && tsdown --config-loader native && node scripts/copy-migrations.mjs && node scripts/copy-web.mjs",
@@ -90,6 +90,7 @@
     "tsdown": "0.23.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.3"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   }
 }
