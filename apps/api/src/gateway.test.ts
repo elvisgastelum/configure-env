@@ -26,6 +26,7 @@ import {
 
 const DEV_TOKEN = 'dev-token-abcdefghijklmnopqrstuvwxyz0123';
 const ECHO_TOKEN = 'echo-token-abcdefghijklmnopqrstuvwxyz012';
+const BAD_TOKEN = 'bad-token-abcdefghijklmnop\nqrstuvwxyz0123';
 const COOKIE = (port: number) =>
   `configure_env_token_${port}=${encodeURIComponent(TOKEN)}`;
 
@@ -92,6 +93,8 @@ beforeAll(async () => {
     dev: { url: dev.url, token: DEV_TOKEN },
     echo: { url: `${echoUrl}/prefix`, token: ECHO_TOKEN },
     down: { url: `http://127.0.0.1:${downPort}`, token: ECHO_TOKEN },
+    // A token no header can hold: http.request refuses it outright.
+    bad: { url: echoUrl, token: BAD_TOKEN },
   };
   local = await createServer({
     root: localRoot,
@@ -117,7 +120,7 @@ const reset = () => {
 };
 
 /** Every token a response must never hold. */
-const SECRETS = [TOKEN, DEV_TOKEN, ECHO_TOKEN];
+const SECRETS = [TOKEN, DEV_TOKEN, ECHO_TOKEN, ...BAD_TOKEN.split('\n')];
 const leaks = (response: request.Response) => {
   const text = `${JSON.stringify(response.headers)}\n${response.text}`;
   return SECRETS.filter((secret) => text.includes(secret));
@@ -137,7 +140,13 @@ describe('GET /api/environments', () => {
         }
       ).environments.map((environment) => [environment.name, environment]),
     );
-    expect(Object.keys(byName)).toEqual(['local', 'dev', 'echo', 'down']);
+    expect(Object.keys(byName)).toEqual([
+      'local',
+      'dev',
+      'echo',
+      'down',
+      'bad',
+    ]);
     expect(byName.local).toMatchObject({
       name: 'local',
       local: true,
@@ -157,6 +166,13 @@ describe('GET /api/environments', () => {
       reachable: false,
     });
     expect(byName.down!.message).toMatch(/ECONNREFUSED/);
+    // A token no header can hold makes that one unreachable, not the list.
+    expect(byName.bad).toMatchObject({
+      name: 'bad',
+      local: false,
+      reachable: false,
+    });
+    expect(byName.echo).toMatchObject({ name: 'echo', reachable: true });
     for (const environment of Object.values(byName))
       expect(Object.keys(environment)).not.toContain('token');
   });
@@ -374,12 +390,61 @@ describe('/env/<name>/api/*', () => {
 
   it('never forwards open-in-editor: it opens files on this machine', async () => {
     reset();
-    const response = await request(local.url)
-      .post('/env/echo/api/open-in-editor')
-      .set('Authorization', `Bearer ${TOKEN}`)
-      .send({ file: '.env' });
-    expect(response.status).toBe(403);
+    for (const segment of [
+      'open-in-editor',
+      'Open-In-Editor',
+      'OPEN-IN-EDITOR',
+      '%6Fpen-in-editor',
+      '%4Fpen-in-%45ditor',
+    ]) {
+      const response = await request(local.url)
+        .post(`/env/echo/api/${segment}`)
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ file: '.env' });
+      expect(response.status, segment).toBe(403);
+    }
     expect(received).toEqual([]);
+  });
+
+  it('answers 404 for a path segment that does not decode', async () => {
+    reset();
+    const response = await request(local.url)
+      .post('/env/echo/api/%E0%A4%A')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+    expect(response.status).toBe(404);
+    expect(received).toEqual([]);
+  });
+
+  it('answers 502 naming an environment whose token no header can hold, without the token', async () => {
+    reset();
+    const response = await request(local.url)
+      .get('/env/bad/api/project')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(response.status).toBe(502);
+    expect(response.body.message).toMatch(/environment bad/);
+    expect(leaks(response)).toEqual([]);
+    expect(received).toEqual([]);
+  });
+
+  it('frames every forwarded answer with a CSP that runs and embeds nothing', async () => {
+    reset();
+    echoAnswer = { status: 200, headers: { 'Content-Type': 'text/html' } };
+    const html = await request(local.url)
+      .get('/env/echo/api/project')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(html.headers['content-security-policy']).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    reset();
+    echoAnswer = { status: 404, headers: {} };
+    const missing = await request(local.url)
+      .get('/env/echo/api/nothing')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers['content-security-policy']).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
   });
 
   it('answers 502 naming an environment it cannot reach, without its token, logging nothing', async () => {

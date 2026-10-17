@@ -66,6 +66,9 @@ const REQUEST_HEADERS = [
   'user-agent',
 ];
 
+/** The policy every forwarded answer carries. */
+const FORWARDED_CSP = "default-src 'none'; frame-ancestors 'none'";
+
 /** The other server's headers the browser gets. */
 const RESPONSE_HEADERS = [
   'content-type',
@@ -214,7 +217,9 @@ const failure = (error: unknown) =>
  * Sends a request to the environment: its token as the bearer, the given
  * headers, and `body` piped in when there is one. Resolves with the
  * response once its headers arrive; rejects with a 502 naming the
- * environment otherwise.
+ * environment otherwise. A request Node refuses outright, such as a token
+ * no header can hold, throws that 502 at once (naming the error's code
+ * only: its message may quote the header).
  */
 function upstream(
   name: string,
@@ -229,19 +234,29 @@ function upstream(
 ): { response: Promise<IncomingMessage>; abort: () => void } {
   const base = environmentUrl(name, environment);
   const send = base.protocol === 'https:' ? httpsRequest : httpRequest;
-  const outgoing = send({
-    protocol: base.protocol,
-    hostname: base.hostname.replace(/^\[(.*)\]$/, '$1'),
-    port: base.port || undefined,
-    method: init.method,
-    path: `${base.pathname.replace(/\/+$/, '')}${path}`,
-    headers: {
-      ...init.headers,
-      authorization: `Bearer ${environment.token}`,
-      'x-configure-env-client': GATEWAY_CLIENT,
-    },
-    timeout: init.timeoutMs,
-  });
+  const unusable = (error: unknown) =>
+    new GatewayError(
+      502,
+      `environment ${name} at ${shownUrl(base)} cannot be sent a request: ${(error as NodeJS.ErrnoException).code ?? 'invalid request'}`,
+    );
+  let outgoing: ReturnType<typeof send>;
+  try {
+    outgoing = send({
+      protocol: base.protocol,
+      hostname: base.hostname.replace(/^\[(.*)\]$/, '$1'),
+      port: base.port || undefined,
+      method: init.method,
+      path: `${base.pathname.replace(/\/+$/, '')}${path}`,
+      headers: {
+        ...init.headers,
+        authorization: `Bearer ${environment.token}`,
+        'x-configure-env-client': GATEWAY_CLIENT,
+      },
+      timeout: init.timeoutMs,
+    });
+  } catch (error) {
+    throw unusable(error);
+  }
   const response = new Promise<IncomingMessage>((resolve, reject) => {
     const unreachable = (reason: string) =>
       reject(
@@ -304,7 +319,8 @@ async function forward(
     read,
     path.slice(0, slash),
   );
-  if (segments[1] === 'open-in-editor')
+  // Routes match without regard to case, and a segment may be escaped.
+  if (decodeURIComponent(segments[1]!).toLowerCase() === 'open-in-editor')
     throw new GatewayError(
       403,
       `open-in-editor opens files on the machine of the portal; environment ${name} is another server`,
@@ -330,10 +346,11 @@ async function forward(
       `environment ${name} refused its token: run configure-env env remove ${name}, then env add it with the right one`,
     );
   }
-  res.writeHead(
-    incoming.statusCode ?? 502,
-    pick(incoming.headers, RESPONSE_HEADERS),
-  );
+  res.writeHead(incoming.statusCode ?? 502, {
+    ...pick(incoming.headers, RESPONSE_HEADERS),
+    // Whatever type it claims, nothing in it runs, loads or is framed.
+    'content-security-policy': FORWARDED_CSP,
+  });
   // An event stream goes out as it comes.
   res.flushHeaders();
   incoming.on('error', () => res.destroy());
@@ -368,13 +385,14 @@ async function probe(
     };
   }
   const status = { name, url, local: false };
-  const sent = upstream(name, environment, '/api/project', {
-    method: 'GET',
-    headers: { accept: 'application/json' },
-    timeoutMs: PROBE_TIMEOUT_MS,
-  });
-  const timer = setTimeout(sent.abort, PROBE_TIMEOUT_MS);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    const sent = upstream(name, environment, '/api/project', {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    timer = setTimeout(sent.abort, PROBE_TIMEOUT_MS);
     const incoming = await sent.response;
     let text = '';
     incoming.setEncoding('utf8');
@@ -396,7 +414,10 @@ async function probe(
   } catch (error) {
     const message =
       error instanceof GatewayError
-        ? error.message.replace(/^.* is unreachable: /, '')
+        ? error.message.replace(
+            /^.* (is unreachable|cannot be sent a request): /,
+            '',
+          )
         : 'did not answer as a configure-env server';
     return { ...status, reachable: false, message };
   } finally {
