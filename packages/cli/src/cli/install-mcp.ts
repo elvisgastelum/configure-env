@@ -414,16 +414,63 @@ export async function installMcp(
 
   const servers: InstalledServer[] = [];
   const lines: string[] = [];
+  /** What each written file held before, to put back on a failure. */
+  const written: {
+    path: string;
+    file: string;
+    previous?: string;
+    text: string;
+  }[] = [];
+  const document = (ok: boolean) => ({
+    command: 'install',
+    subject: 'mcp',
+    ok,
+    server: SERVER_NAME,
+    servers: servers.map((server) => ({
+      ...server,
+      path: displayPath(io.cwd, server.path),
+    })),
+  });
+
   for (const { agent, target, launch, plan, file, current } of planned) {
     if ('text' in plan) {
       try {
         await writeAtomically(file, plan.text, current);
+        written.push({
+          path: target.path,
+          file,
+          text: plan.text,
+          ...(current === undefined ? {} : { previous: current }),
+        });
       } catch (error) {
-        lines.forEach((line) => io.stdout(line));
-        throw new CliError(1, [
+        const failure =
           error instanceof Changed
             ? `${show(target.path)} changed while install mcp ran; run it again`
-            : `cannot write ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
+            : `cannot write ${show(target.path)}: ${(error as NodeJS.ErrnoException).code ?? String(error)}`;
+        const kept = await restore(written);
+        servers.length = 0;
+        const stays = kept.map(
+          (path) => `${show(path)} could not be put back and keeps the server`,
+        );
+        if (context.json) {
+          io.stdout(
+            JSON.stringify({
+              ...document(false),
+              errors: [failure, ...stays].map((message) => ({
+                kind: 'file',
+                path: displayPath(io.cwd, target.path),
+                message,
+              })),
+            }),
+          );
+          return 1;
+        }
+        throw new CliError(1, [
+          failure,
+          ...(written.length > kept.length
+            ? ['the configurations written before it were put back']
+            : []),
+          ...stays,
         ]);
       }
     }
@@ -439,23 +486,37 @@ export async function installMcp(
     lines.push(`${status.padEnd(10)} ${show(target.path)} (${agent})`);
   }
 
-  if (context.json)
-    io.stdout(
-      JSON.stringify({
-        command: 'install',
-        subject: 'mcp',
-        ok: true,
-        server: SERVER_NAME,
-        servers: servers.map((server) => ({
-          ...server,
-          path: displayPath(io.cwd, server.path),
-        })),
-      }),
-    );
+  if (context.json) io.stdout(JSON.stringify(document(true)));
   else if (interactive)
     prompts.outro(
       `${lines.join('\n')}\nRestart the agent, or reload its MCP servers, to start it.`,
     );
   else lines.forEach((line) => io.stdout(line));
   return 0;
+}
+
+/**
+ * Puts each written configuration back as it was, newest first: its old
+ * text, or no file when the run created it. Answers the paths it could not
+ * put back; one changed since the run wrote it is left alone.
+ */
+async function restore(
+  written: readonly {
+    path: string;
+    file: string;
+    previous?: string;
+    text: string;
+  }[],
+): Promise<string[]> {
+  const kept: string[] = [];
+  for (const { path, file, previous, text } of [...written].reverse()) {
+    try {
+      if ((await readText(file)) !== text) throw new Changed();
+      if (previous === undefined) await rm(file);
+      else await writeAtomically(file, previous, text);
+    } catch {
+      kept.push(path);
+    }
+  }
+  return kept;
 }

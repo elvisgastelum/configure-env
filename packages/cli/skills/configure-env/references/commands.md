@@ -86,7 +86,7 @@ Errors never hold a value. Error `kind`: `value` (a value breaks its rules or a 
 - `history`: `{ command, ok, total, changes: [{ id, at, actor, file, key, operation, before, after, restorable, undoBlocker?, undoOf }] }`; `before`/`after` are previews (a secret's `••••`), `total` counts every change recorded.
 - `serve`: one line once it listens, `{ command, url, port, pid }`; `url` is the launch URL with the token.
 - `get`: `{ key, set, value | masked }`; `{ key, set: false }` (exit 1) when unset.
-- `install mcp`: `{ command, subject: "mcp", ok, server, servers: [{ agent, scope, path, status, command, args }] }`.
+- `install mcp`: `{ command, subject: "mcp", ok, server, servers: [{ agent, scope, path, status, command, args }] }`. A failed write puts back what the run wrote and prints `ok: false`, `servers: []` and `errors: [{ kind: "file", path, message }]` (exit 1).
 - `install`: `{ command, ok, source, skills: [{ agent, scope, mode, path, status, replaced, exclude?: { file, entry, status } }] }`; `path`, `source` and `exclude.file` are absolute; `exclude` only with `--scope local`, its `status` `added` or `present`. A run that fails part-way prints `ok: false`, `skills` holding only those installed before the failure (they stay), and `errors: [{ kind: "file", path, message }]` (exit 1); a failed `exclude` write leaves that skill without `exclude`. `warnings: [string]` (only when non-empty) names a previous skill `--force` swapped out but could not remove: delete it.
 
 Other usage errors (no schema, an unknown option) go to stderr only.

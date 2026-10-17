@@ -333,6 +333,51 @@ describe('install mcp', () => {
     expect(await readFile(path, 'utf8')).toBe('{"theirs":true}');
   });
 
+  it('puts the configurations it wrote back when a later one fails', async () => {
+    const claude = join(dirs.root, '.mcp.json');
+    await writeFile(claude, '{"mine":1}');
+    hooks.afterTemp = async (temp) => {
+      if (temp.includes('.cursor')) throw new Error('disk full');
+    };
+    const result = await install([
+      '--ci',
+      '--agent',
+      'claude',
+      '--agent',
+      'cursor',
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.err.join('\n')).toMatch(/cannot write \.cursor\/mcp\.json/);
+    expect(result.err.join('\n')).toMatch(/were put back/);
+    expect(await readFile(claude, 'utf8')).toBe('{"mine":1}');
+    await expect(stat(join(dirs.root, '.cursor/mcp.json'))).rejects.toThrow();
+  });
+
+  it('prints ok: false with --json when a write fails', async () => {
+    hooks.afterTemp = async (temp) => {
+      if (temp.includes('.cursor')) throw new Error('disk full');
+    };
+    const result = await install([
+      '--json',
+      '--agent',
+      'claude',
+      '--agent',
+      'cursor',
+    ]);
+    expect(result.code).toBe(1);
+    const document = JSON.parse(result.out[0]!) as {
+      ok: boolean;
+      servers: unknown[];
+      errors: { kind: string; path: string; message: string }[];
+    };
+    expect(document).toMatchObject({ ok: false, servers: [] });
+    expect(document.errors[0]).toMatchObject({
+      kind: 'file',
+      path: '.cursor/mcp.json',
+    });
+    await expect(stat(join(dirs.root, '.mcp.json'))).rejects.toThrow();
+  });
+
   it('prints one JSON document with --json', async () => {
     const result = await install(['--json', '--agent', 'cursor']);
     expect(result.code).toBe(0);
