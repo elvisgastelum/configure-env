@@ -29,6 +29,7 @@
     "gen:api:check": "vp run @configure-env/api-client#gen:api:check",
     "smoke": "pnpm --filter @elvisgastelum/configure-env smoke",
     "link:local": "pnpm --filter @elvisgastelum/configure-env link:local",
+    "relink:local": "vp run -r --no-cache build && pnpm --filter @elvisgastelum/configure-env exec npm link",
     "unlink:local": "pnpm --filter @elvisgastelum/configure-env unlink:local",
     "changeset": "changeset",
     "release": "changeset publish"
