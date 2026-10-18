@@ -320,7 +320,7 @@ Run it with `npx @elvisgastelum/configure-env <command>`, or as `configure-env <
 | `--root <dir>`    | the project root; default where the command was typed (`INIT_CWD`, else cwd)  |
 | `--state <path>`  | the protected variables' state, relative to the root; default `.configure-env/state.db`   |
 | `--file <path>`   | only this schema file; repeat it for more (`set`, `get` and `unset` take one) |
-| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against another one; every other command exits 2 for it |
+| `--env <name>`    | the environment to run against: `local` (this project, the default) or one `env add` stored; `CONFIGURE_ENV_ENV` when absent. `apply`, `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against another one; every other command exits 2 for it |
 | `--ci`            | never prompt; also when the `CI` environment variable is set (not `false`/`0`) |
 | `--json`          | print one JSON document on stdout, logs on stderr; implies no prompts         |
 | `--no-color`      | plain output; `NO_COLOR` is honoured too                                      |
@@ -359,9 +359,12 @@ A file whose content is current but whose mode differs from the schema's `mode` 
 deferred: API_TOKEN (set it with configure-env set --file .env --prompt API_TOKEN)
 ```
 
+`apply` runs through the configure-env API, as `check` does: `POST /api/plan` plans the run, writing nothing, and `POST /api/apply` writes that plan, named by its fingerprint, so a file that changed in between is not written over (exit 1, nothing written). The values come from this side: `--set`, the environment and the prompts, sent with the plan; a `--generate` value is made on the server and never leaves it (the terminal plan shows it masked). The server holds it for 15 minutes: confirming the plan later exits 1 with `the generated values for this plan expired; run apply again`, writing nothing. The run goes through the project's running `serve` when there is one, else a server of its own on 127.0.0.1 for the run only. `apply --env <name>` plans and applies a stored environment's project on its server instead, writing only that server's files (see "env"); values taken from local environment variables are sent to that server. Its history of edits names the CLI.
+
 ```sh
 configure-env apply
 configure-env apply --ci --set WEB_PORT=9090
+configure-env apply --env staging --ci --generate SESSION_SECRET
 configure-env apply --ci --generate SESSION_SECRET
 configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN
 WEB_HOST=10.0.0.5 configure-env apply --ci --file .env
@@ -593,6 +596,7 @@ configure-env env add staging --url https://envs.example.com --token-env STAGING
 printf %s "$TOKEN" | configure-env env add prod --url https://prod.example.com
 configure-env env list
 configure-env check --env staging
+configure-env apply --env staging --ci
 configure-env env remove staging
 ```
 
@@ -602,7 +606,7 @@ An environment is a configure-env server the CLI reaches over HTTP: its URL and 
 - **`env list`** prints `local`, then each name and URL. **`env remove <name>`** forgets one; an unknown name exits 2.
 - **No output holds a token**, `--json` included: `{"command":"env list","environments":[{"name","url"}]}`.
 
-`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against an environment: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
+`--env <name>` (or `CONFIGURE_ENV_ENV`) picks the environment a command runs against; without either it is `local`. A remote environment owns its project, so `--root`, `--schema` and `--state` exit 2 with it. Before it runs, the CLI asks the server its version (`GET /api/project`) and refuses one it is not compatible with, naming both versions; a server it cannot reach exits 1 naming the environment. `apply`, `check`, `init`, `list`, `get`, `set`, `unset` and `history` run against an environment: every other command exits 2 for one other than `local`, so a run never passes for one against the environment asked for.
 
 ### JSON output
 
@@ -656,13 +660,13 @@ What the portal does, page by page:
 
 - **A token per run.** Every start makes a new random token, and the API answers only requests that carry it. The launch URL holds it; opened in a browser, it trades the token for an HttpOnly session cookie and redirects to the portal. Anyone with the URL can read and change the project's env files while the server runs, so keep it to yourself. A tab without the session (the bare address, or a link from an earlier run) gets a page saying to open the launch link again, and nothing of the portal. A server on another machine can keep its token across restarts instead (see "Remote environments").
 - **This machine only.** It binds `127.0.0.1` by default. `--host` takes another address, but one that is not loopback (`127.x.x.x`, `::1`, `localhost`) exits 2 unless `--tls-cert` and `--tls-key` serve it over HTTPS or `--unsafe-expose` is given, and then serves plain HTTP with a warning.
-- **Commands run through it.** While it runs, `.configure-env/server.json` holds its URL, pid, version and token (mode 600, named in `.configure-env/.gitignore`), and `check` in the project goes through this server instead of starting one of its own. It is removed when `serve` stops; one a crashed `serve` left is ignored, as its pid no longer runs. So is one that is not your own mode-600 file (a committed one, say) or that names a server off this machine: the run's `--set` values never go to a server the file alone points at.
+- **Commands run through it.** While it runs, `.configure-env/server.json` holds its URL, pid, version and token (mode 600, named in `.configure-env/.gitignore`), and `check` and `apply` in the project go through this server instead of starting one of their own. It is removed when `serve` stops; one a crashed `serve` left is ignored, as its pid no longer runs. So is one that is not your own mode-600 file (a committed one, say) or that names a server off this machine: the run's `--set` values never go to a server the file alone points at.
 - **Port.** Without `--port` it takes the first free port from 4747; `--port 0` takes any free one, and a `--port` that is in use exits 1.
 - **Browser.** It opens the browser only in a terminal; `--open` opens it anyway and `--no-open` never does.
 - **No schema yet.** `serve` starts without a schema too, and says so on stderr. The portal's overview then shows a "No schema yet" card whose **Init from .env.example** button writes the schema `configure-env init --ci` would: inferred from `.env.example`, or, when there is none (the button then reads **Init an empty schema**), empty, with `.configure-env/` added to `.gitignore`. It never replaces a schema that exists. An invalid schema still exits 1.
 - **Agents.** `serve --json --no-open` prints one line, `{ "command": "serve", "url", "port", "pid" }`, once it listens; `url` holds the token, which the API also takes as `Authorization: Bearer <token>`. With a persistent token, `url` is the server's address without it, and `token` names where the token is (the token file, or `CONFIGURE_ENV_TOKEN`). Stop it with SIGTERM to `pid`.
 
-`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and the commands that run through the API (`check`, `list`, `get`, `set`, `unset` and `history`) load the server (NestJS); those start one of their own only when no `serve` of the project runs.
+`--schema` and `--root` pick the project as for every command; the schema must lie inside the root. Only `serve` and the commands that run through the API (`apply`, `check`, `list`, `get`, `set`, `unset` and `history`) load the server (NestJS); those start one of their own only when no `serve` of the project runs.
 
 ### Remote environments
 

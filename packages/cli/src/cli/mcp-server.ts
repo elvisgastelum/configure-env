@@ -494,7 +494,9 @@ export function createMcpServer(options: McpOptions): McpServer {
         generate: z
           .array(key)
           .optional()
-          .describe('Secrets to give a random value made on this machine.'),
+          .describe(
+            'Secrets to give a random value, made by the server of the environment and never answered.',
+          ),
         defer: z
           .array(key)
           .optional()

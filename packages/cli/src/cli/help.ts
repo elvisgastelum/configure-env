@@ -23,8 +23,8 @@ const GLOBAL = `Global options:
                    not a template)
   --env <name>     the environment to run against: local (this project,
                    the default) or one env add stored; CONFIGURE_ENV_ENV
-                   too. check, init, list, get, set, unset and history run
-                   against another one
+                   too. apply, check, init, list, get, set, unset and
+                   history run against another one
   --ci             never prompt; also when CI=true
   --json           print one JSON document on stdout; logs go to stderr
   --no-color       plain output; NO_COLOR is honoured too
@@ -125,6 +125,15 @@ the schema does not list for it, each with the # lines directly above it
 and the blank line that set them apart: pruned keys: A, B. A pruned key's
 protected fingerprint goes too. Without it, apply keeps every key.
 
+It runs through the configure-env API: against the running serve of the
+project when there is one, else a server of its own for the run only, on
+127.0.0.1. It plans the run, then writes that plan; a file that changed
+in between is not written over. A --generate value is made on the server
+and never leaves it. With --env <name> it applies that environment's
+project on its server instead; --root, --schema and --state are then the
+server's and exit 2. Values taken from local environment variables are
+then sent to that environment's server.
+
 Options:
   --set KEY=VALUE  a value; repeat for more
   --generate KEY   a random value for a secret string; repeat for more
@@ -143,6 +152,7 @@ Examples:
   configure-env apply --ci --generate SESSION_SECRET --defer API_TOKEN
   configure-env apply --ci --prune
   configure-env apply --ci --file .env --json
+  configure-env apply --env staging --ci
 
 ${EXIT_CODES}`;
 
@@ -651,6 +661,7 @@ Examples:
   printf %s "$TOKEN" | configure-env env add prod --url https://prod.example.com
   configure-env env list
   configure-env check --env staging
+  configure-env apply --env staging --ci
   configure-env env remove staging
 
 ${EXIT_CODES}`;

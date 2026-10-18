@@ -656,6 +656,26 @@ const planInputs = {
       'Remove the keys a merge or create-only file holds that the schema does not list for it.',
   }),
   replaceProtected,
+  generate: z.array(variableName).optional().meta({
+    description:
+      'Secret string keys to give a random value, as `apply --generate` takes them: a value a file of the run holds is used instead, and a key no file of the run takes is not generated. The value is never answered; POST /api/apply with the fingerprint writes the one the plan was made with.',
+  }),
+  generateFiles: z.array(z.string().min(1)).optional().meta({
+    description:
+      'The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.',
+  }),
+  hold: z.boolean().optional().meta({
+    description:
+      'false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default.',
+  }),
+  prompted: z.array(variableName).optional().meta({
+    description:
+      "Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.",
+  }),
+  defer: z.array(variableName).optional().meta({
+    description:
+      'Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.',
+  }),
 };
 
 export const planRequest = named('PlanRequest', z.strictObject(planInputs));
@@ -666,7 +686,7 @@ export const applyRequest = named(
     ...planInputs,
     fingerprint: z.string().min(1).meta({
       description:
-        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).',
+        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held).',
     }),
   }),
 );
@@ -709,6 +729,10 @@ const filePlan = named(
       description:
         'From the file now to the file after; empty for a skipped one.',
     }),
+    deferred: z.array(z.string()).optional().meta({
+      description:
+        'The deferred keys the file is left without a value for; present when the plan takes `defer`.',
+    }),
   }),
 );
 
@@ -738,6 +762,40 @@ export const planResponse = named(
       description:
         'Protected values the plan would change without replaceProtected naming them.',
     }),
+    replaced: z
+      .array(z.object({ file: z.string(), key: z.string() }))
+      .optional()
+      .meta({
+        description:
+          'Protected values the plan replaces, as replaceProtected allows.',
+      }),
+    generated: z.record(z.string(), z.string()).optional().meta({
+      description:
+        'The value of each `generate` key the run writes, masked: generated, or held by a file of the run. Present when the plan takes `generate`.',
+    }),
+  }),
+);
+
+export const inputsRefusedResponse = named(
+  'InputsRefused',
+  z.object({
+    statusCode: z.literal(422),
+    message: z.string(),
+    kind: z.literal('inputs').meta({
+      description:
+        'The `generate` or `defer` keys name a key the run cannot take; nothing was planned or written.',
+    }),
+    errors: z.array(
+      z.object({
+        kind: z.enum(['usage', 'value']).meta({
+          description:
+            'usage: the inputs misuse the key; value: no value can be generated for it.',
+        }),
+        key: z.string(),
+        message: z.string(),
+      }),
+    ),
+    hints: z.array(z.string()),
   }),
 );
 
@@ -765,6 +823,13 @@ export const applyResponse = named(
     ),
     replaced: z.array(z.object({ file: z.string(), key: z.string() })),
     warnings: z.array(z.string()),
+    stateError: z
+      .object({ path: z.string(), lines: z.array(z.string()) })
+      .optional()
+      .meta({
+        description:
+          'The protected state the files were written without recording, when it could not be written: its path and why, the lines `warnings` also holds.',
+      }),
   }),
 );
 

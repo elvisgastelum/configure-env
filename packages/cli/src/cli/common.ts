@@ -14,14 +14,10 @@ import {
   type PlanError,
   type ValueError,
   fileKeys,
-  fileRules,
   isInside,
   isTemplate,
   loadSchema,
-  parseDotenv,
   recordHistory,
-  ruleKeys,
-  validateValue,
 } from '@configure-env/core';
 import type { Io, Prompts } from './io.ts';
 import { type ProtectedProblem, protectedLine } from './protect.ts';
@@ -205,7 +201,7 @@ export async function contextOf(
   const environment = selectedEnvironment(io, values);
   if (environment !== 'local')
     throw usageError(
-      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; check, init, list, get, set, unset and history run against an environment`,
+      `${values.env ? '--env' : ENV_VARIABLE} ${environment}: this command runs on the local project only; apply, check, init, list, get, set, unset and history run against an environment`,
       values.env
         ? 'drop --env to run it here'
         : `unset ${ENV_VARIABLE} to run it here`,
@@ -281,12 +277,15 @@ export function parseSets(pairs: readonly string[] = []) {
   return sets;
 }
 
+/** What neededKeysOf reads of a file's plan: the core's, or the API's. */
+type PlanOfFile = Pick<FilePlan, 'path' | 'policy' | 'action' | 'addedKeys'>;
+
 /**
  * The variables a file's run takes values for: every one for a generate or
  * new file, the missing keys of a merge file, none for a skipped one, a
  * chmod or a template. A key the file sets literally (`values`) takes none.
  */
-export function neededKeysOf(schema: EnvSchema, plan: FilePlan): string[] {
+export function neededKeysOf(schema: EnvSchema, plan: PlanOfFile): string[] {
   if (plan.action === 'skip' || plan.action === 'mode') return [];
   const spec = schema.files.find((file) => file.path === plan.path)!;
   const keys =
@@ -308,7 +307,7 @@ export const takesValue = (schema: EnvSchema, file: FileSpec, key: string) =>
 /** The keys any of the planned files takes values for, in schema order. */
 export function neededKeys(
   schema: EnvSchema,
-  plans: readonly FilePlan[],
+  plans: readonly PlanOfFile[],
 ): string[] {
   const needed = new Set(plans.flatMap((plan) => neededKeysOf(schema, plan)));
   return Object.keys(schema.variables).filter((key) => needed.has(key));
@@ -320,78 +319,6 @@ export const givenValue = (
   sets: Readonly<Record<string, string>>,
   env: Io['env'],
 ): string | undefined => sets[key] ?? (env[key] || undefined);
-
-/**
- * The values to plan with: every `given` value (the --set pairs and the
- * --generate values), then each needed key's environment variable; the
- * planner falls back to the default. A needed required key with none of
- * them is an error, unless it is `deferred`: it is written empty, and
- * listed in `empty`.
- */
-export function resolveValues(
-  schema: EnvSchema,
-  keys: readonly string[],
-  given: Readonly<Record<string, string>>,
-  env: Io['env'],
-  deferred: readonly string[] = [],
-): { values: Record<string, string>; errors: PlanError[]; empty: string[] } {
-  const values: Record<string, string> = { ...given };
-  const errors: PlanError[] = [];
-  const empty: string[] = [];
-  for (const key of keys) {
-    const value = givenValue(key, given, env);
-    if (value !== undefined) {
-      values[key] = value;
-      continue;
-    }
-    const spec = schema.variables[key]!;
-    if (spec.default !== undefined) continue;
-    if (deferred.includes(key)) {
-      empty.push(key);
-      continue;
-    }
-    const result = validateValue(spec, undefined);
-    if (!result.ok) errors.push({ kind: 'value', key, message: result.error });
-  }
-  return { values, errors, empty };
-}
-
-/**
- * The rules between variables that the files a run writes would break, as
- * value errors: each file's resulting values over its own keys, for the rules
- * that name a key the run writes to it. A `requiredUnless` of a `deferred` key
- * is left for a person, as a deferred required key is.
- */
-export function ruleErrors(
-  schema: EnvSchema,
-  plans: readonly FilePlan[],
-  deferred: readonly string[] = [],
-): ValueError[] {
-  const errors = new Map<string, ValueError>();
-  for (const plan of plans) {
-    if (plan.content === undefined) continue;
-    if (plan.action !== 'create' && plan.action !== 'update') continue;
-    const spec = schema.files.find((file) => file.path === plan.path)!;
-    const written = neededKeysOf(schema, plan);
-    for (const problem of fileRules(schema, spec, parseDotenv(plan.content))) {
-      if (problem.rule === 'requiredUnless' && deferred.includes(problem.key))
-        continue;
-      if (
-        ![problem.key, ...problem.others].some((key) => written.includes(key))
-      )
-        continue;
-      const keys = ruleKeys(problem);
-      const error: ValueError = {
-        kind: 'value',
-        key: problem.key,
-        ...(keys.length > 1 ? { keys } : {}),
-        message: problem.message,
-      };
-      errors.set(describeError(error), error);
-    }
-  }
-  return [...errors.values()];
-}
 
 /** A plan error or key problem as one line. */
 export const describeError = (error: PlanError | KeyProblem) =>

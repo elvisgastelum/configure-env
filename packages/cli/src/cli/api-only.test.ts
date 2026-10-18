@@ -1,8 +1,7 @@
 // The commands that work on a project do it through the configure-env API
 // (connect.ts), so --env reaches any environment: none reads or writes a
 // project with @configure-env/core itself. Only install, serve and the mcp
-// process use the core directly; the commands still pending their move are
-// listed below, and come off the list as they move.
+// process use the core directly.
 
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vite-plus/test';
@@ -14,12 +13,6 @@ const source = (file: string) => readFile(new URL(file, dir), 'utf8');
 const DIRECT = new Set(['install', 'serve', 'mcp']);
 
 /**
- * The commands still on the core directly, until their move to the API
- * lands: apply (PV-41), which takes itself off this list.
- */
-const PENDING = new Set(['apply']);
-
-/**
  * What a command may still take from the core: types, and these values,
  * which read and write nothing.
  */
@@ -28,7 +21,9 @@ const PURE = new Set([
   'STATE_IGNORE',
   'VARIABLE_NAME',
   'VARIABLE_TYPES',
+  'displayPath',
   'isTemplate',
+  'maskValue',
   'parsePairs',
   'validateValue',
 ]);
@@ -96,7 +91,7 @@ describe('the commands that run over the API', () => {
   it('import nothing from @configure-env/core that works on a project', async () => {
     const offending: string[] = [];
     for (const [command, file] of await commandModules()) {
-      if (DIRECT.has(command) || PENDING.has(command)) continue;
+      if (DIRECT.has(command)) continue;
       const text = await source(file);
       for (const name of valuesFrom(text, '@configure-env/core'))
         if (!PURE.has(name)) offending.push(`${command} (${file}): ${name}`);
@@ -105,28 +100,5 @@ describe('the commands that run over the API', () => {
           offending.push(`${command} (${file}): ${name} from common.ts`);
     }
     expect(offending).toEqual([]);
-  });
-
-  it('lists as pending only commands that still use the core', async () => {
-    const commands = await commandModules();
-    const moved: string[] = [];
-    for (const command of PENDING) {
-      const file = commands.get(command);
-      if (!file) {
-        moved.push(`${command}: no such command`);
-        continue;
-      }
-      const text = await source(file);
-      const direct =
-        valuesFrom(text, '@configure-env/core').some(
-          (name) => !PURE.has(name),
-        ) ||
-        valuesFrom(text, './common.ts').some((name) =>
-          PROJECT_HELPERS.includes(name),
-        );
-      if (!direct) moved.push(command);
-    }
-    // A command that moved comes off PENDING, so the guard holds it.
-    expect(moved).toEqual([]);
   });
 });

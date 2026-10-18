@@ -1,6 +1,13 @@
 // Plan, then apply, over src/apply.ts.
 
-import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Inject,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBody,
   ApiConflictResponse,
@@ -14,12 +21,17 @@ import {
   applyRequest,
   applyResponse,
   errorResponse,
+  inputsRefusedResponse,
+  invalidSchemaResponse,
   planConflictResponse,
   planRequest,
   planResponse,
 } from './contracts.ts';
-import { NeedsSchema, PROJECT, Read, ref, requireSchemaRead } from './http.ts';
+import { PROJECT, Read, ref, requireSchemaRead } from './http.ts';
 import type { Project } from './project.ts';
+
+/** The header a client names itself in, such as `cli`. */
+const CLIENT_HEADER = 'x-configure-env-client';
 
 @ApiTags('apply')
 @Controller('api')
@@ -38,7 +50,11 @@ export class PlanController {
     planResponse,
   )
   @ApiBody({ schema: ref(planRequest) })
-  @NeedsSchema()
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The schema is invalid, or the `generate` or `defer` keys name one the run cannot take.',
+    schema: { oneOf: [ref(invalidSchemaResponse), ref(inputsRefusedResponse)] },
+  })
   async plan(
     @Body({ schema: planRequest }) body: z.output<typeof planRequest>,
   ) {
@@ -60,17 +76,22 @@ export class PlanController {
   })
   @ApiUnprocessableEntityResponse({
     description:
-      'The plan has errors or changes protected values; nothing was written. Also an invalid schema.',
-    schema: ref(planConflictResponse),
+      'The plan has errors or changes protected values, or the `generate` or `defer` keys name one the run cannot take; nothing was written. Also an invalid schema.',
+    schema: {
+      oneOf: [ref(planConflictResponse), ref(inputsRefusedResponse)],
+    },
   })
   @ApiServiceUnavailableResponse({
     description:
-      'The protected state cannot be read or used; nothing was written.',
+      'The protected state cannot be read or used; nothing was written. A state the write could not get or use names its `path` and `lines`.',
     schema: ref(errorResponse),
   })
   async apply(
     @Body({ schema: applyRequest }) body: z.output<typeof applyRequest>,
+    @Headers(CLIENT_HEADER) client?: string,
   ) {
-    return applyProject(await this.read(), this.project, body);
+    // The history names who applied: the CLI says so in its header.
+    const actor = client === 'cli' ? 'cli' : 'portal';
+    return applyProject(await this.read(), this.project, body, actor);
   }
 }

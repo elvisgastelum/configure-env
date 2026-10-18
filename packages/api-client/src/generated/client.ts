@@ -85,12 +85,22 @@ export type AppliedReplacedItem = {
   key: string;
 };
 
+/**
+ * The protected state the files were written without recording, when it could not be written: its path and why, the lines `warnings` also holds.
+ */
+export type AppliedStateError = {
+  path: string;
+  lines: string[];
+};
+
 export interface Applied {
   /** Every file was written as planned. */
   ok: boolean;
   files: AppliedFilesItem[];
   replaced: AppliedReplacedItem[];
   warnings: string[];
+  /** The protected state the files were written without recording, when it could not be written: its path and why, the lines `warnings` also holds. */
+  stateError?: AppliedStateError;
 }
 
 /**
@@ -114,7 +124,29 @@ export interface ApplyRequest {
    */
   replaceProtected?: string[];
   /**
-   * The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409).
+   * Secret string keys to give a random value, as `apply --generate` takes them: a value a file of the run holds is used instead, and a key no file of the run takes is not generated. The value is never answered; POST /api/apply with the fingerprint writes the one the plan was made with.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  generate?: string[];
+  /**
+   * The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.
+   * @items.minLength 1
+   */
+  generateFiles?: string[];
+  /** false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default. */
+  hold?: boolean;
+  /**
+   * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  prompted?: string[];
+  /**
+   * Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  defer?: string[];
+  /**
+   * The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held).
    * @minLength 1
    */
   fingerprint: string;
@@ -618,6 +650,8 @@ export interface FilePlan {
   fingerprint: string | null;
   /** From the file now to the file after; empty for a skipped one. */
   diff: DiffLine[];
+  /** The deferred keys the file is left without a value for; present when the plan takes `defer`. */
+  deferred?: string[];
 }
 
 export interface Files {
@@ -762,6 +796,50 @@ export interface InitSchemaRequest {
   preview?: boolean;
 }
 
+export type InputsRefusedStatusCode =
+  (typeof InputsRefusedStatusCode)[keyof typeof InputsRefusedStatusCode];
+
+export const InputsRefusedStatusCode = {
+  NUMBER_422: 422,
+} as const;
+
+/**
+ * The `generate` or `defer` keys name a key the run cannot take; nothing was planned or written.
+ */
+export type InputsRefusedKind =
+  (typeof InputsRefusedKind)[keyof typeof InputsRefusedKind];
+
+export const InputsRefusedKind = {
+  inputs: 'inputs',
+} as const;
+
+/**
+ * usage: the inputs misuse the key; value: no value can be generated for it.
+ */
+export type InputsRefusedErrorsItemKind =
+  (typeof InputsRefusedErrorsItemKind)[keyof typeof InputsRefusedErrorsItemKind];
+
+export const InputsRefusedErrorsItemKind = {
+  usage: 'usage',
+  value: 'value',
+} as const;
+
+export type InputsRefusedErrorsItem = {
+  /** usage: the inputs misuse the key; value: no value can be generated for it. */
+  kind: InputsRefusedErrorsItemKind;
+  key: string;
+  message: string;
+};
+
+export interface InputsRefused {
+  statusCode: InputsRefusedStatusCode;
+  message: string;
+  /** The `generate` or `defer` keys name a key the run cannot take; nothing was planned or written. */
+  kind: InputsRefusedKind;
+  errors: InputsRefusedErrorsItem[];
+  hints: string[];
+}
+
 export type InvalidSchemaStatusCode =
   (typeof InvalidSchemaStatusCode)[keyof typeof InvalidSchemaStatusCode];
 
@@ -896,6 +974,16 @@ export interface OpenInEditorRequest {
   path?: string;
 }
 
+export type PlanReplacedItem = {
+  file: string;
+  key: string;
+};
+
+/**
+ * The value of each `generate` key the run writes, masked: generated, or held by a file of the run. Present when the plan takes `generate`.
+ */
+export type PlanGenerated = { [key: string]: string };
+
 export interface ProtectedRefusal {
   file: string;
   key: string;
@@ -912,6 +1000,10 @@ export interface Plan {
   errors: PlanError[];
   /** Protected values the plan would change without replaceProtected naming them. */
   protected: ProtectedRefusal[];
+  /** Protected values the plan replaces, as replaceProtected allows. */
+  replaced?: PlanReplacedItem[];
+  /** The value of each `generate` key the run writes, masked: generated, or held by a file of the run. Present when the plan takes `generate`. */
+  generated?: PlanGenerated;
 }
 
 export interface PlanConflict {
@@ -946,6 +1038,28 @@ export interface PlanRequest {
    * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
    */
   replaceProtected?: string[];
+  /**
+   * Secret string keys to give a random value, as `apply --generate` takes them: a value a file of the run holds is used instead, and a key no file of the run takes is not generated. The value is never answered; POST /api/apply with the fingerprint writes the one the plan was made with.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  generate?: string[];
+  /**
+   * The schema files whose held values a `generate` key reuses, and whose generate files it must not rotate, when they are not `files`: the files a person picked, besides the ones the run plans. Only `files` are planned and written.
+   * @items.minLength 1
+   */
+  generateFiles?: string[];
+  /** false: the plan holds none of the values it generates, for a plan that is only checked and never applied; its fingerprint then names no plan POST /api/apply can write. Plans hold them by default. */
+  hold?: boolean;
+  /**
+   * Keys whose `values` a person typed at a prompt, as apply's prompts take them: a `generate` key's conflict with one is left to the rules between variables (`defer`), not refused as a generate conflict.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  prompted?: string[];
+  /**
+   * Required keys the run may leave empty, as `apply --defer` takes them. Given, even empty, the plan checks the run as `configure-env apply` does: a required value the files need that nothing gives, unless deferred, and a broken rule between variables are errors.
+   * @items.pattern ^[A-Za-z_][A-Za-z0-9_]*$
+   */
+  defer?: string[];
 }
 
 export interface Project {
@@ -2786,7 +2900,7 @@ export type planChangesResponse200 = {
 };
 
 export type planChangesResponse422 = {
-  data: InvalidSchema;
+  data: InvalidSchema | InputsRefused;
   status: 422;
 };
 
@@ -2855,7 +2969,7 @@ export type applyPlanResponse409 = {
 };
 
 export type applyPlanResponse422 = {
-  data: PlanConflict;
+  data: PlanConflict | InputsRefused;
   status: 422;
 };
 

@@ -107,6 +107,31 @@ describe('the MCP tools with env', () => {
     expect(result.text).toContain('API_KEY');
   });
 
+  it("applies the environment's project on its server, the secret made there", async () => {
+    const client = await connect();
+    const missing = await call(client, 'apply', { env: 'staging' });
+    expect(missing.isError).toBe(true);
+    expect(missing.text).toContain('API_KEY');
+    expect(await readFile(join(remote.root, '.env'), 'utf8')).toBe(
+      'HOST=remote.test\n',
+    );
+    const result = await call(client, 'apply', {
+      env: 'staging',
+      generate: ['API_KEY'],
+    });
+    expect(result.isError).toBe(false);
+    const written = await readFile(join(remote.root, '.env'), 'utf8');
+    const value = /^API_KEY=(.+)$/m.exec(written)?.[1];
+    expect(value).toMatch(/^[A-Za-z0-9_-]{48}$/);
+    expect(result.text).not.toContain(value);
+    // This project gets nothing: no env file, no state.
+    await expect(readFile(join(dirs.root, '.env'), 'utf8')).rejects.toThrow();
+    const rows = await readChanges(join(remote.root, STATE));
+    expect(rows.map((row) => [row.actor, row.key])).toEqual([
+      ['cli', 'API_KEY'],
+    ]);
+  });
+
   it('leaves out the --root it was started with, which is this project', async () => {
     const result = await call(await connect({ root: '.' }), 'check', {
       env: 'staging',
