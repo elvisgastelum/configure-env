@@ -32,6 +32,7 @@ import {
   keyError,
   type KeyProblem,
   NO_TERMINAL,
+  type RequestProblem,
   neededKeys,
   neededKeysOf,
   takesValue,
@@ -107,7 +108,7 @@ export async function applyCommand(args: string[], io: Io): Promise<number> {
 
 /** The JSON document of a run that failed and wrote nothing. */
 const failureJson = (
-  errors: readonly (PlanError | KeyProblem)[],
+  errors: readonly (PlanError | KeyProblem | RequestProblem)[],
   files: readonly RunFile[],
 ) =>
   JSON.stringify({
@@ -267,13 +268,20 @@ function requestError(
         (error) => `  ${error.path}: ${error.message}`,
       ),
     ]);
+  // Any other refusal, such as a 409 (the plan changed since it was shown,
+  // or its generated values are gone): --json prints it with its status.
+  const message = answerMessage(response);
+  const errors = [
+    { kind: 'request' as const, status: response.status, message },
+  ];
   // The state a plan reads when the schema protects a variable.
   if (response.status === 503)
-    return new CliError(1, [
-      answerMessage(response),
-      'fix or restore it; nothing was written',
-    ]);
-  return new CliError(1, [answerMessage(response)]);
+    return new CliError(
+      1,
+      [message, 'fix or restore it; nothing was written'],
+      errors,
+    );
+  return new CliError(1, [message], errors);
 }
 
 /** POST /api/plan, or the error the run ends with. */
@@ -500,14 +508,12 @@ async function applyUnattended(
     // Refused in the state's transaction, or no transaction: nothing was written.
     const { error } = written;
     if (!error.errors) throw error;
+    // A file's or the server's lines after the first explain the first.
+    const explained = ['file', 'request'].includes(error.errors[0]!.kind);
     if (json) io.stdout(failureJson(error.errors, files));
     else
       error.lines.forEach((line, i) =>
-        io.stderr(
-          i && error.errors![0]!.kind === 'file'
-            ? line
-            : `configure-env: ${line}`,
-        ),
+        io.stderr(i && explained ? line : `configure-env: ${line}`),
       );
     return error.code;
   }
