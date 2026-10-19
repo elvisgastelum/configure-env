@@ -73,6 +73,7 @@
     "@nestjs/platform-express": "12.1.2",
     "@nestjs/swagger": "12.0.2",
     "better-sqlite3": "^13.0.3",
+    "bonjour-service": "1.4.4",
     "drizzle-orm": "^0.45.4",
     "launch-editor": "2.14.2",
     "reflect-metadata": "0.2.2",
