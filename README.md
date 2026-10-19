@@ -709,15 +709,41 @@ env.example.com {
 
 Caddy passes the Host on and adds `X-Forwarded-For`. Read the token once with `sudo cat /home/app/.config/configure-env/token` and keep it with you; Another proxy, such as `tailscale serve`, works the same way as long as it passes the original Host header on; give the name clients reach as `--public-url`. To serve HTTPS directly instead, without a proxy: `serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --public-url https://stage.example.com:4747 --token-file token`.
 
+### LAN discovery
+
+`serve --advertise` announces the server on the local network over mDNS (DNS-SD), so other machines on the LAN find it without knowing its address. It is off by default.
+
+```sh
+configure-env serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem \
+  --token-file token --advertise --name "Stage box"
+```
+
+```text
+configure-env: advertised on the local network as "Stage box" (_configure-env._tcp)
+```
+
+- **The record.** A `_configure-env._tcp` service on the bound port, with a TXT record of `v` (the server's version), `name` (`--name <name>`, at most 63 bytes, else the hostname), `tls` (`1` or `0`) and, over HTTPS, `fp`: the SHA-256 fingerprint of the certificate, as `AB:CD:…`, so a client can pin the certificate it is shown. The token, the project's root and every file or variable name stay out of it; a client still needs the token to do anything.
+- **Only a server the LAN can reach.** `--advertise` with a loopback `--host` (the default `127.0.0.1` included) exits 2: nothing on the LAN can reach a loopback server. The exposure rule stays: a non-loopback `--host` needs TLS or `--unsafe-expose`. Advertising a plain-HTTP server warns, since its token would cross the network in the clear. `--name` without `--advertise` exits 2.
+- **Gone when it stops.** On SIGINT or SIGTERM the service is unpublished (a goodbye packet) before the server closes. When advertising fails, `serve` warns and keeps serving by its address.
+- **Find it** with `dns-sd -B _configure-env._tcp` on macOS, `avahi-browse -r _configure-env._tcp` on Linux.
+
+Multicast does not cross every network, and then the service is not found, though the server is still reachable by its address:
+
+- guest Wi-Fi and other networks with client isolation, which drop traffic between devices;
+- VPNs, which seldom carry multicast between the tunnel and the LAN;
+- Docker bridge networks: a `serve` in a container is advertised only on the bridge, unless it runs with `--network host`;
+- Windows firewall, which blocks inbound UDP on port 5353 for an app not allowed through it;
+- macOS, where the terminal (or the app running `serve`) needs the Local Network permission in System Settings > Privacy & Security.
+
 ### Switching environments
 
-The environments `configure-env env add` stored are open in your local portal too: `serve` reads `.configure-env/environments.json` on every request, so one added or removed while it runs applies at once. `GET /api/environments` lists `local` (this server) first, then each environment with its URL, whether its server answers `GET /api/project` within 3 seconds, and its version; it never holds a token.
+The environments `configure-env env add` stored are open in your local portal too: `serve` reads `.configure-env/environments.json` on every request, so one added or removed while it runs applies at once. `GET /api/environments` lists `local` (this server) first, then each environment with its URL, whether its server answers `GET /api/project` within 3 seconds, and its version; it never holds a token. Each environment's answer is kept for 5 seconds, so the portal does not wait on every server on every call; an entry of `environments.json` that changes (its URL or its token), comes or goes is seen on the next call. What is kept is the answer and a keyed digest of the entry, never its token.
 
 ![The portal showing prod: the header's environment picker in red with a Production tag, open on local, dev, an unreachable stage and prod](docs/portal/environments.png)
 
-The header of the portal then has an **Environment** picker: `local`, then each environment with its URL (one that does not answer is shown as unreachable and cannot be picked). The active one is always in the header, and `prod` (or `production`) stands apart in red with a **Production** tag. Picking one refetches every view from that environment, the live updates included; **Open in editor** is not offered there, since its files are on another machine. The pick lasts for the tab.
+The header of the portal then has an **Environment** picker: `local`, then each environment with its URL (one that does not answer is shown as unreachable and cannot be picked). The active one is always in the header, and `prod` (or `production`) stands apart in red with a **Production** tag. Picking one refetches every view from that environment, the live updates included; **Open in editor** is not offered there, since its files are on another machine. The pick lasts for the tab. While the environment picked does not answer, the header says **Not answering; retrying…** beside the picker (the gateway's message as its tooltip); the portal keeps asking, and once the server is back the notice goes and every view refetches, with no reload.
 
-Your browser never talks to the other server, and never holds its token. The local `serve` is a gateway: `/env/<name>/api/*` is forwarded to that environment's `/api/*` with its bearer token, so the portal stays same-origin with its session cookie. A path prefix names the environment, rather than a header, because `EventSource` cannot send headers; `GET /env/<name>/api/events` is streamed through as it comes.
+Your browser never talks to the other server, and never holds its token. The local `serve` is a gateway: `/env/<name>/api/*` is forwarded to that environment's `/api/*` with its bearer token, so the portal stays same-origin with its session cookie. A path prefix names the environment, rather than a header, because `EventSource` cannot send headers; `GET /env/<name>/api/events` is streamed through as it comes. `EventSource` stops reconnecting after any answer but a 200 event stream, so while an environment cannot be reached its events route does not answer 502: it answers 200 `text/event-stream` holding `retry: 2000` and one `unreachable` event, `{ "message": "environment <name> at <url> is unreachable: <reason>" }`, then closes. The browser asks again 2 seconds later, and gets the real stream once the server is back. A server that refuses its token still answers 502 there, as everywhere.
 
 - **Behind the local guard.** A forwarded request passes the same Host, Origin and token checks as every other route first; without this server's own session cookie or token it is a 401, and nothing is forwarded.
 - **Only the stored environments, only their API.** A name `environments.json` does not list (and `local`) answers 404, as does a path outside `/api/`, one with `.` or `..` segments, or an escaped slash or backslash; nothing else is ever reached.

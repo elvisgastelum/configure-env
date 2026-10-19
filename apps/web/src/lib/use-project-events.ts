@@ -4,11 +4,17 @@
 // their events refresh quietly. A burst of events refetches once, and a
 // reconnect refetches what changed while the stream was down. The stream is
 // the shown environment's: switching reopens it under its base path.
+//
+// While another environment does not answer, the gateway's stream holds one
+// `unreachable` event and ends, with a `retry:` hint: the portal says so
+// (useEventsUnreachable) and EventSource keeps asking. A reopened stream
+// that no `unreachable` event follows is the server back: the notice clears
+// and the views refetch.
 
 import { apiBasePath } from '@configure-env/api-client';
 import { toast } from '@configure-env/design-system/components/atoms/sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEnvironment } from './environment';
 
@@ -20,6 +26,50 @@ export const OWN_WRITE_MS = 2_000;
  * the views refetch once.
  */
 export const CHANGE_BURST_MS = 100;
+
+/**
+ * How long a reopened stream must go without an `unreachable` event before
+ * the environment counts as answering again. The gateway sends that event
+ * with the stream's headers, so it comes well within this.
+ */
+export const RECOVERED_AFTER_MS = 500;
+
+/** Why the shown environment's events do not come, while they do not. */
+let unreachable: string | undefined;
+const unreachableListeners = new Set<() => void>();
+
+function setUnreachable(message: string | undefined) {
+  if (message === unreachable) return;
+  unreachable = message;
+  for (const listener of unreachableListeners) listener();
+}
+
+const subscribeUnreachable = (listener: () => void) => {
+  unreachableListeners.add(listener);
+  return () => unreachableListeners.delete(listener);
+};
+
+/**
+ * The gateway's message while the shown environment does not answer and its
+ * events retry; undefined while they come.
+ */
+export const useEventsUnreachable = () =>
+  useSyncExternalStore(
+    subscribeUnreachable,
+    () => unreachable,
+    () => undefined,
+  );
+
+/** The message of an `unreachable` event; a plain one when it is malformed. */
+function messageOf(data: unknown): string {
+  try {
+    const parsed = JSON.parse(String(data)) as { message?: unknown };
+    if (typeof parsed.message === 'string') return parsed.message;
+  } catch {
+    // Not JSON: the plain message below.
+  }
+  return 'unreachable';
+}
 
 /** The paths a `changed` event names; none when it is malformed. */
 function pathsOf(data: unknown): string[] {
@@ -71,9 +121,28 @@ export function useProjectEvents() {
     // An open after the first is a reconnect: what changed while the stream
     // was down sent no event, so the views refetch, quietly.
     let opened = false;
+    // While the environment does not answer, an open is only a retry until
+    // RECOVERED_AFTER_MS pass without another `unreachable` event.
+    let down = false;
+    let recovering: ReturnType<typeof setTimeout> | undefined;
     source.addEventListener('open', () => {
+      if (down) {
+        clearTimeout(recovering);
+        recovering = setTimeout(() => {
+          down = false;
+          setUnreachable(undefined);
+          void queryClient.invalidateQueries();
+        }, RECOVERED_AFTER_MS);
+        return;
+      }
       if (opened) void queryClient.invalidateQueries();
       opened = true;
+    });
+    source.addEventListener('unreachable', (event) => {
+      clearTimeout(recovering);
+      opened = true;
+      down = true;
+      setUnreachable(messageOf((event as MessageEvent).data));
     });
     source.addEventListener('changed', (event) => {
       if (!own())
@@ -85,7 +154,9 @@ export function useProjectEvents() {
     return () => {
       unsubscribe();
       clearTimeout(burst);
+      clearTimeout(recovering);
       source.close();
+      setUnreachable(undefined);
     };
   }, [queryClient, t, environment]);
 }

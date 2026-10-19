@@ -27,6 +27,7 @@
     "label": "Environment",
     "local": "This project",
     "unreachable": "Unreachable",
+    "retrying": "Not answering; retrying…",
     "production": "Production",
     "remote": "Through this server's gateway: {{url}}"
   },
