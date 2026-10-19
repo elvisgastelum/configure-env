@@ -127,42 +127,88 @@ const cwdOf = (project: Project) => project.cwd ?? project.root;
 const GENERATED_TTL_MS = 15 * 60_000;
 /** The most plans whose generated values wait at once; the oldest goes first. */
 const GENERATED_PLANS = 64;
+/** The most plans remembered as gone, with only why; the oldest goes first. */
+const GONE_PLANS = 256;
 
-/** The values generated for a plan, by the root and the plan's fingerprint. */
-const generatedFor = new Map<
-  string,
-  { values: Record<string, string>; at: number }
->();
+/** Why the values a plan generated are not held: past 15 minutes, or dropped for newer plans. */
+type Gone = 'expired' | 'evicted';
 
-const generatedKey = (project: Project, fingerprint: string) =>
-  `${project.root}\0${fingerprint}`;
+/**
+ * The values generated for the plans of one server, by fingerprint, and the
+ * plans whose values are gone, by fingerprint, with only why: never a value.
+ */
+interface GeneratedStore {
+  held: Map<string, { values: Record<string, string>; at: number }>;
+  gone: Map<string, Gone>;
+}
+
+/** Each server's store: its memory only, so a restart holds none. */
+const stores = new WeakMap<Project, GeneratedStore>();
+
+function storeOf(project: Project): GeneratedStore {
+  let store = stores.get(project);
+  if (!store) {
+    store = { held: new Map(), gone: new Map() };
+    stores.set(project, store);
+  }
+  return store;
+}
+
+function forget(store: GeneratedStore, fingerprint: string, why: Gone) {
+  store.held.delete(fingerprint);
+  store.gone.delete(fingerprint);
+  store.gone.set(fingerprint, why);
+  while (store.gone.size > GONE_PLANS)
+    store.gone.delete(store.gone.keys().next().value!);
+}
 
 function keepGenerated(
   project: Project,
   fingerprint: string,
   values: Record<string, string>,
 ) {
+  const store = storeOf(project);
   const now = Date.now();
-  for (const [key, entry] of generatedFor)
-    if (now - entry.at > GENERATED_TTL_MS) generatedFor.delete(key);
-  generatedFor.delete(generatedKey(project, fingerprint));
-  generatedFor.set(generatedKey(project, fingerprint), { values, at: now });
-  while (generatedFor.size > GENERATED_PLANS)
-    generatedFor.delete(generatedFor.keys().next().value!);
+  for (const [key, entry] of store.held)
+    if (now - entry.at > GENERATED_TTL_MS) forget(store, key, 'expired');
+  store.held.delete(fingerprint);
+  store.gone.delete(fingerprint);
+  store.held.set(fingerprint, { values, at: now });
+  while (store.held.size > GENERATED_PLANS) {
+    const oldest = store.held.keys().next().value!;
+    forget(store, oldest, 'evicted');
+    // The server's log names the plan, never a value.
+    process.stderr.write(
+      `configure-env: dropped the generated values held for plan ${oldest}: ${GENERATED_PLANS} newer plans are held\n`,
+    );
+  }
 }
 
 /**
  * Takes the values generated for the plan an apply names, once: whatever
- * the apply answers, they are gone after it.
+ * the apply answers, they are gone after it. Without them, why: expired,
+ * evicted, or unknown (never held by this server).
  */
-function takeGenerated(project: Project, fingerprint: string) {
-  const key = generatedKey(project, fingerprint);
-  const entry = generatedFor.get(key);
-  generatedFor.delete(key);
-  return entry && Date.now() - entry.at <= GENERATED_TTL_MS
-    ? entry.values
-    : undefined;
+function takeGenerated(
+  project: Project,
+  fingerprint: string,
+): { values: Record<string, string> } | { gone: Gone | 'unknown' } {
+  const store = storeOf(project);
+  const entry = store.held.get(fingerprint);
+  store.held.delete(fingerprint);
+  if (entry && Date.now() - entry.at <= GENERATED_TTL_MS)
+    return { values: entry.values };
+  if (entry) return { gone: 'expired' };
+  return { gone: store.gone.get(fingerprint) ?? 'unknown' };
 }
+
+/** What an apply answers when the values its plan showed are gone. */
+const goneMessages: Record<Gone | 'unknown', string> = {
+  expired: 'the generated values for this plan expired; run apply again',
+  evicted: `the generated values for this plan were dropped to make room for ${GENERATED_PLANS} newer plans; run apply again`,
+  unknown:
+    'this server does not hold the generated values for this plan: it restarted since the plan, or another instance made it; run apply again',
+};
 
 /**
  * The state a run settles protected values with: the protected state when
@@ -381,16 +427,16 @@ export async function applyProject(
   // Without values kept for its plan, the apply makes new ones, so its
   // fingerprint differs (409); it keeps none of them either way.
   const held = takeGenerated(project, inputs.fingerprint);
-  const kept = held ?? {};
+  const kept = 'values' in held ? held.values : {};
   const planned = await plan(read, project, inputs, kept);
   const { view } = planned;
-  // The values the plan showed are gone: expired, or never held.
-  if (view.fingerprint !== inputs.fingerprint && !held && planned.generated)
-    throw new ApiError(
-      409,
-      'the generated values for this plan expired; run apply again',
-      { plan: view },
-    );
+  // The values the plan showed are gone: say why.
+  if (
+    view.fingerprint !== inputs.fingerprint &&
+    'gone' in held &&
+    planned.generated
+  )
+    throw new ApiError(409, goneMessages[held.gone], { plan: view });
   if (view.fingerprint !== inputs.fingerprint)
     throw new ApiError(
       409,
