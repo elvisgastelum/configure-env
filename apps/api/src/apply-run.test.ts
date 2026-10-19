@@ -59,6 +59,37 @@ const read = (path: string) =>
 const valueIn = (text: string | undefined, key: string) =>
   text?.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1];
 
+/** The inputs of a run that generates SECRET. */
+const generating = {
+  values: { API_URL: 'https://x.test' },
+  generate: ['SECRET'],
+};
+const EXPIRED = 'the generated values for this plan expired; run apply again';
+const EVICTED =
+  'the generated values for this plan were dropped to make room for 64 newer plans; run apply again';
+const UNKNOWN =
+  'this server does not hold the generated values for this plan: it restarted since the plan, or another instance made it; run apply again';
+
+/** What the server writes to its log (stderr) until restored. */
+function captureLogs() {
+  const write = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation(() => true);
+  return {
+    text: () => write.mock.calls.map(([chunk]) => String(chunk)).join(''),
+    restore: () => write.mockRestore(),
+  };
+}
+
+/** A refused apply shows the plan's generated values masked, never one. */
+function expectNoValue(body: { plan?: { generated?: object } }) {
+  expect(Object.keys(body.plan?.generated ?? {})).toEqual(['SECRET']);
+  for (const masked of Object.values(body.plan?.generated ?? {}))
+    expect(masked).toMatch(/^••••.{2}$/);
+  for (const line of JSON.stringify(body).match(/SECRET=[^"\\]*/g) ?? [])
+    expect(line).toMatch(/^SECRET=••••.{2}$/);
+}
+
 describe('generate', () => {
   it('plans a generated value, never answered, and applies that same value', async () => {
     await open();
@@ -239,25 +270,94 @@ describe('generate', () => {
 
   it('answers a 409 of its own once the generated value expired', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    const logs = captureLogs();
     try {
       await open();
-      const inputs = {
-        values: { API_URL: 'https://x.test' },
-        generate: ['SECRET'],
-      };
-      const plan = await post('/api/plan', inputs);
+      const plan = await post('/api/plan', generating);
       vi.setSystemTime(Date.now() + 15 * 60_000 + 1);
       const response = await post('/api/apply', {
-        ...inputs,
+        ...generating,
         fingerprint: plan.body.fingerprint,
       });
       expect(response.status).toBe(409);
-      expect(response.body.message).toBe(
-        'the generated values for this plan expired; run apply again',
+      expect(response.body.message).toBe(EXPIRED);
+      expectNoValue(response.body);
+      expect(logs.text()).toBe('');
+      expect(await read('.env')).toBeUndefined();
+    } finally {
+      logs.restore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still says expired once a later plan dropped the expired value', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const logs = captureLogs();
+    try {
+      await open();
+      const plan = await post('/api/plan', generating);
+      vi.setSystemTime(Date.now() + 15 * 60_000 + 1);
+      // This plan sweeps the expired values out of the store.
+      expect((await post('/api/plan', generating)).status).toBe(200);
+      const response = await post('/api/apply', {
+        ...generating,
+        fingerprint: plan.body.fingerprint,
+      });
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe(EXPIRED);
+      expectNoValue(response.body);
+      expect(logs.text()).toBe('');
+      expect(await read('.env')).toBeUndefined();
+    } finally {
+      logs.restore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('says the generated values were evicted once 64 newer plans came, and logs it', async () => {
+    const logs = captureLogs();
+    try {
+      await open();
+      const plan = await post('/api/plan', generating);
+      const fingerprint = plan.body.fingerprint as string;
+      for (let i = 0; i < 64; i += 1)
+        expect((await post('/api/plan', generating)).status).toBe(200);
+      const response = await post('/api/apply', {
+        ...generating,
+        fingerprint,
+      });
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe(EVICTED);
+      expectNoValue(response.body);
+      // The log names the plan by its fingerprint, and holds nothing else.
+      expect(logs.text()).toBe(
+        `configure-env: dropped the generated values held for plan ${fingerprint}: 64 newer plans are held\n`,
       );
       expect(await read('.env')).toBeUndefined();
     } finally {
-      vi.useRealTimers();
+      logs.restore();
+    }
+  });
+
+  it('says the server does not hold the values of a plan another server made', async () => {
+    const logs = captureLogs();
+    try {
+      await open();
+      const plan = await post('/api/plan', generating);
+      // The server restarts between the plan and its apply.
+      await server.close();
+      server = await startServer(root);
+      const response = await post('/api/apply', {
+        ...generating,
+        fingerprint: plan.body.fingerprint,
+      });
+      expect(response.status).toBe(409);
+      expect(response.body.message).toBe(UNKNOWN);
+      expectNoValue(response.body);
+      expect(logs.text()).toBe('');
+      expect(await read('.env')).toBeUndefined();
+    } finally {
+      logs.restore();
     }
   });
 
@@ -295,9 +395,7 @@ describe('generate', () => {
       fingerprint: checked.body.fingerprint,
     });
     expect(response.status).toBe(409);
-    expect(response.body.message).toBe(
-      'the generated values for this plan expired; run apply again',
-    );
+    expect(response.body.message).toBe(UNKNOWN);
   });
 
   it('answers 409 to an apply whose generated value was never planned', async () => {
@@ -308,9 +406,7 @@ describe('generate', () => {
       fingerprint: 'sha256:never-planned',
     });
     expect(response.status).toBe(409);
-    expect(response.body.message).toBe(
-      'the generated values for this plan expired; run apply again',
-    );
+    expect(response.body.message).toBe(UNKNOWN);
     expect(await read('.env')).toBeUndefined();
   });
 });
