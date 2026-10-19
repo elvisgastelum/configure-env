@@ -707,6 +707,32 @@ env.example.com {
 
 Caddy passes the Host on and adds `X-Forwarded-For`. Read the token once with `sudo cat /home/app/.config/configure-env/token` and keep it with you; Another proxy, such as `tailscale serve`, works the same way as long as it passes the original Host header on; give the name clients reach as `--public-url`. To serve HTTPS directly instead, without a proxy: `serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem --public-url https://stage.example.com:4747 --token-file token`.
 
+### LAN discovery
+
+`serve --advertise` announces the server on the local network over mDNS (DNS-SD), so other machines on the LAN find it without knowing its address. It is off by default.
+
+```sh
+configure-env serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem \
+  --token-file token --advertise --name "Stage box"
+```
+
+```text
+configure-env: advertised on the local network as "Stage box" (_configure-env._tcp)
+```
+
+- **The record.** A `_configure-env._tcp` service on the bound port, with a TXT record of `v` (the server's version), `name` (`--name <name>`, at most 63 bytes, else the hostname), `tls` (`1` or `0`) and, over HTTPS, `fp`: the SHA-256 fingerprint of the certificate, as `AB:CD:…`, so a client can pin the certificate it is shown. The token, the project's root and every file or variable name stay out of it; a client still needs the token to do anything.
+- **Only a server the LAN can reach.** `--advertise` with a loopback `--host` (the default `127.0.0.1` included) exits 2: nothing on the LAN can reach a loopback server. The exposure rule stays: a non-loopback `--host` needs TLS or `--unsafe-expose`. Advertising a plain-HTTP server warns, since its token would cross the network in the clear. `--name` without `--advertise` exits 2.
+- **Gone when it stops.** On SIGINT or SIGTERM the service is unpublished (a goodbye packet) before the server closes. When advertising fails, `serve` warns and keeps serving by its address.
+- **Find it** with `dns-sd -B _configure-env._tcp` on macOS, `avahi-browse -r _configure-env._tcp` on Linux.
+
+Multicast does not cross every network, and then the service is not found, though the server is still reachable by its address:
+
+- guest Wi-Fi and other networks with client isolation, which drop traffic between devices;
+- VPNs, which seldom carry multicast between the tunnel and the LAN;
+- Docker bridge networks: a `serve` in a container is advertised only on the bridge, unless it runs with `--network host`;
+- Windows firewall, which blocks inbound UDP on port 5353 for an app not allowed through it;
+- macOS, where the terminal (or the app running `serve`) needs the Local Network permission in System Settings > Privacy & Security.
+
 ### Switching environments
 
 The environments `configure-env env add` stored are open in your local portal too: `serve` reads `.configure-env/environments.json` on every request, so one added or removed while it runs applies at once. `GET /api/environments` lists `local` (this server) first, then each environment with its URL, whether its server answers `GET /api/project` within 3 seconds, and its version; it never holds a token.

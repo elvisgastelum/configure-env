@@ -3,9 +3,11 @@
 // SIGTERM. For a server other machines reach, the token can persist (a
 // token file or CONFIGURE_ENV_TOKEN), and it serves HTTPS or names the
 // public URL of the reverse proxy in front of it. The portal switches to
-// the environments `env add` stored, through the server's gateway. The
-// server (@configure-env/api, NestJS) is imported only here and only when
-// the command runs, so no other command pays for loading it.
+// the environments `env add` stored, through the server's gateway. With
+// --advertise it announces itself on the local network over mDNS (see
+// advertise.ts). The server (@configure-env/api, NestJS) is imported only
+// here and only when the command runs, so no other command pays for
+// loading it.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -15,6 +17,15 @@ import { createServer as createNetServer, isIP } from 'node:net';
 import { relative, resolve } from 'node:path';
 import { createSecureContext } from 'node:tls';
 import { fileURLToPath } from 'node:url';
+import {
+  type AdvertisedService,
+  type Advertisement,
+  MAX_NAME_BYTES,
+  SERVICE_TYPE,
+  advertisedService,
+  bonjourAdvertiser,
+  defaultServiceName,
+} from './advertise.ts';
 import {
   CliError,
   contextOf,
@@ -73,10 +84,23 @@ export interface ApiServer {
   close(): Promise<void>;
 }
 
-/** What `serve` touches outside the process: the server, signals, a browser. */
+export type { AdvertisedService, Advertisement } from './advertise.ts';
+
+/**
+ * What `serve` touches outside the process: the server, signals, a
+ * browser, the local network.
+ */
 export interface ServeRuntime {
   /** Starts the API; the default imports the API server lazily. */
   start(options: ServerOptions): Promise<ApiServer>;
+  /**
+   * Publishes the service over mDNS (--advertise); the default imports
+   * bonjour-service lazily. `onError` hears of a later failure.
+   */
+  advertise(
+    service: AdvertisedService,
+    onError: (error: Error) => void,
+  ): Promise<Advertisement>;
   /** Resolves with the first SIGINT or SIGTERM. */
   waitForSignal(): Promise<NodeJS.Signals>;
   /** Opens a URL in the default browser, best effort. */
@@ -93,6 +117,8 @@ const OPTIONS = {
   'public-url': { type: 'string' },
   'tls-cert': { type: 'string' },
   'tls-key': { type: 'string' },
+  advertise: { type: 'boolean' },
+  name: { type: 'string' },
 } as const;
 
 /** Whether a host only ever reaches this machine. */
@@ -311,9 +337,25 @@ const defaultRuntime: ServeRuntime = {
     const { createServer } = await loadServer();
     return createServer(options);
   },
+  advertise: bonjourAdvertiser(),
   waitForSignal: waitForProcessSignal,
   openBrowser: openInBrowser,
 };
+
+/** --name as the advertised name: --advertise's, at most 63 bytes. */
+function parseName(
+  value: string | undefined,
+  advertise: boolean,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (!advertise) throw usageError('--name goes with --advertise');
+  if (!value.trim()) throw usageError('--name takes a name');
+  if (Buffer.byteLength(value) > MAX_NAME_BYTES)
+    throw usageError(
+      `--name takes at most ${MAX_NAME_BYTES} bytes, got ${Buffer.byteLength(value)}`,
+    );
+  return value;
+}
 
 /**
  * Starts the server: on an explicit port or fails, else on the first free
@@ -381,7 +423,14 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
       : envToken !== undefined
         ? { kind: 'env', token: envToken }
         : { kind: 'run' };
+  const advertise = options.advertise === true;
+  const name = parseName(options.name, advertise);
   const exposed = !isLoopback(host);
+  if (advertise && !exposed)
+    throw usageError(
+      `--advertise with --host ${host}: nothing on the LAN can reach a loopback server`,
+      'pass a --host other machines reach, such as 0.0.0.0, with --tls-cert and --tls-key',
+    );
   // Over HTTPS the token never crosses the network in the clear.
   if (exposed && !withTls && !options['unsafe-expose'])
     throw usageError(
@@ -428,6 +477,14 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
     await server.close();
     return 130;
   }
+  const advertisement = advertise
+    ? await publish(runtime, io, {
+        port: server.port,
+        name: name ?? defaultServiceName(),
+        version: VERSION,
+        ...(tls ? { cert: tls.cert } : {}),
+      })
+    : undefined;
   // The other commands of the project run through this server meanwhile.
   await writeServerFile(context.root, {
     url: server.url,
@@ -476,7 +533,38 @@ export async function serveCommand(args: string[], io: Io): Promise<number> {
 
   const received = await signal;
   io.stderr(`configure-env: ${received}: stopping`);
+  await advertisement?.stop().catch(() => undefined);
   await removeServerFile(context.root, process.pid).catch(() => undefined);
   await server.close();
   return 0;
+}
+
+/**
+ * Advertises the server on the local network, saying so on stderr. A
+ * failure is a warning: the server still serves, by its address.
+ */
+async function publish(
+  runtime: ServeRuntime,
+  io: Io,
+  options: Parameters<typeof advertisedService>[0],
+): Promise<Advertisement | undefined> {
+  const warn = (error: Error) =>
+    printWarnings(io, [
+      `cannot advertise on the local network: ${error.message}`,
+    ]);
+  try {
+    const service = advertisedService(options);
+    const advertisement = await runtime.advertise(service, warn);
+    io.stderr(
+      `configure-env: advertised on the local network as "${service.name}" (_${SERVICE_TYPE}._${service.protocol})`,
+    );
+    if (service.txt.tls === '0')
+      printWarnings(io, [
+        'advertising a plain-HTTP server: anyone on the local network can find it, and the token crosses it in the clear',
+      ]);
+    return advertisement;
+  } catch (error) {
+    warn(error as Error);
+    return undefined;
+  }
 }
