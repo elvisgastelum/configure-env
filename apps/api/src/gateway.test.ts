@@ -581,3 +581,210 @@ describe('the guard in front of /api', () => {
     expect(ok.status).toBe(200);
   });
 });
+
+/** A port nothing listens on yet: bound once, then released. */
+async function freePort(): Promise<number> {
+  const probe = createHttpServer();
+  await new Promise<void>((done) => probe.listen(0, '127.0.0.1', done));
+  const { port } = probe.address() as AddressInfo;
+  await new Promise<void>((done) => probe.close(() => done()));
+  return port;
+}
+
+/** A local server whose environments.json is `listed`, read on every request. */
+async function localServer(listed: () => Record<string, RemoteEnvironment>) {
+  return createServer({
+    root: localRoot,
+    schemaPath: 'env.schema.json',
+    port: 0,
+    token: TOKEN,
+    environments: () => Promise.resolve(listed()),
+  });
+}
+
+const listNames = async (server: ApiServer) => {
+  const response = await request(server.url)
+    .get('/api/environments')
+    .set('Authorization', `Bearer ${TOKEN}`);
+  expect(response.status).toBe(200);
+  expect(leaks(response)).toEqual([]);
+  return (response.body as { environments: { name: string; url: string }[] })
+    .environments;
+};
+
+describe('the probes of GET /api/environments', () => {
+  const probes = (prefix: string) =>
+    received.filter(({ url }) => url === `${prefix}/api/project`).length;
+
+  it('probes each environment once inside the cache window, and again after it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const listed = {
+      a: { url: `${echoUrl}/a`, token: ECHO_TOKEN },
+      b: { url: `${echoUrl}/b`, token: ECHO_TOKEN },
+    };
+    const server = await localServer(() => listed);
+    try {
+      reset();
+      const first = await listNames(server);
+      const second = await listNames(server);
+      expect(second).toEqual(first);
+      expect(first.map(({ name }) => name)).toEqual(['local', 'a', 'b']);
+      expect([probes('/a'), probes('/b')]).toEqual([1, 1]);
+
+      vi.setSystemTime(Date.now() + 10_000);
+      await listNames(server);
+      expect([probes('/a'), probes('/b')]).toEqual([2, 2]);
+    } finally {
+      vi.useRealTimers();
+      await server.close();
+    }
+  });
+
+  it('sees a changed environments.json at once', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    let listed: Record<string, RemoteEnvironment> = {
+      a: { url: `${echoUrl}/a`, token: ECHO_TOKEN },
+      b: { url: `${echoUrl}/b`, token: ECHO_TOKEN },
+    };
+    const server = await localServer(() => listed);
+    try {
+      reset();
+      await listNames(server);
+      // a moves, b goes, c comes: inside the window, all of it shows.
+      listed = {
+        a: { url: `${echoUrl}/moved`, token: ECHO_TOKEN },
+        c: { url: `${echoUrl}/c`, token: ECHO_TOKEN },
+      };
+      const changed = await listNames(server);
+      expect(changed.map(({ name, url }) => [name, url])).toEqual([
+        ['local', server.url],
+        ['a', `${echoUrl}/moved`],
+        ['c', `${echoUrl}/c`],
+      ]);
+      expect([probes('/moved'), probes('/c')]).toEqual([1, 1]);
+      // b again, back as it was: dropped when it went, so probed afresh.
+      listed = { b: { url: `${echoUrl}/b`, token: ECHO_TOKEN } };
+      await listNames(server);
+      expect(probes('/b')).toBe(2);
+      // A new token for the same URL is a change too.
+      listed = { b: { url: `${echoUrl}/b`, token: DEV_TOKEN } };
+      await listNames(server);
+      expect(probes('/b')).toBe(3);
+      expect(received.at(-1)!.headers.authorization).toBe(
+        `Bearer ${DEV_TOKEN}`,
+      );
+    } finally {
+      vi.useRealTimers();
+      await server.close();
+    }
+  });
+});
+
+/** Opens an event stream; its frames, comments and `retry:` left out. */
+function openEvents(url: string) {
+  return new Promise<{
+    response: IncomingMessage;
+    next: () => Promise<string>;
+  }>((resolve, reject) => {
+    const req = get(
+      url,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      (response) => {
+        open.push(response);
+        response.setEncoding('utf8');
+        let buffer = '';
+        const frames: string[] = [];
+        const waiting: ((frame: string) => void)[] = [];
+        const next = () =>
+          new Promise<string>((done) => {
+            const frame = frames.shift();
+            if (frame !== undefined) done(frame);
+            else waiting.push(done);
+          });
+        let watching = false;
+        response.on('data', (chunk: string) => {
+          buffer += chunk;
+          let end;
+          while ((end = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            if (frame === ': watching' && !watching) {
+              watching = true;
+              resolve({ response, next });
+            }
+            if (frame.startsWith(':') || frame.startsWith('retry:')) continue;
+            const take = waiting.shift();
+            if (take) take(frame);
+            else frames.push(frame);
+          }
+        });
+      },
+    );
+    req.on('error', reject);
+  });
+}
+
+describe('GET /env/<name>/api/events while the environment is down', () => {
+  it('answers 200 with a retry hint and an unreachable event, then closes; once the server is back, events flow', async () => {
+    const port = await freePort();
+    const server = await localServer(() => ({
+      back: { url: `http://127.0.0.1:${port}`, token: DEV_TOKEN },
+    }));
+    let returned: ApiServer | undefined;
+    try {
+      const down = await request(server.url)
+        .get('/env/back/api/events')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .buffer(true);
+      expect(down.status).toBe(200);
+      expect(down.headers['content-type']).toMatch(/^text\/event-stream/);
+      expect(down.headers['cache-control']).toBe('no-store');
+      expect(down.headers['content-security-policy']).toBe(
+        "default-src 'none'; frame-ancestors 'none'",
+      );
+      expect(down.headers).not.toHaveProperty('set-cookie');
+      expect(down.text).toBe(
+        `retry: 2000\n\nevent: unreachable\ndata: ${JSON.stringify({
+          message: `environment back at http://127.0.0.1:${port} is unreachable: ECONNREFUSED`,
+        })}\n\n`,
+      );
+      expect(leaks(down)).toEqual([]);
+
+      returned = await createServer({
+        root: devRoot,
+        schemaPath: 'env.schema.json',
+        port,
+        token: DEV_TOKEN,
+      });
+      const { response, next } = await openEvents(
+        `${server.url}/env/back/api/events`,
+      );
+      expect(response.statusCode).toBe(200);
+      await writeFile(join(devRoot, '.env'), 'PORT=4321\n');
+      expect(await next()).toMatch(/^event: changed\ndata: .*"\.env"/);
+    } finally {
+      for (const stream of open.splice(0)) stream.destroy();
+      await returned?.close();
+      await server.close();
+    }
+  });
+
+  it('still answers 502 when the environment refuses its token, and for other paths', async () => {
+    reset();
+    echoAnswer = { status: 401, headers: {} };
+    const refused = await request(local.url)
+      .get('/env/echo/api/events')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(refused.status).toBe(502);
+    expect(refused.body.message).toMatch(/environment echo refused its token/);
+    expect(leaks(refused)).toEqual([]);
+    reset();
+    const other = await request(local.url)
+      .get('/env/down/api/project')
+      .set('Authorization', `Bearer ${TOKEN}`);
+    expect(other.status).toBe(502);
+    expect(other.headers['content-type']).toMatch(/^application\/json/);
+  });
+});

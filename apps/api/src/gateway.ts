@@ -10,7 +10,12 @@
 // way: the browser's cookie, Origin, Referer and Sec-Fetch-* headers, this
 // server's bearer, and every hop-by-hop header stay here; the other
 // server's cookies and CORS headers never reach the browser. No answer,
-// error message or log line ever holds a token.
+// error message, cache entry or log line ever holds a token.
+//
+// EventSource gives up on any answer but a 200 event stream, so while an
+// environment cannot be reached, its `/api/events` answers 200 with a
+// `retry:` hint and one `unreachable` event, then closes: the browser asks
+// again after the hint, and gets the real stream once the server is back.
 
 import {
   type IncomingHttpHeaders,
@@ -19,6 +24,7 @@ import {
   type ServerResponse,
   request as httpRequest,
 } from 'node:http';
+import { createHmac, randomBytes } from 'node:crypto';
 import { request as httpsRequest } from 'node:https';
 
 /** Another environment's server: its URL (with an optional path prefix) and token. */
@@ -51,6 +57,10 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const FORWARD_TIMEOUT_MS = 30_000;
 /** How long GET /api/environments waits for each environment. */
 const PROBE_TIMEOUT_MS = 3_000;
+/** How long GET /api/environments reuses an environment's probe. */
+export const PROBE_CACHE_MS = 5_000;
+/** When EventSource asks again for an unreachable environment's events. */
+export const EVENTS_RETRY_MS = 2_000;
 
 /** The browser's headers the other server gets; everything else stays here. */
 const REQUEST_HEADERS = [
@@ -89,6 +99,9 @@ class GatewayError extends Error {
     super(message);
   }
 }
+
+/** A 502 for a server that does not answer: it may come back. */
+class UnreachableError extends GatewayError {}
 
 function answer(res: ServerResponse, statusCode: number, message: string) {
   res.writeHead(statusCode, {
@@ -260,7 +273,7 @@ function upstream(
   const response = new Promise<IncomingMessage>((resolve, reject) => {
     const unreachable = (reason: string) =>
       reject(
-        new GatewayError(
+        new UnreachableError(
           502,
           `environment ${name} at ${shownUrl(base)} is unreachable: ${reason}`,
         ),
@@ -338,7 +351,18 @@ async function forward(
   res.once('close', () => {
     if (!res.writableFinished) sent.abort();
   });
-  const incoming = await sent.response;
+  const events =
+    method === 'GET' &&
+    segments.length === 2 &&
+    decodeURIComponent(segments[1]!).toLowerCase() === 'events';
+  let incoming: IncomingMessage;
+  try {
+    incoming = await sent.response;
+  } catch (error) {
+    if (events && error instanceof UnreachableError)
+      return unreachableStream(res, error.message);
+    throw error;
+  }
   if (incoming.statusCode === 401) {
     incoming.resume();
     throw new GatewayError(
@@ -355,6 +379,22 @@ async function forward(
   res.flushHeaders();
   incoming.on('error', () => res.destroy());
   incoming.pipe(res);
+}
+
+/**
+ * The events of an environment that does not answer: a 200 event stream
+ * holding a `retry:` hint and one `unreachable` event with the message,
+ * then its end, so EventSource reconnects instead of giving up.
+ */
+function unreachableStream(res: ServerResponse, message: string) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-security-policy': FORWARDED_CSP,
+  });
+  res.end(
+    `retry: ${EVENTS_RETRY_MS}\n\nevent: unreachable\ndata: ${JSON.stringify({ message })}\n\n`,
+  );
 }
 
 /** An environment as GET /api/environments lists it: never its token. */
@@ -425,10 +465,63 @@ async function probe(
   }
 }
 
-/** GET /api/environments: this server, then each environment, probed at once. */
+interface CachedProbe {
+  /** Which name, URL and token it probed: a keyed digest, never the token. */
+  key: string;
+  status: Promise<EnvironmentStatus>;
+  /** When it expires; unset while the probe runs. */
+  expiresAt?: number;
+}
+
+/**
+ * The probes of GET /api/environments, each reused for `ttlMs` while its
+ * environment's entry stays the same. An entry that changes (URL or token)
+ * or goes from environments.json is dropped at once, on the next listing.
+ * It keeps a keyed digest of the entry, never its token.
+ */
+export class ProbeCache {
+  readonly #secret = randomBytes(32);
+  readonly #entries = new Map<string, CachedProbe>();
+
+  constructor(
+    private readonly ttlMs = PROBE_CACHE_MS,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
+
+  /** The status of `name`, probed unless a fresh probe of it is kept. */
+  status(name: string, environment: RemoteEnvironment) {
+    const key = createHmac('sha256', this.#secret)
+      .update(JSON.stringify([name, environment.url, environment.token]))
+      .digest('hex');
+    const kept = this.#entries.get(name);
+    if (
+      kept?.key === key &&
+      (kept.expiresAt === undefined || this.now() < kept.expiresAt)
+    )
+      return kept.status;
+    const entry: CachedProbe = { key, status: probe(name, environment) };
+    this.#entries.set(name, entry);
+    void entry.status.then(() => {
+      entry.expiresAt = this.now() + this.ttlMs;
+    });
+    return entry.status;
+  }
+
+  /** Forgets every environment but `names`. */
+  keep(names: ReadonlySet<string>) {
+    for (const name of this.#entries.keys())
+      if (!names.has(name)) this.#entries.delete(name);
+  }
+}
+
+/**
+ * GET /api/environments: this server, then each environment, probed at
+ * once, or as `cache` kept it.
+ */
 export async function listEnvironments(
   source: EnvironmentsSource,
   version: string,
+  cache?: ProbeCache,
 ): Promise<EnvironmentStatus[]> {
   let environments: Readonly<Record<string, RemoteEnvironment>>;
   try {
@@ -439,10 +532,14 @@ export async function listEnvironments(
       `cannot read the environments: ${(error as Error).message}`,
     );
   }
+  const listed = Object.entries(environments).filter(
+    ([name]) => name !== LOCAL && NAME.test(name),
+  );
+  cache?.keep(new Set(listed.map(([name]) => name)));
   const others = await Promise.all(
-    Object.entries(environments)
-      .filter(([name]) => name !== LOCAL && NAME.test(name))
-      .map(([name, environment]) => probe(name, environment)),
+    listed.map(([name, environment]) =>
+      cache ? cache.status(name, environment) : probe(name, environment),
+    ),
   );
   return [
     { name: LOCAL, url: source.url(), local: true, reachable: true, version },
