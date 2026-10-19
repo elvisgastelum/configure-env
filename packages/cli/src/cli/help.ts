@@ -581,6 +581,15 @@ then answers that host too, and every other one is still refused.
 Without --port it takes the first free port from 4747. A taken --port
 exits 1.
 
+--advertise announces the server on the local network over mDNS, as a
+_configure-env._tcp service on its port, so other machines find it
+without its address. Its TXT record holds v (the version), name (--name,
+else the hostname), tls (1 or 0) and, over HTTPS, fp (the certificate's
+SHA-256 fingerprint); never the token, the root, or a file or variable
+name. A loopback --host exits 2 with it: nothing on the LAN can reach a
+loopback server. Without TLS it warns. The service is unpublished when
+serve stops.
+
 While it runs, .configure-env/server.json (mode 600, named in that
 folder's .gitignore) holds its URL, pid, version and token, so the
 project's commands run through it; it is removed when serve stops.
@@ -613,6 +622,9 @@ Options:
   --tls-cert <path>
                    a PEM certificate: serve HTTPS (with --tls-key)
   --tls-key <path> the certificate's PEM private key
+  --advertise      announce the server on the local network over mDNS
+  --name <name>    the advertised name, at most 63 bytes (default: the
+                   hostname)
   --open           open the browser, also without a terminal
   --no-open        never open the browser
 
@@ -631,6 +643,8 @@ Examples:
   configure-env serve --token-file ~/.config/configure-env/token \\
     --public-url https://env.example.com --no-open
   configure-env serve --host 0.0.0.0 --unsafe-expose
+  configure-env serve --host 0.0.0.0 --tls-cert cert.pem --tls-key key.pem \\
+    --advertise --name "Stage box"
 
 ${EXIT_CODES}`;
 
