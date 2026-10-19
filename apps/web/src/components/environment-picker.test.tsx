@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { sse } from 'msw';
 import { describe, expect, it } from 'vite-plus/test';
 import { createI18n } from '../i18n';
 import { GATEWAY_HOP, scenarios } from '../mocks/handlers';
@@ -21,6 +22,31 @@ function recordPaths() {
 const header = () => screen.getByTestId('app-header');
 const picker = () =>
   within(header()).findByRole('combobox', { name: 'Environment' });
+
+/**
+ * The gateway's events of an environment that does not answer, as long as
+ * `down()` holds: a short `retry:`, one `unreachable` event, then the end.
+ */
+function downEvents(down: () => boolean) {
+  return sse<{ unreachable: { message: string } }>(
+    '/env/:name/api/events',
+    ({ client }) => {
+      if (!down()) {
+        eventClients.add(client as never);
+        return;
+      }
+      client.send({ retry: 20 });
+      client.send({
+        event: 'unreachable',
+        data: {
+          message:
+            'environment dev at http://dev.internal:4000 is unreachable: ECONNREFUSED',
+        },
+      });
+      client.close();
+    },
+  );
+}
 
 async function choose(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(await picker());
@@ -187,5 +213,50 @@ describe('the environment picker', () => {
     expect(
       await screen.findByRole('option', { name: /stage/ }),
     ).toHaveTextContent('No responde');
+  });
+
+  it('says the environment does not answer while its events retry, and clears it once it does', async () => {
+    let down = true;
+    server.use(
+      downEvents(() => down),
+      ...scenarios.remoteEnvironments,
+    );
+    const user = userEvent.setup();
+    await renderApp();
+    await choose(user, /dev/);
+
+    const status = await within(header()).findByRole('status');
+    expect(status).toHaveTextContent('Not answering; retrying…');
+    expect(status).toHaveAttribute(
+      'title',
+      'environment dev at http://dev.internal:4000 is unreachable: ECONNREFUSED',
+    );
+    expect(await picker()).toHaveAttribute('data-reachable', 'false');
+
+    down = false;
+    await waitFor(
+      () =>
+        expect(within(header()).queryByRole('status')).not.toBeInTheDocument(),
+      { timeout: 3_000 },
+    );
+    expect(await picker()).toHaveAttribute('data-reachable', 'true');
+    expect(await picker()).toHaveTextContent('dev');
+    await waitFor(() => expect(eventClients.size).toBeGreaterThan(0));
+  });
+
+  it('says so in Spanish', async () => {
+    server.use(
+      downEvents(() => true),
+      ...scenarios.remoteEnvironments,
+    );
+    const user = userEvent.setup();
+    await renderApp('/', createI18n('es'));
+    await user.click(
+      await within(header()).findByRole('combobox', { name: 'Entorno' }),
+    );
+    await user.click(await screen.findByRole('option', { name: /dev/ }));
+    expect(await within(header()).findByRole('status')).toHaveTextContent(
+      'No responde; reintentando…',
+    );
   });
 });
