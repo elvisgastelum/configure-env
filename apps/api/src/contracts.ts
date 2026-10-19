@@ -686,7 +686,7 @@ export const applyRequest = named(
     ...planInputs,
     fingerprint: z.string().min(1).meta({
       description:
-        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, or never held).',
+        'The fingerprint of the plan shown, from POST /api/plan with the same inputs; a plan that differs now is not applied (409), and neither is one whose generated values are no longer held (409: expired after 15 minutes, dropped to make room for 64 newer plans, or never held by this server).',
     }),
   }),
 );
