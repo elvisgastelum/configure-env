@@ -36,6 +36,13 @@ export type KeyProblem =
   | { kind: 'usage'; key: string; message: string }
   | ProtectedProblem;
 
+/** A request the configure-env API refused, by its status and message. */
+export interface RequestProblem {
+  kind: 'request';
+  status: number;
+  message: string;
+}
+
 /**
  * A failure that ends the command with `code` after printing `lines`.
  * `errors` holds it as key problems, for `--json`.
@@ -44,7 +51,7 @@ export class CliError extends Error {
   constructor(
     readonly code: number,
     readonly lines: string[],
-    readonly errors?: (KeyProblem | PlanError)[],
+    readonly errors?: (KeyProblem | PlanError | RequestProblem)[],
   ) {
     super(lines[0]);
   }
