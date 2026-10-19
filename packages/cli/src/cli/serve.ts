@@ -548,12 +548,12 @@ async function publish(
   io: Io,
   options: Parameters<typeof advertisedService>[0],
 ): Promise<Advertisement | undefined> {
-  const service = advertisedService(options);
   const warn = (error: Error) =>
     printWarnings(io, [
       `cannot advertise on the local network: ${error.message}`,
     ]);
   try {
+    const service = advertisedService(options);
     const advertisement = await runtime.advertise(service, warn);
     io.stderr(
       `configure-env: advertised on the local network as "${service.name}" (_${SERVICE_TYPE}._${service.protocol})`,

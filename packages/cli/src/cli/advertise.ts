@@ -117,16 +117,22 @@ export function bonjourAdvertiser(
       stop: () =>
         new Promise<void>((resolve) => {
           // The goodbye packets go out before the socket closes; a network
-          // that swallows them never holds up the stop.
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            bonjour.destroy(() => resolve());
+          // that swallows them, or a socket that never reports closing,
+          // never holds up the stop.
+          let closing = false;
+          const close = () => {
+            if (closing) return;
+            closing = true;
+            bonjour.destroy(() => {
+              clearTimeout(timer);
+              resolve();
+            });
           };
-          const timer = setTimeout(finish, STOP_WAIT_MS);
-          bonjour.unpublishAll(finish);
+          const timer = setTimeout(() => {
+            close();
+            resolve();
+          }, STOP_WAIT_MS);
+          bonjour.unpublishAll(close);
         }),
     };
   };
