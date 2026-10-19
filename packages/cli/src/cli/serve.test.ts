@@ -14,12 +14,15 @@ import {
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { type Server, createServer as createNetServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { X509Certificate } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { VERSION } from './help.ts';
 import type { Io } from './io.ts';
 import { main } from './main.ts';
 import {
+  type AdvertisedService,
   DEFAULT_PORT,
   type ServeRuntime,
   firstFreePort,
@@ -56,10 +59,15 @@ function fakeRuntime(
     failWith?: string[];
     /** Resolves the signal before the server has started. */
     signalEarly?: NodeJS.Signals;
+    /** Fails the advertisement with this error. */
+    advertiseFails?: Error;
   } = {},
 ) {
   const started: Started[] = [];
   const opened: string[] = [];
+  const advertised: AdvertisedService[] = [];
+  /** What happened to the server and its advertisement, in order. */
+  const events: string[] = [];
   let closed = 0;
   let stop: (signal: NodeJS.Signals) => void = () => {};
   const failures = [...(options.failWith ?? [])];
@@ -89,6 +97,17 @@ function fakeRuntime(
         launchUrl: `${url}/launch?token=${opts.token}`,
         close: async () => {
           closed += 1;
+          events.push('close');
+        },
+      };
+    },
+    async advertise(service) {
+      if (options.advertiseFails) throw options.advertiseFails;
+      advertised.push(service);
+      events.push('advertise');
+      return {
+        stop: async () => {
+          events.push('unpublish');
         },
       };
     },
@@ -99,6 +118,8 @@ function fakeRuntime(
     runtime,
     started,
     opened,
+    advertised,
+    events,
     listening,
     stop: (s: NodeJS.Signals = 'SIGINT') => stop(s),
     closed: () => closed,
@@ -1196,4 +1217,184 @@ describe('the real server, remote-ready', () => {
     },
     30_000,
   );
+});
+
+describe('--advertise', () => {
+  const exposed = ['--host', '0.0.0.0', '--unsafe-expose'];
+  const machine = hostname().replace(/\.local$/i, '');
+
+  it('publishes _configure-env._tcp on the bound port with v, name and tls', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve([...exposed, '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(0);
+    expect(runtime.advertised).toEqual([
+      {
+        type: 'configure-env',
+        protocol: 'tcp',
+        port: runtime.started[0]!.port,
+        name: machine,
+        txt: { v: VERSION, name: machine, tls: '0' },
+      },
+    ]);
+    expect(result.err).toContain(
+      `configure-env: advertised on the local network as "${machine}" (_configure-env._tcp)`,
+    );
+  });
+
+  it('never advertises the token, the root, a file or a variable name', async () => {
+    const runtime = fakeRuntime();
+    await serve([...exposed, '--advertise', '--json'], {
+      cwd: project.root,
+      runtime,
+    });
+    const record = JSON.stringify(runtime.advertised);
+    expect(runtime.advertised).toHaveLength(1);
+    expect(record).not.toContain(runtime.started[0]!.token);
+    expect(record).not.toContain(project.root);
+    expect(record).not.toContain('env.schema.json');
+    expect(record).not.toContain('.env');
+    expect(record).not.toContain('PORT');
+  });
+
+  it('advertises the --name it is given', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve(
+      [...exposed, '--advertise', '--name', 'Stage box'],
+      { cwd: project.root, runtime },
+    );
+    expect(result.code).toBe(0);
+    expect(runtime.advertised[0]).toMatchObject({
+      name: 'Stage box',
+      txt: { name: 'Stage box' },
+    });
+    expect(result.err.join('\n')).toMatch(/advertised .* as "Stage box"/);
+  });
+
+  it('unpublishes the service on stop, before the server closes', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve([...exposed, '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(0);
+    expect(runtime.events).toEqual(['advertise', 'unpublish', 'close']);
+  });
+
+  it.each([
+    [[]],
+    [['--host', '127.0.0.1']],
+    [['--host', 'localhost']],
+    [['--host', '::1']],
+  ])('exits 2 with a loopback host %j', async (host) => {
+    const runtime = fakeRuntime();
+    const result = await serve([...host, '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toContain(
+      'nothing on the LAN can reach a loopback server',
+    );
+    expect(runtime.started).toEqual([]);
+    expect(runtime.advertised).toEqual([]);
+  });
+
+  it('keeps the exposure rule: a non-loopback host still needs TLS or --unsafe-expose', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve(['--host', '0.0.0.0', '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(/--unsafe-expose/);
+    expect(runtime.advertised).toEqual([]);
+  });
+
+  it('warns when it advertises a server without TLS', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve([...exposed, '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.err.join('\n')).toMatch(
+      /warning: advertising a plain-HTTP server/,
+    );
+  });
+
+  it.skipIf(!hasOpenssl)(
+    'advertises tls=1 and the certificate fingerprint over TLS, without the warning',
+    async () => {
+      const { cert, key } = testCertificate(await scratchDir());
+      const runtime = fakeRuntime();
+      const result = await serve(
+        [
+          '--host',
+          '0.0.0.0',
+          '--tls-cert',
+          cert,
+          '--tls-key',
+          key,
+          '--advertise',
+        ],
+        { cwd: project.root, runtime },
+      );
+      expect(result.code).toBe(0);
+      const fingerprint = new X509Certificate(await readFile(cert))
+        .fingerprint256;
+      expect(runtime.advertised[0]!.txt).toEqual({
+        v: VERSION,
+        name: machine,
+        tls: '1',
+        fp: fingerprint,
+      });
+      expect(result.err.join('\n')).not.toMatch(/warning/);
+    },
+  );
+
+  it('keeps serving, with a warning, when the advertisement fails', async () => {
+    const runtime = fakeRuntime({
+      advertiseFails: new Error('bind EADDRNOTAVAIL'),
+    });
+    const result = await serve([...exposed, '--advertise'], {
+      cwd: project.root,
+      runtime,
+    });
+    expect(result.code).toBe(0);
+    expect(result.err.join('\n')).toMatch(
+      /warning: cannot advertise on the local network: bind EADDRNOTAVAIL/,
+    );
+    expect(runtime.closed()).toBe(1);
+  });
+
+  it.each([
+    [['--name', 'box']],
+    [[...exposed, '--advertise', '--name', '']],
+    [[...exposed, '--advertise', '--name', 'x'.repeat(64)]],
+  ])('refuses %j as a usage error', async (args) => {
+    const runtime = fakeRuntime();
+    const result = await serve(args, { cwd: project.root, runtime });
+    expect(result.code).toBe(2);
+    expect(result.err.join('\n')).toMatch(/--name/);
+    expect(runtime.started).toEqual([]);
+  });
+
+  it('advertises nothing without --advertise', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve(exposed, { cwd: project.root, runtime });
+    expect(result.code).toBe(0);
+    expect(runtime.advertised).toEqual([]);
+    expect(result.err.join('\n')).not.toMatch(/advertis/);
+  });
+
+  it('names --advertise and --name in its help', async () => {
+    const runtime = fakeRuntime();
+    const result = await serve(['--help'], { cwd: project.root, runtime });
+    const help = result.out.join('\n');
+    expect(help).toMatch(/^ {2}--advertise /m);
+    expect(help).toMatch(/^ {2}--name <name> /m);
+    expect(help).toContain('_configure-env._tcp');
+  });
 });

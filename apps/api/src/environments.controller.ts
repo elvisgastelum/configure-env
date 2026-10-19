@@ -1,5 +1,7 @@
 // GET /api/environments over src/gateway.ts: this server and the other
 // environments the portal can switch to, each probed for whether it answers.
+// A probe is reused for a few seconds (see ProbeCache), so the portal does
+// not wait on every server on every call.
 // The response contract is an allowlist, so a token never leaves.
 
 import { Controller, Get, Inject } from '@nestjs/common';
@@ -9,6 +11,7 @@ import { environmentsResponse, errorResponse } from './contracts.ts';
 import {
   type EnvironmentsSource,
   GatewayError,
+  ProbeCache,
   listEnvironments,
 } from './gateway.ts';
 import { ApiError, Read, VERSION, ref } from './http.ts';
@@ -19,6 +22,8 @@ export const ENVIRONMENTS = Symbol('ENVIRONMENTS');
 @ApiTags('environments')
 @Controller('api')
 export class EnvironmentsController {
+  private readonly probes = new ProbeCache();
+
   constructor(
     @Inject(ENVIRONMENTS) private readonly source: EnvironmentsSource,
     @Inject(VERSION) private readonly version: string,
@@ -37,7 +42,11 @@ export class EnvironmentsController {
   async list(): Promise<z.output<typeof environmentsResponse>> {
     try {
       return {
-        environments: await listEnvironments(this.source, this.version),
+        environments: await listEnvironments(
+          this.source,
+          this.version,
+          this.probes,
+        ),
       };
     } catch (error) {
       if (error instanceof GatewayError)

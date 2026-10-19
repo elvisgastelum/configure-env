@@ -27,6 +27,7 @@
     "label": "Entorno",
     "local": "Este proyecto",
     "unreachable": "No responde",
+    "retrying": "No responde; reintentando…",
     "production": "Producción",
     "remote": "A través de la pasarela de este servidor: {{url}}"
   },
